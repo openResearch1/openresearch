@@ -37,6 +37,7 @@ packages/opencode/src/
 ├── research/        # [NEW] 科研功能模块
 │   ├── atom/        # 原子系统
 │   ├── paper/       # 文献管理
+│   ├── code/        # 代码项目管理
 │   ├── graph/       # 知识图谱
 │   ├── experiment/  # 实验执行
 │   ├── server/      # 远程服务器管理
@@ -199,6 +200,41 @@ interface ExperimentConfig {
 - 使用 `read` tool 解析本地文件
 - 使用 Agent 进行文献内容分析
 
+#### 7. 代码项目管理系统 (Code Manager)
+
+- **代码项目目录**
+  - 统一存储在 `code/` 目录下
+  - 每个代码项目是**独立的 OpenCode 项目**
+  - 包含完整的 OpenCode 配置 (`opencode.json`)
+  - 支持任意编程语言和框架
+
+- **作为 OpenCode 项目访问** (核心特性)
+  - 每个代码目录都可以直接启动 OpenCode 会话
+  - 完整复用 OpenCode 的所有能力：
+    - 代码编辑和重构
+    - 文件检索和搜索
+    - Shell 命令执行
+    - Agent 智能辅助
+    - LSP 语言服务
+  - 课题研究可以直接在代码目录下进行
+
+- **代码项目管理**
+  - 导入本地代码目录
+  - 克隆远程 git 仓库
+  - 创建新的代码项目
+  - 代码版本管理（通过 git tag/commit）
+
+- **实验关联**
+  - 实验通过索引引用代码项目
+  - 格式: `code/<project>@<version>`
+  - 支持多代码项目对比实验
+
+**复用 OpenCode**:
+
+- 代码项目本质就是一个 OpenCode 项目
+- 直接使用 OpenCode 的完整能力
+- 无需额外开发，零成本复用
+
 ---
 
 ## 工作流设计
@@ -357,6 +393,19 @@ export const paperAtoms = sqliteTable("research_paper_atoms", {
   atomId: text("atom_id").notNull(),
   extractionType: text("extraction_type").notNull(), // 'finding' | 'method' | 'hypothesis' | 'observation'
 })
+
+export const codeProjects = sqliteTable("research_code_projects", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id").notNull(),
+  name: text("name").notNull(),
+  path: text("path").notNull(), // 相对于 code/ 目录的路径
+  description: text("description"),
+  gitRemote: text("git_remote"),
+  gitBranch: text("git_branch"),
+  version: text("version"), // git tag 或 commit hash
+  createdAt: integer("created_at", { mode: "timestamp" }),
+  updatedAt: integer("updated_at", { mode: "timestamp" }),
+})
 ```
 
 ---
@@ -393,6 +442,19 @@ opencode research paper list                    # 列出文献
 opencode research paper analyze <id>            # 分析文献生成原子
 opencode research paper show <id>               # 查看文献详情
 opencode research paper delete <id>             # 删除文献
+
+# 代码项目管理
+opencode research code add <name> <path>       # 添加代码项目 (本地路径或git URL)
+opencode research code list                     # 列出代码项目
+opencode research code show <id>               # 查看代码项目详情
+opencode research code version <id> <version>  # 创建版本快照
+opencode research code delete <id>             # 删除代码项目
+
+# 实验执行
+opencode research experiment run <atom-id>     # 运行实验
+opencode research experiment status <id>       # 查看实验状态
+opencode research experiment logs <id>         # 查看实验日志
+opencode research experiment create <atom-id>  # 创建实验
 
 # 图谱可视化
 opencode research graph                        # 启动图谱 UI

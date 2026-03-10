@@ -195,6 +195,13 @@ research atom show <id>           # 查看详情
 research atom list                # 列出原子
 research atom delete <id>         # 删除原子
 
+# ===== 代码项目管理 =====
+research code add <name> <path>  # 添加代码项目 (本地路径或git)
+research code list                # 列出代码项目
+research code show <id>          # 查看代码项目详情
+research code version <id> <ver> # 创建版本快照
+research code delete <id>         # 删除代码项目
+
 # ===== 文献操作 =====
 research paper import <source>   # 导入文献 (arXiv/DOI/URL/PDF)
 research paper list               # 列出文献
@@ -227,19 +234,41 @@ research graph --focus <id>       # 聚焦某个原子
     ▼
 ┌─────────────────┐
 │  课题数据 (.research/)  │
-│  ├── atoms.json       │  ←── 原子数据
-│  ├── relations.json   │  ←── 拓扑关系
-│  ├── papers.json      │  ←── 文献数据
-│  └── experiments/     │  ←── 实验记录
+│  ├── config.json         │  ←── 课题配置
+│  ├── atoms.json          │  ←── 原子数据
+│  ├── relations.json      │  ←── 拓扑关系
+│  ├── papers/             │  ←── 文献数据
+│  ├── code/               │  ←── 代码项目 (统一管理)
+│  │   ├── index.json
+│  │   ├── baseline/
+│  │   └── proposed/
+│  └── experiments/        │  ←── 实验记录 (索引)
+│      ├── exp_001/
+│      │   ├── config.json │  ←── 包含 code/ 索引
+│      │   └── metrics.json
+│      └── ...
 └─────────────────┘
     │
     ├──→ OpenCode Agent (验证时调用)
+    │         │
+    │         ▼
+    │    读取 experiments/exp_xxx/config.json
+    │    获取 code 索引 (如: code/baseline@v1.0.0)
+    │         │
+    │         ▼
+    │    读取 code/baseline/ 代码
     │         │
     │         ▼
     │    远程服务器执行
     │         │
     │         ▼
     │    结果写入 experiments/
+    │
+    ├──→ 代码项目管理
+    │         │
+    │         ▼
+    │    code/ 目录存储完整代码
+    │    Agent 可直接读写代码
     │
     ├──→ 文献分析 (导入文献时)
     │         │
@@ -391,4 +420,67 @@ research graph --focus <id>       # 聚焦某个原子
     │
     ▼
    Done (文献状态: analyzed)
+```
+
+---
+
+## 代码项目管理工作流（详细）
+
+```
+添加代码项目
+    │
+    ▼
+┌─────────────────────────────────────┐
+│  1. 导入代码                         │
+│     • 本地目录复制到 code/<name>/   │
+│     • git clone 到 code/<name>/    │
+└─────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────┐
+│  2. 建立索引                         │
+│     • 记录到 code/index.json       │
+│     • 记录 git 远程仓库 (如果有)    │
+└─────────────────────────────────────┘
+    │
+    ▼
+   Done
+```
+
+---
+
+## 实验与代码链接工作流
+
+```
+创建实验
+    │
+    ▼
+┌─────────────────────────────────────┐
+│  1. 创建实验目录                     │
+│     experiments/exp_xxx/           │
+└─────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────┐
+│  2. 关联代码项目                     │
+│     config.json 写入:               │
+│     {                               │
+│       "code": {                     │
+│         "baseline": "code/baseline@v1.0.0", │
+│         "proposed": "code/proposed@v1.0.0"  │
+│       }                             │
+│     }                               │
+└─────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────┐
+│  3. Agent 执行实验                   │
+│     • 读取 config.json 获取 code 索引│
+│     • 从 code/ 目录读取对应代码     │
+│     • 在代码目录执行实验            │
+│     • 记录输出和指标                │
+└─────────────────────────────────────┘
+    │
+    ▼
+   Done (实验完整归档，代码统一管理)
 ```
