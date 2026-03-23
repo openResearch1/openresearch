@@ -26,15 +26,15 @@ export const ArticleReadTool = Tool.define("article_read", {
     "IMPORTANT: Always use this tool — not glob, ls, read, or other generic tools — when listing, querying, or reading articles/papers in a research project. " +
     "It is the ONLY tool that can query the research project article database. " +
     "When called without an articleId, lists all articles with their metadata (id, title, path, etc.). " +
-    "When called with an articleId, parses the PDF and returns the extracted text content. " +
-    "If the current model supports base64 format for PDF reading, set useBase64 to true to get the PDF as base64 instead of extracted text.",
+    "When called with an articleId, retrieves the PDF. " +
+    "If your model can read PDFs directly (e.g., Claude 3.5+, GPT-4+), set useBase64 to true to get the raw PDF as base64 instead of extracted text for better analysis.",
   parameters: z.object({
     articleId: z.string().optional().describe("The article ID to read. If omitted, lists all articles in the project."),
     useBase64: z
       .boolean()
       .optional()
       .describe(
-        "Whether to return the PDF as base64 format instead of extracted text. Only use this if the current model supports base64 PDF reading.",
+        "Whether to return the PDF as base64 format. Set to true if your model supports PDF reading (e.g., Claude 3.5+, GPT-4+).",
       ),
   }),
   async execute(params, ctx) {

@@ -155,7 +155,8 @@ For each article, generate a list of fine-grained atoms.
 Each atom must contain:
 
 - `name`: short descriptive title
-- `content`: markdown content with the required structure below
+- `content`: markdown content containing the claim only
+- `evidence`: markdown content containing the supporting evidence only
 - `articleId`: source article ID
 - `type`: exactly one of:
   - `fact_claim`
@@ -164,6 +165,13 @@ Each atom must contain:
   - `verification_claim`
 
 Every atom must contain exactly one main claim and must not mix different logical layers in the same atom.
+
+Important:
+- `content` is for the claim only
+- `evidence` is for the support only
+- Do not place evidence inside `content`
+- Do not place claim inside `evidence`
+- The tool writes `content` and `evidence` into separate files, so they must be generated separately
 
 ---
 
@@ -204,18 +212,6 @@ Evidence for a `fact_claim` may include:
 - failure case analysis
 - phenomenon analysis
 
-#### fact_claim allowed dependencies
-A `fact_claim` atom may depend on:
-- `fact_claim`
-- `method_claim` (only when describing the behavior of an existing method or mechanism)
-
-#### fact_claim likely feedback targets
-A `fact_claim` atom may support or feed:
-- `fact_claim`
-- `method_claim`
-- `theorem_claim`
-- `verification_claim`
-
 ---
 
 ### 2. method_claim
@@ -250,16 +246,6 @@ Evidence for a `method_claim` must be constructive evidence, such as:
 
 Do not use theorem proofs or empirical gains as the primary evidence for a `method_claim`.
 
-#### method_claim allowed dependencies
-A `method_claim` atom may depend on:
-- `fact_claim`
-- `method_claim`
-
-#### method_claim likely feedback targets
-A `method_claim` atom may support or feed:
-- `method_claim`
-- `theorem_claim`
-- `verification_claim`
 
 ---
 
@@ -294,18 +280,6 @@ Evidence for a `theorem_claim` must be deductive evidence, such as:
 
 Do not classify a claim as `theorem_claim` if it is supported only by experiments.
 
-#### theorem_claim allowed dependencies
-A `theorem_claim` atom may depend on:
-- `fact_claim`
-- `method_claim`
-- `theorem_claim`
-
-#### theorem_claim likely feedback targets
-A `theorem_claim` atom may support or feed:
-- `theorem_claim`
-- `method_claim`
-- `verification_claim`
-
 ---
 
 ### 4. verification_claim
@@ -337,80 +311,80 @@ Evidence for a `verification_claim` must be empirical evidence, such as:
 - human evaluation
 - case studies
 
-A `verification_claim` should not be used for background phenomena whose role is to motivate the problem; those should instead be classified as `fact_claim`.
-
-#### verification_claim allowed dependencies
-A `verification_claim` atom may depend on:
-- `fact_claim`
-- `method_claim`
-- `theorem_claim`
-- `verification_claim`
-
-#### verification_claim likely feedback targets
-A `verification_claim` atom may support or feed:
-- `verification_claim`
-- `method_claim`
-- `fact_claim`
-
 A `verification_claim` may also provide empirical support or empirical challenge to a `theorem_claim`, but it does not constitute formal proof.
-
----
-
-## Atom content format
-
-The `content` of every atom must follow this exact markdown structure:
-
-### Claim
-<one precise main claim only>
-
-### Evidence
-<direct supporting evidence from the article>
-
-### Allowed Dependencies
-<which earlier atom type(s) this atom logically depends on, if any>
-
-### Likely Feedback Targets
-<which later atom type(s) this atom may support/feed, if any>
-
-### Notes
-<section / equation / theorem / figure / table reference if identifiable>
-
-Rules:
-- `Claim` must contain exactly one main claim.
-- `Evidence` must be specific and grounded.
-- `Allowed Dependencies` must use only the four valid atom types.
-- `Likely Feedback Targets` must use only the four valid atom types.
-- `Notes` should contain source anchors when identifiable, but do not invent them.
-
 ---
 
 ## Layer-aware atomization rules
 
-When splitting article content into atoms:
-
-1. Split by claim role first.
-   - If a sentence contains both a method proposal and a theorem guarantee, split it into a `method_claim` atom and a `theorem_claim` atom.
-   - If a sentence contains a background phenomenon and an empirical validation of the proposed method, split it into a `fact_claim` atom and a `verification_claim` atom.
+1. Split by claim role first:
+   - method proposal vs theorem guarantee → separate atoms
+   - background observation vs experimental validation → separate atoms
 
 2. Keep one main claim per atom.
 
 3. Do not merge different claim roles into one atom.
 
-4. Prefer finer granularity when different claims have different logical roles.
+4. Prefer finer granularity when claims have different logical roles.
 
 5. For experimental sections:
-   - background/problem-characterizing observations -> `fact_claim`
-   - validation of the paper’s proposal -> `verification_claim`
+   - background/problem-characterizing observations → `fact_claim`
+   - validation of the paper’s proposal → `verification_claim`
 
 6. For theory/method sections:
-   - assumptions/definitions/setup -> usually `fact_claim`
-   - proposed objective/update/mechanism/procedure -> usually `method_claim`
-   - proved properties/bounds/guarantees -> `theorem_claim`
+   - assumptions/definitions/setup → usually `fact_claim`
+   - proposed objective/update/mechanism/procedure → usually `method_claim`
+   - proved properties/bounds/guarantees → `theorem_claim`
 
 7. When uncertain whether to split further, prefer splitting.
 
 ---
 
+---
+## Atom field format
+
+### content format
+The `content` field of every atom must follow this exact markdown structure:
+
+### Claim
+<one precise main claim only>
+
+Rules for `content`:
+- `Claim` must contain exactly one main claim.
+- Do not include an Evidence section here.
+- Do not include full derivations, proof text, tables, or experimental results here unless they are part of the claim itself.
+
+### evidence format
+The `evidence` field of every atom must follow this exact markdown structure:
+
+### Evidence
+<direct supporting evidence from the article only>
+
+Rules for `evidence`:
+- Put all supporting material here instead of in `content`.
+- Evidence may include definitions, constructions, derivations, proof sketches, equations, tables, plot summaries, observations, ablation results, or other direct support from the article.
+- For non-theorem atoms, `evidence` is still evidence, not necessarily a formal proof.
+---
+
+## Top-level method_claim aggregation
+
+After generating fine-grained `method_claim` atoms (objective, mechanism, update, procedure, modules, etc.), perform the following for each article:
+
+1. Identify all distinct complete methods proposed in the article.
+2. For each complete method, create **one top-level `method_claim` atom** that summarizes the full method.
+   - `Allowed Dependencies` should list the relevant fine-grained `method_claim` atoms for this method.
+   - `Likely Feedback Targets` should include verification_claim and theorem_claim atoms that evaluate or analyze this method.
+3. There may be **multiple top-level method_claim atoms** per article if the article proposes multiple distinct methods.
+4. This top-level method_claim should be concise, self-contained, and serve as a starting point for downstream tasks such as AI code generation or experiment execution.
+
+---
+
+### Validation reminder for top-level method_claim
+
+- Each article must have at least one top-level method_claim per complete method.
+- Each top-level method_claim must depend on its constituent fine-grained method_claim atoms.
+- Ensure these atoms are created **after all fine-grained method_claim atoms** but **before establishing relationships in Step 6**.
+
+---
 ## Step 6: Establish atom relations
 
 After generating all atoms, infer directed relations between atoms.
@@ -419,74 +393,68 @@ Each relation must contain:
 - `source`: zero-based index into the final atoms array
 - `target`: zero-based index into the final atoms array
 - `relationType`: one of
-  - `supports`
+  - `motivates`
+  - `formalizes`
+  - `derives`
+  - `analyzes`
+  - `validates`
   - `contradicts`
   - `other`
 
 ### Relation semantics
 
-Use:
-- `supports` when the source atom provides definitional, motivational, constructive, deductive, or empirical support for the target atom.
-- `contradicts` when the source atom clearly conflicts with the target atom.
-- `other` for meaningful but nonstandard relations not captured above.
+- `motivates`: the source atom provides motivation, problem description, background, or observation that drives the target atom.
+  - Typical: `fact_claim -> method_claim` or `fact_claim -> verification_claim`
 
-### Unified direction rule
+- `formalizes`: the target atom gives a rigorous, formal, or theoretical characterization of the source atom.
+  - Typical: `fact_claim -> theorem_claim`
 
-The direction of every relation must be:
+- `derives`: the target atom is derived, constructed, or designed from the source atom.
+  - Typical: `theorem_claim -> method_claim`
 
-- `source` = the supporting / challenging atom
-- `target` = the supported / challenged atom
+- `analyzes`: the target atom provides theoretical analysis or properties of the source atom.
+  - Typical: `method_claim -> theorem_claim`
 
-So all positive argumentative relations must point from supporting evidence, premise, construction, or result toward the claim it helps establish.
+- `validates`: the target atom empirically evaluates, tests, or verifies the source atom.
+  - Typical: `method_claim -> verification_claim` or `theorem_claim -> verification_claim`
 
-### Support relation interpretation
+- `contradicts`: the source atom logically or empirically conflicts with the target atom.
 
-Use `supports` broadly and uniformly for all of the following cases:
+- `other`: meaningful relation not captured by the above.
 
-- a definition, assumption, setup, or background fact supports a method, theorem, or experiment
-- a background phenomenon supports the motivation for a method
-- a method construct supports a theorem that analyzes it
-- a lemma supports a theorem
-- a theorem supports a higher-level theorem or a method-level justification
-- a `verification_claim` supports a `method_claim` or `theorem_claim` when it empirically validates, challenges, or characterizes them
-Do not use a separate dependency relation.
-If atom A is a prerequisite for atom B, represent this as:
-- atom A `supports` atom B
+### Direction principle
 
-### Direction examples
+- `source` is always conceptually prior or more foundational.
+- `target` is conceptually downstream, derived, or evaluated.
+- Allow multiple directions between theorem <-> method:
+  - theory-derived methods (`theorem -> method`)
+  - method-analyzed theory (`method -> theorem`)
+- Allow `fact_claim -> verification_claim` when experiments directly establish background phenomena.
 
-- If theorem B uses lemma A, then lemma A `supports` theorem B.
-- If a fact defines the setup for a method, then that fact `supports` the method claim.
-- If a background phenomenon motivates a method design, then that fact claim `supports` the method claim.
-- If a method is the object analyzed by a theorem, then the method claim may `supports` the theorem claim in the sense that it provides the construct being analyzed.
-- If an experiment validates a theorem’s prediction, then the verification atom `supports` the theorem claim empirically.
-- If an experiment validates the proposed method, then the verification atom `supports` the method claim.
+### Common patterns for reference
 
-### Layer logic constraints
+| Source | Target | RelationType |
+|--------|--------|--------------|
+| fact_claim | method_claim | motivates |
+| fact_claim | theorem_claim | formalizes |
+| fact_claim | verification_claim | motivates |
+| method_claim | theorem_claim | analyzes |
+| theorem_claim | method_claim | derives |
+| method_claim | verification_claim | validates |
+| theorem_claim | verification_claim | validates |
+| fact_claim | fact_claim | motivates |
+| method_claim | method_claim | other / develops_to |
+| theorem_claim | theorem_claim | other / develops_to |
+| verification_claim | verification_claim | other / develops_to |
 
-Respect the following general pattern:
+### Relation creation guidelines
 
-- `fact_claim` commonly supports `fact_claim`, `method_claim`, `theorem_claim`, and `verification_claim`
-- `method_claim` commonly supports later `method_claim`, `theorem_claim`, and `verification_claim`
-- `theorem_claim` commonly supports later `theorem_claim`, `method_claim`, and `verification_claim`
-- `verification_claim` commonly supports `method_claim`, `theorem_claim`, and later `verification_claim`, but only as empirical support rather than formal proof when the target is a `theorem_claim`
+- Include only meaningful and well-supported edges.
+- Prefer edges that follow the reasoning flow of the article.
+- Avoid trivial, redundant, or dense all-to-all linking.
+- Cross-article edges are allowed if justified.
+- Use `other` only when no other relation type is appropriate.
 
-Do not create relations that collapse the distinction between:
-- problem-characterizing observations (`fact_claim`)
-- contribution-validating experiments (`verification_claim`)
-
-In particular:
-- if an experiment is used to establish a background phenomenon or existing-method failure, it should support a `fact_claim`
-- if an experiment is used to validate the paper’s proposal, it should support a `verification_claim`, `method_claim`, or `theorem_claim` as appropriate
-
-### Relation quality rules
-
-- Do not create trivial or redundant edges.
-- Prefer fewer high-confidence edges over many weak ones.
-- Avoid dense all-to-all linking.
-- Cross-article edges are allowed when justified.
-- Prefer direct support edges over long chains of weak inferred support.
-- Use `other` only when `supports` or `contradicts` is clearly inadequate.
 ---
 
 ## Step 7: Validation before save
@@ -497,6 +465,7 @@ Before calling `atom_batch_create`, validate the following:
 Every atom must have:
 - non-empty `name`
 - non-empty `content`
+- non-empty `evidence`
 - valid `articleId`
 - valid `type` in:
   - `fact_claim`
@@ -504,13 +473,18 @@ Every atom must have:
   - `theorem_claim`
   - `verification_claim`
 
+### Field separation validity
+- `content` must contain only the claim
+- `evidence` must contain only the supporting evidence
+- Do not place `### Evidence` inside `content`
+- Do not place `### Claim` inside `evidence`
+
 ### Content validity
-Every atom content must include:
+`content` must include:
 - `### Claim`
+
+`evidence` must include:
 - `### Evidence`
-- `### Allowed Dependencies`
-- `### Likely Feedback Targets`
-- `### Notes`
 
 ### Granularity validity
 - No atom bundles multiple unrelated claims.
@@ -520,15 +494,29 @@ Every atom content must include:
 
 ### Classification validity
 - Do not classify by evidence source alone.
-- Experimental evidence about problem/background/existing methods -> `fact_claim`
-- Experimental evidence validating the paper’s proposal -> `verification_claim`
+- Experimental evidence about problem/background/existing methods → `fact_claim`
+- Experimental evidence validating the paper’s proposal → `verification_claim`
 
 ### Relation validity
-- all indices are valid
-- relation type is valid
-- avoid self-loops unless clearly meaningful and supported
+- All indices are valid
+- Relation type is valid
+- Avoid self-loops unless clearly meaningful and supported
+- Relation directions must respect conceptual / reading flow as described above
 
-If validation reveals that atoms are too coarse or misclassified, refine them before saving.
+### Granularity / consistency check
+- Ensure each atom has claim and evidence separated
+- Ensure edges follow the defined relation semantics
+- Ensure the DAG reflects a logical reading / conceptual development flow
+
+### Top-level method_claim validation
+
+- Ensure each article has at least one top-level method_claim atom summarizing each complete method.
+- Each top-level method_claim atom must:
+  - Depend on all its lower-level method_claim atoms
+  - Be logically self-contained
+- If missing, automatically generate it after creating fine-grained method_claim atoms.
+
+If validation reveals that atoms are too coarse, misclassified, or claim/evidence/relations are inconsistent, refine them before saving.
 
 ---
 
@@ -543,24 +531,5 @@ If successful, return a concise summary including:
 - whether goal was created
 - number of atoms created
 - number of relations created
-
----
-
-## Output behavior
-
-Do not dump the full background document, goal document, or full atom list to the user unless explicitly asked.
-
-Return only a concise workflow result summary after tool execution.
-
----
-
-## Failure behavior
-
-Return a concise stop reason in these cases:
-- no active project
-- user declined autofill
-- no articles found
-- write/edit failure
-- batch atom save failure
 
 Do not continue after a blocking failure.

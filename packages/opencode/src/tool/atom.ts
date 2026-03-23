@@ -1,7 +1,7 @@
 import z from "zod"
 import path from "path"
 import { Tool } from "./tool"
-import { Database, eq } from "../storage/db"
+import { Database, eq, and } from "../storage/db"
 import { AtomTable, AtomRelationTable } from "../research/research.sql"
 import { Research } from "../research/research"
 import { Bus } from "@/bus"
@@ -16,27 +16,32 @@ const atomKinds = ["fact", "method", "theorem", "verification"] as const
 export const AtomCreateTool = Tool.define("atom_create", {
   description:
     "Create a new atom (the smallest verifiable unit of knowledge). " +
-    "An atom consists of a claim and its proof. " +
-    "Use this tool when you need to add a new hypothesis, observation, experiment result, or theorem to the research project. " +
+    "An atom consists of a claim and its evidence. " +
+    "Use this tool when you need to add a new claim of fact, method, theorem, or verification to the research project. " +
     "IMPORTANT: All content and evidence MUST use markdown syntax with proper LaTeX math formulas ($...$ for inline, $$...$$ for block) and code blocks (```language).",
   parameters: z.object({
     name: z.string().describe("A short descriptive name for the atom"),
-    type: z.enum(atomKinds).describe("The kind of atom: fact, method, theorem, or verfication"),
-    content: z.string().describe(
-      "The detailed description of the atom's claim. " +
-      "MUST use markdown syntax. " +
-      "For math formulas, use LaTeX syntax: inline formulas with $...$, block formulas with $$...$$. " +
-      "For code blocks, use triple backticks with language specification. " +
-      "Example: 'The formula $E = mc^2$ shows energy-mass equivalence.'"
-    ),
+    type: z.enum(atomKinds).describe("The kind of atom: fact, method, theorem, or verification"),
+    content: z
+      .string()
+      .describe(
+        "The detailed description of the atom's claim. " +
+          "MUST use markdown syntax. " +
+          "For math formulas, use LaTeX syntax: inline formulas with $...$, block formulas with $$...$$. " +
+          "For code blocks, use triple backticks with language specification. " +
+          "Example: 'The formula $E = mc^2$ shows energy-mass equivalence.'",
+      ),
     articleId: z.string().optional().describe("The article ID this atom originates from (if from literature)"),
-    evidence: z.string().optional().describe(
-      "Optional evidence or proof for the atom. " +
-      "MUST use markdown syntax. " +
-      "For math formulas, use LaTeX syntax: inline formulas with $...$, block formulas with $$...$$. " +
-      "For code blocks, use triple backticks with language specification. " +
-      "Example: 'Proof: $$\\int_0^1 x^2 dx = \\frac{1}{3}$$'"
-    ),
+    evidence: z
+      .string()
+      .optional()
+      .describe(
+        "The detailed description of the atom's evidence." +
+          "MUST use markdown syntax. " +
+          "For math formulas, use LaTeX syntax: inline formulas with $...$, block formulas with $$...$$. " +
+          "For code blocks, use triple backticks with language specification. " +
+          "Example: 'Proof: $$\\int_0^1 x^2 dx = \\frac{1}{3}$$'",
+      ),
   }),
   async execute(params, ctx) {
     const researchProjectId = await Research.getResearchProjectId(ctx.sessionID)
@@ -177,7 +182,7 @@ export const AtomQueryTool = Tool.define("atom_query", {
   },
 })
 
-const relationKinds = ["supports", "contradicts", "other"] as const
+const relationKinds = ["motivates", "formalizes", "derives", "analyzes", "validates", "contradicts", "other"] as const
 
 export const AtomBatchCreateTool = Tool.define("atom_batch_create", {
   description:
@@ -190,22 +195,27 @@ export const AtomBatchCreateTool = Tool.define("atom_batch_create", {
       .array(
         z.object({
           name: z.string().describe("A short descriptive name for the atom"),
-          type: z.enum(atomKinds).describe("hypothesis, observation, experiment, or theorem"),
-          content: z.string().describe(
-            "The detailed description of the atom's claim. " +
-            "MUST use markdown syntax. " +
-            "For math formulas, use LaTeX syntax: inline formulas with $...$, block formulas with $$...$$. " +
-            "For code blocks, use triple backticks with language specification. " +
-            "Example: 'The formula $E = mc^2$ shows energy-mass equivalence.'"
-          ),
+          type: z.enum(atomKinds).describe("The kind of atom: fact, method, theorem, or verification"),
+          content: z
+            .string()
+            .describe(
+              "The detailed description of the atom's claim. " +
+                "MUST use markdown syntax. " +
+                "For math formulas, use LaTeX syntax: inline formulas with $...$, block formulas with $$...$$. " +
+                "For code blocks, use triple backticks with language specification. " +
+                "Example: 'The formula $E = mc^2$ shows energy-mass equivalence.'",
+            ),
           articleId: z.string().optional().describe("The source article ID (if from literature)"),
-          evidence: z.string().optional().describe(
-            "Optional evidence or proof for the atom. " +
-            "MUST use markdown syntax. " +
-            "For math formulas, use LaTeX syntax: inline formulas with $...$, block formulas with $$...$$. " +
-            "For code blocks, use triple backticks with language specification. " +
-            "Example: 'Proof: $$\\int_0^1 x^2 dx = \\frac{1}{3}$$'"
-          ),
+          evidence: z
+            .string()
+            .optional()
+            .describe(
+              "The detailed description of the atom's evidence." +
+                "MUST use markdown syntax. " +
+                "For math formulas, use LaTeX syntax: inline formulas with $...$, block formulas with $$...$$. " +
+                "For code blocks, use triple backticks with language specification. " +
+                "Example: 'Proof: $$\\int_0^1 x^2 dx = \\frac{1}{3}$$'",
+            ),
         }),
       )
       .min(1)
@@ -215,7 +225,11 @@ export const AtomBatchCreateTool = Tool.define("atom_batch_create", {
         z.object({
           source: z.number().int().min(0).describe("Index of the source atom in the atoms list"),
           target: z.number().int().min(0).describe("Index of the target atom in the atoms list"),
-          relationType: z.enum(relationKinds).describe("supports, contradicts, or other"),
+          relationType: z
+            .enum(relationKinds)
+            .describe(
+              "The type of relation between atoms: motivates, formalizes, derives, analyzes, validates, contradicts, or other",
+            ),
         }),
       )
       .optional()
@@ -349,11 +363,7 @@ export const AtomDeleteTool = Tool.define("atom_delete", {
 
     // Check if all atoms exist and belong to the research project
     const atoms = Database.use((db) =>
-      db
-        .select()
-        .from(AtomTable)
-        .where(eq(AtomTable.research_project_id, researchProjectId))
-        .all(),
+      db.select().from(AtomTable).where(eq(AtomTable.research_project_id, researchProjectId)).all(),
     )
 
     const atomMap = new Map(atoms.map((atom) => [atom.atom_id, atom]))
@@ -393,28 +403,13 @@ export const AtomDeleteTool = Tool.define("atom_delete", {
     Database.transaction(() => {
       // Delete relations where any of these atoms are source or target
       for (const atomId of validAtomIds) {
-        Database.use((db) =>
-          db
-            .delete(AtomRelationTable)
-            .where(eq(AtomRelationTable.atom_id_source, atomId))
-            .run(),
-        )
-        Database.use((db) =>
-          db
-            .delete(AtomRelationTable)
-            .where(eq(AtomRelationTable.atom_id_target, atomId))
-            .run(),
-        )
+        Database.use((db) => db.delete(AtomRelationTable).where(eq(AtomRelationTable.atom_id_source, atomId)).run())
+        Database.use((db) => db.delete(AtomRelationTable).where(eq(AtomRelationTable.atom_id_target, atomId)).run())
       }
 
       // Delete the atoms themselves
       for (const atomId of validAtomIds) {
-        Database.use((db) =>
-          db
-            .delete(AtomTable)
-            .where(eq(AtomTable.atom_id, atomId))
-            .run(),
-        )
+        Database.use((db) => db.delete(AtomTable).where(eq(AtomTable.atom_id, atomId)).run())
       }
     })
 
@@ -423,11 +418,7 @@ export const AtomDeleteTool = Tool.define("atom_delete", {
 
     // Prepare output summary
     const deletedAtoms = validAtomIds.map((atomId) => atomMap.get(atomId)!)
-    const lines = [
-      `Successfully deleted ${validAtomIds.length} atom(s).`,
-      "",
-      "Deleted atoms:",
-    ]
+    const lines = [`Successfully deleted ${validAtomIds.length} atom(s).`, "", "Deleted atoms:"]
 
     for (const atom of deletedAtoms) {
       lines.push(`- ${atom.atom_name} (${atom.atom_type})`)
@@ -446,6 +437,242 @@ export const AtomDeleteTool = Tool.define("atom_delete", {
         deleted: true,
         deletedCount: validAtomIds.length,
       },
+    }
+  },
+})
+
+export const AtomRelationQueryTool = Tool.define("atom_relation_query", {
+  description:
+    "Query atom relations in the current research project. " +
+    "Returns all relations or filters by atom, direction, or relation type.",
+  parameters: z.object({
+    atomId: z
+      .string()
+      .optional()
+      .describe("The atom ID to query relations for (returns all relations if not provided)"),
+    direction: z
+      .enum(["in", "out", "all"])
+      .optional()
+      .default("all")
+      .describe("Filter by direction: in (incoming), out (outgoing), all (default)"),
+    relationType: z.enum(relationKinds).optional().describe("Filter by relation type"),
+  }),
+  async execute(params, ctx) {
+    const researchProjectId = await Research.getResearchProjectId(ctx.sessionID)
+    if (!researchProjectId) {
+      return {
+        title: "No relations",
+        output: "Current session is not associated with any research project.",
+        metadata: { count: 0 },
+      }
+    }
+
+    const allAtoms = Database.use((db) =>
+      db.select().from(AtomTable).where(eq(AtomTable.research_project_id, researchProjectId)).all(),
+    )
+    const atomMap = new Map(allAtoms.map((a) => [a.atom_id, a]))
+
+    let relations = Database.use((db) => db.select().from(AtomRelationTable).all())
+
+    if (params.atomId && params.direction === "in") {
+      relations = relations.filter((r) => r.atom_id_target === params.atomId)
+    } else if (params.atomId && params.direction === "out") {
+      relations = relations.filter((r) => r.atom_id_source === params.atomId)
+    }
+
+    if (params.relationType) {
+      relations = relations.filter((r) => r.relation_type === params.relationType)
+    }
+
+    if (relations.length === 0) {
+      return {
+        title: "No relations",
+        output: params.atomId
+          ? `No relations found for atom ${params.atomId}`
+          : "No relations found in this research project.",
+        metadata: { count: 0 },
+      }
+    }
+
+    const lines = relations.map((r) => {
+      const sourceAtom = atomMap.get(r.atom_id_source)
+      const targetAtom = atomMap.get(r.atom_id_target)
+      const sourceName = sourceAtom?.atom_name ?? r.atom_id_source.slice(0, 8)
+      const targetName = targetAtom?.atom_name ?? r.atom_id_target.slice(0, 8)
+      const sourceType = sourceAtom?.atom_type ?? "unknown"
+      const targetType = targetAtom?.atom_type ?? "unknown"
+      return `- ${sourceName} (${sourceType}) → ${targetName} (${targetType}) [${r.relation_type}]`
+    })
+
+    return {
+      title: `${relations.length} relation(s)`,
+      output: lines.join("\n"),
+      metadata: { count: relations.length },
+    }
+  },
+})
+
+export const AtomRelationCreateTool = Tool.define("atom_relation_create", {
+  description:
+    "Create a relation between two existing atoms. " +
+    "The relation connects a source atom to a target atom with a specific type.",
+  parameters: z.object({
+    sourceAtomId: z.string().describe("The ID of the source atom"),
+    targetAtomId: z.string().describe("The ID of the target atom"),
+    relationType: z
+      .enum(relationKinds)
+      .describe("The type of relation: motivates, formalizes, derives, analyzes, validates, contradicts, or other"),
+    note: z.string().optional().describe("Optional note for the relation"),
+  }),
+  async execute(params, ctx) {
+    const researchProjectId = await Research.getResearchProjectId(ctx.sessionID)
+    if (!researchProjectId) {
+      return {
+        title: "Failed",
+        output: "Current session is not associated with any research project.",
+        metadata: { created: false },
+      }
+    }
+
+    const sourceAtom = Database.use((db) =>
+      db.select().from(AtomTable).where(eq(AtomTable.atom_id, params.sourceAtomId)).get(),
+    )
+    if (!sourceAtom) {
+      return {
+        title: "Failed",
+        output: `Source atom not found: ${params.sourceAtomId}`,
+        metadata: { created: false },
+      }
+    }
+
+    const targetAtom = Database.use((db) =>
+      db.select().from(AtomTable).where(eq(AtomTable.atom_id, params.targetAtomId)).get(),
+    )
+    if (!targetAtom) {
+      return {
+        title: "Failed",
+        output: `Target atom not found: ${params.targetAtomId}`,
+        metadata: { created: false },
+      }
+    }
+
+    const now = Date.now()
+    try {
+      Database.use((db) =>
+        db
+          .insert(AtomRelationTable)
+          .values({
+            atom_id_source: params.sourceAtomId,
+            atom_id_target: params.targetAtomId,
+            relation_type: params.relationType,
+            note: params.note ?? null,
+            time_created: now,
+            time_updated: now,
+          })
+          .run(),
+      )
+    } catch (error: any) {
+      if (error.code === "SQLITE_CONSTRAINT_PRIMARYKEY") {
+        return {
+          title: "Failed",
+          output: `Relation already exists: ${sourceAtom.atom_name} → ${targetAtom.atom_name} [${params.relationType}]`,
+          metadata: { created: false },
+        }
+      }
+      throw error
+    }
+
+    await Bus.publish(Research.Event.AtomsUpdated, { researchProjectId })
+
+    return {
+      title: "Created relation",
+      output: `Created relation: ${sourceAtom.atom_name} (${sourceAtom.atom_type}) → ${targetAtom.atom_name} (${targetAtom.atom_type}) [${params.relationType}]`,
+      metadata: { created: true },
+    }
+  },
+})
+
+export const AtomRelationDeleteTool = Tool.define("atom_relation_delete", {
+  description:
+    "Delete one or more relations between atoms. " +
+    "If relationType is not provided, deletes all relations between the source and target.",
+  parameters: z.object({
+    sourceAtomId: z.string().describe("The ID of the source atom"),
+    targetAtomId: z.string().describe("The ID of the target atom"),
+    relationType: z
+      .enum(relationKinds)
+      .optional()
+      .describe("The type of relation to delete (deletes all if not provided)"),
+  }),
+  async execute(params, ctx) {
+    const researchProjectId = await Research.getResearchProjectId(ctx.sessionID)
+    if (!researchProjectId) {
+      return {
+        title: "Failed",
+        output: "Current session is not associated with any research project.",
+        metadata: { deleted: false, deletedCount: 0 },
+      }
+    }
+
+    const existingRelations = Database.use((db) =>
+      db.select().from(AtomRelationTable).where(eq(AtomRelationTable.atom_id_source, params.sourceAtomId)).all(),
+    ).filter((r) => r.atom_id_target === params.targetAtomId)
+
+    if (existingRelations.length === 0) {
+      return {
+        title: "Failed",
+        output: `No relations found between ${params.sourceAtomId} and ${params.targetAtomId}`,
+        metadata: { deleted: false, deletedCount: 0 },
+      }
+    }
+
+    const toDelete = params.relationType
+      ? existingRelations.filter((r) => r.relation_type === params.relationType)
+      : existingRelations
+
+    if (toDelete.length === 0) {
+      return {
+        title: "Failed",
+        output: params.relationType
+          ? `No relation of type [${params.relationType}] found between atoms`
+          : "No relations to delete",
+        metadata: { deleted: false, deletedCount: 0 },
+      }
+    }
+
+    Database.use((db) => {
+      if (params.relationType) {
+        db.delete(AtomRelationTable)
+          .where(
+            and(
+              eq(AtomRelationTable.atom_id_source, params.sourceAtomId),
+              eq(AtomRelationTable.atom_id_target, params.targetAtomId),
+              eq(AtomRelationTable.relation_type, params.relationType),
+            ),
+          )
+          .run()
+      } else {
+        for (const rel of toDelete) {
+          db.delete(AtomRelationTable)
+            .where(
+              and(
+                eq(AtomRelationTable.atom_id_source, params.sourceAtomId),
+                eq(AtomRelationTable.atom_id_target, params.targetAtomId),
+                eq(AtomRelationTable.relation_type, rel.relation_type),
+              ),
+            )
+            .run()
+        }
+      }
+    })
+
+    await Bus.publish(Research.Event.AtomsUpdated, { researchProjectId })
+
+    const deletedTypes = toDelete.map((r) => r.relation_type).join(", ")
+    return {
+      title: `Deleted ${toDelete.length} relation(s)`,
+      output: `Deleted relations: ${params.sourceAtomId.slice(0, 8)} → ${params.targetAtomId.slice(0, 8)} [${deletedTypes}]`,
+      metadata: { deleted: true, deletedCount: toDelete.length },
     }
   },
 })

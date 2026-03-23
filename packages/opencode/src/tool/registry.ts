@@ -28,7 +28,15 @@ import { LspTool } from "./lsp"
 import { Truncate } from "./truncation"
 
 import { ApplyPatchTool } from "./apply_patch"
-import { AtomCreateTool, AtomQueryTool, AtomBatchCreateTool, AtomDeleteTool } from "./atom"
+import {
+  AtomCreateTool,
+  AtomQueryTool,
+  AtomBatchCreateTool,
+  AtomDeleteTool,
+  AtomRelationQueryTool,
+  AtomRelationCreateTool,
+  AtomRelationDeleteTool,
+} from "./atom"
 import { ArticleReadTool } from "./article"
 import { ResearchBackgroundTool, ResearchGoalTool } from "./research-background"
 import { ResearchInfoTool } from "./research-info"
@@ -125,6 +133,9 @@ export namespace ToolRegistry {
       AtomQueryTool,
       AtomBatchCreateTool,
       AtomDeleteTool,
+      AtomRelationQueryTool,
+      AtomRelationCreateTool,
+      AtomRelationDeleteTool,
       ArticleReadTool,
       ResearchBackgroundTool,
       ResearchGoalTool,
