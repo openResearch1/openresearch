@@ -8,29 +8,43 @@ type Relation = ResearchAtomsListResponse["relations"][number]
 
 // 颜色映射
 const TYPE_COLORS: Record<string, string> = {
-  hypothesis: "#a78bfa",
-  observation: "#34d399",
-  experiment: "#fbbf24",
+  fact: "#60a5fa",
+  method: "#34d399",
   theorem: "#f87171",
+  verification: "#fbbf24",
 }
 
 const RELATION_COLORS: Record<string, string> = {
-  supports: "#22c55e",
+  motivates: "#8b5cf6",
+  formalizes: "#06b6d4",
+  derives: "#f97316",
+  analyzes: "#ec4899",
+  validates: "#22c55e",
   contradicts: "#ef4444",
   other: "#94a3b8",
 }
 
 const TYPE_LABELS: Record<string, string> = {
-  hypothesis: "Hypothesis",
-  observation: "Observation",
-  experiment: "Experiment",
+  fact: "Fact",
+  method: "Method",
   theorem: "Theorem",
+  verification: "Verification",
 }
 
 const PROOF_STATUS_LABELS: Record<string, string> = {
   pending: "Pending",
   in_progress: "In Progress",
   done: "Done",
+}
+
+const RELATION_LABELS: Record<string, string> = {
+  motivates: "Motivates",
+  formalizes: "Formalizes",
+  derives: "Derives",
+  analyzes: "Analyzes",
+  validates: "Validates",
+  contradicts: "Contradicts",
+  other: "Other",
 }
 
 export function AtomGraphView(props: {
@@ -237,6 +251,16 @@ export function AtomGraphView(props: {
     }
   }
 
+  const triggerAutoLayout = async () => {
+    if (!graph || !stateManager) return
+
+    stateManager.clearState()
+    await graph.layout()
+    await graph.fitView()
+    await graph.render()
+    saveCurrentState()
+  }
+
   const setupTooltip = () => {
     if (!graph) return
 
@@ -397,8 +421,56 @@ export function AtomGraphView(props: {
     }
   })
 
+  const legendItems = Object.entries(TYPE_LABELS).map(([type, label]) => ({
+    type,
+    label,
+    color: TYPE_COLORS[type],
+  }))
+
+  const relationLegendItems = Object.entries(RELATION_LABELS).map(([type, label]) => ({
+    type,
+    label,
+    color: RELATION_COLORS[type],
+  }))
+
   return (
     <div ref={setContainerRef} class="w-full h-full min-h-[400px] relative">
+      <div class="absolute bottom-4 right-4 z-20 bg-slate-800/90 backdrop-blur-sm rounded-lg px-3 py-2 border border-slate-700">
+        <div class="text-[10px] text-slate-400 mb-2 font-medium">ATOM TYPES</div>
+        <div class="flex flex-col gap-1.5 mb-3">
+          {legendItems.map((item) => (
+            <div class="flex items-center gap-2">
+              <div class="w-3 h-3 rounded-full" style={{ background: item.color }} />
+              <span class="text-xs text-slate-300">{item.label}</span>
+            </div>
+          ))}
+        </div>
+        <div class="border-t border-slate-700 pt-2">
+          <div class="text-[10px] text-slate-400 mb-2 font-medium">RELATIONS</div>
+          <div class="flex flex-col gap-1.5">
+            {relationLegendItems.map((item) => (
+              <div class="flex items-center gap-2">
+                <div class="w-3 h-0.5 rounded-full" style={{ background: item.color }} />
+                <span class="text-xs text-slate-300">{item.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <button
+          onClick={() => triggerAutoLayout()}
+          class="mt-3 w-full px-2 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition-colors flex items-center justify-center gap-1"
+        >
+          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+            />
+          </svg>
+          Auto Layout
+        </button>
+      </div>
       <Show when={props.loading}>
         <div class="absolute inset-0 flex items-center justify-center bg-slate-900/80 z-10">
           <div class="text-gray-500">Loading graph...</div>

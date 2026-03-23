@@ -9,10 +9,10 @@ type Atom = ResearchAtomsListResponse["atoms"][number]
 type Relation = ResearchAtomsListResponse["relations"][number]
 
 const TYPE_LABELS: Record<string, string> = {
-  hypothesis: "Hypothesis",
-  observation: "Observation",
-  experiment: "Experiment",
+  fact: "Fact",
+  method: "Method",
   theorem: "Theorem",
+  verification: "Verification",
 }
 
 const PROOF_STATUS_LABELS: Record<string, string> = {
@@ -29,10 +29,10 @@ const RELATION_LABELS: Record<string, string> = {
 }
 
 const TYPE_COLORS: Record<string, string> = {
-  hypothesis: "#6366f1",
-  observation: "#10b981",
-  experiment: "#f59e0b",
-  theorem: "#ef4444",
+  fact: "#60a5fa",
+  method: "#34d399",
+  theorem: "#f87171",
+  verification: "#fbbf24",
 }
 
 const RELATION_COLORS: Record<string, string> = {

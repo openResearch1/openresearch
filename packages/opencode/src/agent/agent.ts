@@ -212,7 +212,7 @@ export namespace Agent {
           PermissionNext.fromConfig({
             "*": "deny",
             research_info: "allow",
-            article_read: "allow",
+            // article_read: "allow",
             research_background_edit: "allow",
             research_goal_edit: "allow",
             atom_batch_create: "allow",
