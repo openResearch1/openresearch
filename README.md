@@ -1,141 +1,322 @@
-<p align="center">
-  <a href="https://opencode.ai">
-    <picture>
-      <source srcset="packages/console/app/src/asset/logo-ornate-dark.svg" media="(prefers-color-scheme: dark)">
-      <source srcset="packages/console/app/src/asset/logo-ornate-light.svg" media="(prefers-color-scheme: light)">
-      <img src="packages/console/app/src/asset/logo-ornate-light.svg" alt="OpenCode logo">
-    </picture>
-  </a>
-</p>
-<p align="center">The open source AI coding agent.</p>
-<p align="center">
-  <a href="https://opencode.ai/discord"><img alt="Discord" src="https://img.shields.io/discord/1391832426048651334?style=flat-square&label=discord" /></a>
-  <a href="https://www.npmjs.com/package/opencode-ai"><img alt="npm" src="https://img.shields.io/npm/v/opencode-ai?style=flat-square" /></a>
-  <a href="https://github.com/anomalyco/opencode/actions/workflows/publish.yml"><img alt="Build status" src="https://img.shields.io/github/actions/workflow/status/anomalyco/opencode/publish.yml?style=flat-square&branch=dev" /></a>
-</p>
+# [OpenResearch]
 
-<p align="center">
-  <a href="README.md">English</a> |
-  <a href="README.zh.md">简体中文</a> |
-  <a href="README.zht.md">繁體中文</a> |
-  <a href="README.ko.md">한국어</a> |
-  <a href="README.de.md">Deutsch</a> |
-  <a href="README.es.md">Español</a> |
-  <a href="README.fr.md">Français</a> |
-  <a href="README.it.md">Italiano</a> |
-  <a href="README.da.md">Dansk</a> |
-  <a href="README.ja.md">日本語</a> |
-  <a href="README.pl.md">Polski</a> |
-  <a href="README.ru.md">Русский</a> |
-  <a href="README.bs.md">Bosanski</a> |
-  <a href="README.ar.md">العربية</a> |
-  <a href="README.no.md">Norsk</a> |
-  <a href="README.br.md">Português (Brasil)</a> |
-  <a href="README.th.md">ไทย</a> |
-  <a href="README.tr.md">Türkçe</a> |
-  <a href="README.uk.md">Українська</a> |
-  <a href="README.bn.md">বাংলা</a> |
-  <a href="README.gr.md">Ελληνικά</a> |
-  <a href="README.vi.md">Tiếng Việt</a>
-</p>
 
-[![OpenCode Terminal UI](packages/web/src/assets/lander/screenshot.png)](https://opencode.ai)
+> **Research is not a single prompt. It is a growing graph of claims, evidence, and decisions.**
+
+An open-source system for **AI-assisted AI/ML research**, built around a simple idea:
+
+**Scientific progress should be decomposed into minimal, inspectable atoms — each atom is one `claim + evidence` pair — and research should be managed as the continuous expansion of an atom network.**
+
+This project is not trying to make researchers disappear.
+
+It is trying to make **research legible, persistent, auditable, and collaborable** — so that humans and AI can work together at the level where real science actually happens: not only at the paper level, but at the level of **micro-claims, micro-failures, micro-insights, and micro-decisions**.
+
+![research_loop.png](aset/research_loop.png)
 
 ---
 
-### Installation
+## Why this exists
 
-```bash
-# YOLO
-curl -fsSL https://opencode.ai/install | bash
+Most AI research tools treat research as a black-box pipeline:
 
-# Package managers
-npm i -g opencode-ai@latest        # or bun/pnpm/yarn
-scoop install opencode             # Windows
-choco install opencode             # Windows
-brew install anomalyco/tap/opencode # macOS and Linux (recommended, always up to date)
-brew install opencode              # macOS and Linux (official brew formula, updated less)
-sudo pacman -S opencode            # Arch Linux (Stable)
-paru -S opencode-bin               # Arch Linux (Latest from AUR)
-mise use -g opencode               # Any OS
-nix run nixpkgs#opencode           # or github:anomalyco/opencode for latest dev branch
-```
+**idea → code → experiments → paper**
 
-> [!TIP]
-> Remove versions older than 0.1.x before installing.
+That is useful, but it misses the thing that matters most in real research:
 
-### Desktop App (BETA)
+**the state of reasoning between those steps.**
 
-OpenCode is also available as a desktop application. Download directly from the [releases page](https://github.com/anomalyco/opencode/releases) or [opencode.ai/download](https://opencode.ai/download).
+A good research project is not just a sequence of outputs.
+It is a structured, evolving network of:
 
-| Platform              | Download                              |
-| --------------------- | ------------------------------------- |
-| macOS (Apple Silicon) | `opencode-desktop-darwin-aarch64.dmg` |
-| macOS (Intel)         | `opencode-desktop-darwin-x64.dmg`     |
-| Windows               | `opencode-desktop-windows-x64.exe`    |
-| Linux                 | `.deb`, `.rpm`, or AppImage           |
+* what we currently believe,
+* why we believe it,
+* what was tested,
+* what failed,
+* what remains uncertain,
+* and what should happen next.
 
-```bash
-# macOS (Homebrew)
-brew install --cask opencode-desktop
-# Windows (Scoop)
-scoop bucket add extras; scoop install extras/opencode-desktop
-```
-
-#### Installation Directory
-
-The install script respects the following priority order for the installation path:
-
-1. `$OPENCODE_INSTALL_DIR` - Custom installation directory
-2. `$XDG_BIN_DIR` - XDG Base Directory Specification compliant path
-3. `$HOME/bin` - Standard user binary directory (if it exists or can be created)
-4. `$HOME/.opencode/bin` - Default fallback
-
-```bash
-# Examples
-OPENCODE_INSTALL_DIR=/usr/local/bin curl -fsSL https://opencode.ai/install | bash
-XDG_BIN_DIR=$HOME/.local/bin curl -fsSL https://opencode.ai/install | bash
-```
-
-### Agents
-
-OpenCode includes two built-in agents you can switch between with the `Tab` key.
-
-- **build** - Default, full-access agent for development work
-- **plan** - Read-only agent for analysis and code exploration
-  - Denies file edits by default
-  - Asks permission before running bash commands
-  - Ideal for exploring unfamiliar codebases or planning changes
-
-Also included is a **general** subagent for complex searches and multistep tasks.
-This is used internally and can be invoked using `@general` in messages.
-
-Learn more about [agents](https://opencode.ai/docs/agents).
-
-### Documentation
-
-For more info on how to configure OpenCode, [**head over to our docs**](https://opencode.ai/docs).
-
-### Contributing
-
-If you're interested in contributing to OpenCode, please read our [contributing docs](./CONTRIBUTING.md) before submitting a pull request.
-
-### Building on OpenCode
-
-If you are working on a project that's related to OpenCode and is using "opencode" as part of its name, for example "opencode-dashboard" or "opencode-mobile", please add a note to your README to clarify that it is not built by the OpenCode team and is not affiliated with us in any way.
-
-### FAQ
-
-#### How is this different from Claude Code?
-
-It's very similar to Claude Code in terms of capability. Here are the key differences:
-
-- 100% open source
-- Not coupled to any provider. Although we recommend the models we provide through [OpenCode Zen](https://opencode.ai/zen), OpenCode can be used with Claude, OpenAI, Google, or even local models. As models evolve, the gaps between them will close and pricing will drop, so being provider-agnostic is important.
-- Out-of-the-box LSP support
-- A focus on TUI. OpenCode is built by neovim users and the creators of [terminal.shop](https://terminal.shop); we are going to push the limits of what's possible in the terminal.
-- A client/server architecture. This, for example, can allow OpenCode to run on your computer while you drive it remotely from a mobile app, meaning that the TUI frontend is just one of the possible clients.
+This project makes that hidden structure explicit.
 
 ---
 
-**Join our community** [Discord](https://discord.gg/opencode) | [X.com](https://x.com/opencode)
+## The core idea: atomize science
+
+We model research as a graph of minimal scientific atoms.
+
+Each atom contains:
+
+* **Claim** — one precise scientific statement
+* **Evidence** — derivation, experiment, observation, or result supporting that statement
+
+And atoms are connected by typed relations such as:
+
+* `motivates`
+* `formalizes`
+* `derives`
+* `analyzes`
+* `validates`
+* `contradicts`
+
+So instead of treating a paper as one giant blob, we treat it as a **living reasoning graph**.
+
+That graph becomes the real state of the project.
+
+![atom.png](aset/atom.png)
+---
+
+## What this unlocks
+
+### 1. Lower hallucination risk
+
+AI is much more reliable when it is forced to operate on explicit, local objects instead of hand-waving over an entire research agenda.
+
+By grounding every step in a concrete `claim + evidence` unit, the system is pushed toward:
+
+* local reasoning,
+* explicit justification,
+* and inspectable failure.
+
+Not perfect truth — but much better scientific discipline.
+
+### 2. Persistent memory for long-horizon research
+
+Real AI/ML research is messy and long-running.
+Small insights are easy to lose. Dead ends repeat. Important partial progress disappears into notebooks, chats, and intuition.
+
+This project turns those fragments into persistent structure:
+
+* every micro-result can be stored,
+* every claim can be revised,
+* every validation can be traced,
+* every new idea can attach to prior work.
+
+The result is a research memory that compounds over time.
+
+### 3. Fine-grained human–AI collaboration
+
+The most valuable part of senior researchers is usually not raw execution.
+It is taste, intuition, skepticism, and the ability to notice what matters.
+
+Most “auto-research” systems only let humans intervene at coarse checkpoints.
+
+This project instead lets humans collaborate with AI at the granularity of:
+
+* one claim,
+* one theorem,
+* one design decision,
+* one failed experiment,
+* one suspicious result.
+
+That is where expert intuition is strongest.
+
+---
+
+## The research loop
+
+This project is designed around an iterative loop:
+
+1. **Human or AI proposes a new claim**
+2. **AI expands the local atom context**
+3. **AI generates a validation plan**
+4. **AI writes code and runs experiments**
+5. **Evidence, metrics, and conclusions are attached back to the atom graph**
+6. **Human accepts, rejects, refines, or splits the claim**
+7. **The graph grows**
+8. **The next claim emerges from the updated graph**
+
+In other words:
+
+> **Research is modeled as continuous graph expansion, not one-shot paper generation.**
+
+---
+
+## What makes this different
+
+There are already systems aiming to automate research end-to-end.
+FARS is one of the clearest examples.
+
+Public material describes **FARS** as a **Fully Automated Research System**: an end-to-end AI research system operating at scale, intended to autonomously perform the research workflow, and recent automated-research reports describe it as a commercial platform targeting general scientific domains. ([Analemma][1])
+
+That is an impressive direction.
+
+But this project is optimizing for a different center of gravity.
+
+### FARS optimizes for:
+
+* end-to-end autonomy
+* throughput
+* broad automated execution
+* idea-to-paper completion
+
+### This project optimizes for:
+
+* atomic provenance
+* inspectable reasoning state
+* persistent scientific memory
+* human-in-the-loop control
+* fine-grained steering of research
+
+So the difference is not merely “more autonomous” vs “less autonomous”.
+
+The deeper difference is:
+
+> **FARS treats research as a pipeline to complete.**
+> **This project treats research as a knowledge graph to build.**
+
+That design choice matters.
+
+Because for serious AI/ML research, the bottleneck is often not just execution.
+It is maintaining a faithful representation of what has actually been learned.
+
+---
+
+## Why a graph instead of a paper-first workflow?
+
+Because papers are the compression artifact.
+Research is the underlying structure.
+
+A paper hides:
+
+* abandoned branches
+* intermediate claims
+* failed validations
+* fragile assumptions
+* alternative interpretations
+* unresolved contradictions
+
+But those are exactly the objects that matter when humans and AI are doing iterative discovery together.
+
+The atom graph keeps them alive.
+
+---
+
+## Built for AI/ML research
+
+This project is especially suited for AI/ML because the field naturally mixes:
+
+* empirical claims
+* algorithmic constructions
+* theoretical guarantees
+* implementation details
+* benchmark-driven validation
+
+We therefore model different logical layers explicitly, such as:
+
+* **Fact claims**
+* **Method claims**
+* **Theorem claims**
+* **Verification claims**
+
+That means a theorem is not confused with a method.
+A benchmark result is not confused with a background fact.
+A design choice is not confused with its empirical validation.
+
+This separation is what makes the graph actually useful.
+
+---
+
+## What the system should eventually become
+
+Not just an “AI scientist”.
+
+A **research operating system**.
+
+A place where:
+
+* ideas become claims,
+* claims become executable validations,
+* results become structured evidence,
+* contradictions become visible,
+* and the entire project stays navigable over months or years.
+
+The long-term goal is not to replace researchers.
+
+It is to build the infrastructure that lets human researchers and AI systems **co-discover** more effectively than either could alone.
+
+
+---
+
+## Current Vision
+
+We envision a **research operating system** where humans and AI collaborate seamlessly, turning scientific ideas into structured knowledge and actionable insights. In this system, you can:
+
+* **Ingest papers** and decompose them into minimal claim–evidence atoms
+* **Build and maintain a persistent graph** of claims, evidence, methods, theorems, and validations
+* **Propose new claims** from local graph context, guided by AI suggestions and human intuition
+* **Automatically generate validation plans** and synthesize executable code from method atoms
+* **Run experiments and simulations**, collecting structured evidence
+* **Attach results back to the network**, preserving full provenance
+* **Accept, reject, refine, or split claims**, supporting iterative discovery
+* **Collaborate across teams**, allowing multiple researchers to interact with the graph in real time
+* **Automatically generate drafts** for papers, reports, or presentations from the graph
+* **Continuously grow a project-level research memory**, capturing all micro-progress and insights
+
+> The goal is a **full-stack research ecosystem**: one that transforms ideas into structured knowledge, experimental evidence, and polished outputs, all while maintaining transparency, traceability, and human oversight.
+
+
+
+## Why open source
+
+Because research infrastructure should be inspectable too.
+
+If the goal is trustworthy AI-assisted science, then the system itself should be:
+
+* transparent,
+* hackable,
+* extensible,
+* and owned by the community that uses it.
+
+Open source is not just a distribution model here.
+It is part of the epistemology.
+
+---
+
+## Who this is for
+
+This project is for people who believe that the future of scientific AI is not just:
+
+* “ask for a paper”
+* “ask for an experiment”
+* “ask for a result”
+
+but:
+
+* **build a persistent scientific state**
+* **reason locally**
+* **preserve uncertainty**
+* **make progress inspectable**
+* **let humans and AI collaborate at claim resolution**
+
+---
+
+## Status
+
+Early, ambitious, and very much under construction.
+
+But the thesis is simple:
+
+> **The missing abstraction for AI-assisted research is not another writing agent.**
+> **It is a durable graph of claims, evidence, and decisions.**
+
+If that thesis is right, this project points toward a very different future for AI research tooling.
+
+---
+
+## Join us
+
+If you care about:
+
+* AI for science
+* AI for AI research
+* human–AI co-discovery
+* structured scientific memory
+* interpretable research agents
+* long-horizon research workflows
+
+then this project is for you.
+
+Let’s stop treating research as a monolithic prompt.
+
+Let’s build the graph.
+
+---
