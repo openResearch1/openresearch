@@ -15,6 +15,7 @@ import PROMPT_RESEARCH from "./prompt/research.txt"
 import PROMPT_SUMMARY from "./prompt/summary.txt"
 import PROMPT_TITLE from "./prompt/title.txt"
 import PROMPT_RESEARCH_PROJECT_INIT from "./prompt/research_project_init.txt"
+import PROMPT_EVIDENCE_ASSESSMENT from "./prompt/evidence_assessment.txt"
 import { PermissionNext } from "@/permission/next"
 import { mergeDeep, pipe, sortBy, values } from "remeda"
 import { Global } from "@/global"
@@ -243,6 +244,26 @@ export namespace Agent {
             question: "allow",
             read: "allow",
             research_doc_edit: "ask",
+          }),
+          user,
+        ),
+        options: {},
+        mode: "subagent",
+        native: true,
+      },
+      evidence_assessment: {
+        name: "evidence_assessment",
+        description:
+          "Assess whether an atom's evidence is sufficient to support its claim. Reads claim.md and evidence.md, writes assessment to evidence_assessment.md.",
+        prompt: PROMPT_EVIDENCE_ASSESSMENT,
+        permission: PermissionNext.merge(
+          defaults,
+          PermissionNext.fromConfig({
+            "*": "deny",
+            atom_query: "allow",
+            read: "allow",
+            write: "allow",
+            question: "allow",
           }),
           user,
         ),
