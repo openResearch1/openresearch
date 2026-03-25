@@ -3844,11 +3844,9 @@ export type ResearchAtomsListResponses = {
       atom_claim_path: string | null
       atom_evidence_type: string
       atom_evidence_status: string
-      atom_experiments_plan_path: string | null
       atom_evidence_path: string | null
       atom_evidence_assessment_path: string | null
       article_id: string | null
-      exp_id: string | null
       session_id: string | null
       time_created: number
       time_updated: number
@@ -3945,6 +3943,58 @@ export type ResearchAtomDeleteResponses = {
 }
 
 export type ResearchAtomDeleteResponse = ResearchAtomDeleteResponses[keyof ResearchAtomDeleteResponses]
+
+export type ResearchAtomUpdateData = {
+  body?: {
+    evidence_status?: "pending" | "in_progress" | "proven" | "disproven"
+    evidence_type?: "math" | "experiment"
+  }
+  path: {
+    researchProjectId: string
+    atomId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/research/research/{researchProjectId}/atom/{atomId}"
+}
+
+export type ResearchAtomUpdateErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ResearchAtomUpdateError = ResearchAtomUpdateErrors[keyof ResearchAtomUpdateErrors]
+
+export type ResearchAtomUpdateResponses = {
+  /**
+   * Updated atom
+   */
+  200: {
+    atom_id: string
+    research_project_id: string
+    atom_name: string
+    atom_type: string
+    atom_claim_path: string | null
+    atom_evidence_type: string
+    atom_evidence_status: string
+    atom_evidence_path: string | null
+    atom_evidence_assessment_path: string | null
+    article_id: string | null
+    session_id: string | null
+    time_created: number
+    time_updated: number
+  }
+}
+
+export type ResearchAtomUpdateResponse = ResearchAtomUpdateResponses[keyof ResearchAtomUpdateResponses]
 
 export type ResearchProjectCreateData = {
   body?: {
@@ -4057,19 +4107,645 @@ export type ResearchSessionAtomGetResponses = {
       atom_claim_path: string | null
       atom_evidence_type: string
       atom_evidence_status: string
-      atom_experiments_plan_path: string | null
       atom_evidence_path: string | null
       atom_evidence_assessment_path: string | null
       article_id: string | null
-      exp_id: string | null
       session_id: string | null
       time_created: number
       time_updated: number
+      experiments: Array<{
+        exp_id: string
+        research_project_id: string
+        exp_session_id: string | null
+        baseline_branch_name: string | null
+        exp_branch_name: string | null
+        exp_result_path: string | null
+        atom_id: string | null
+        exp_result_summary_path: string | null
+        exp_plan_path: string | null
+        remote_server_id: string | null
+        remote_server_config: {
+          address: string
+          port: number
+          user: string
+          password: string
+          wandb_api_key?: string
+          wandb_project_name?: string
+        } | null
+        code_path: string
+        status: "pending" | "running" | "done" | "idle" | "failed"
+        started_at: number | null
+        finished_at: number | null
+        time_created: number
+        time_updated: number
+      }>
     } | null
   }
 }
 
 export type ResearchSessionAtomGetResponse = ResearchSessionAtomGetResponses[keyof ResearchSessionAtomGetResponses]
+
+export type ResearchCodePathsData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/research/code-paths"
+}
+
+export type ResearchCodePathsErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type ResearchCodePathsError = ResearchCodePathsErrors[keyof ResearchCodePathsErrors]
+
+export type ResearchCodePathsResponses = {
+  /**
+   * List of code paths
+   */
+  200: Array<{
+    name: string
+    path: string
+  }>
+}
+
+export type ResearchCodePathsResponse = ResearchCodePathsResponses[keyof ResearchCodePathsResponses]
+
+export type ResearchExperimentCreateData = {
+  body?: {
+    atomId: string
+    baselineBranch?: string
+    remoteServerId?: string
+    codePath: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/research/experiment"
+}
+
+export type ResearchExperimentCreateErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ResearchExperimentCreateError = ResearchExperimentCreateErrors[keyof ResearchExperimentCreateErrors]
+
+export type ResearchExperimentCreateResponses = {
+  /**
+   * Created experiment
+   */
+  200: {
+    exp_id: string
+    atom_id: string
+    atom_name: string
+    session_id: string
+    baseline_branch: string
+    exp_branch: string
+    exp_result_path: string
+    exp_result_summary_path: string
+  }
+}
+
+export type ResearchExperimentCreateResponse =
+  ResearchExperimentCreateResponses[keyof ResearchExperimentCreateResponses]
+
+export type ResearchExperimentReadyData = {
+  body?: never
+  path: {
+    expId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/research/experiment/{expId}/ready"
+}
+
+export type ResearchExperimentReadyErrors = {
+  /**
+   * Experiment, atom, or article not found
+   */
+  404: {
+    ready: false
+    message: string
+  }
+  /**
+   * Another experiment is already running on the same article
+   */
+  409: {
+    ready: false
+    message: string
+    conflicts: Array<{
+      exp_id: string
+      exp_session_id: string | null
+    }>
+  }
+  /**
+   * Git or branch operation failed
+   */
+  500: {
+    ready: false
+    message: string
+  }
+}
+
+export type ResearchExperimentReadyError = ResearchExperimentReadyErrors[keyof ResearchExperimentReadyErrors]
+
+export type ResearchExperimentReadyResponses = {
+  /**
+   * Experiment is ready
+   */
+  200: {
+    ready: true
+  }
+}
+
+export type ResearchExperimentReadyResponse = ResearchExperimentReadyResponses[keyof ResearchExperimentReadyResponses]
+
+export type ResearchExperimentBySessionData = {
+  body?: never
+  path: {
+    sessionId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/research/experiment/session/{sessionId}"
+}
+
+export type ResearchExperimentBySessionErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ResearchExperimentBySessionError =
+  ResearchExperimentBySessionErrors[keyof ResearchExperimentBySessionErrors]
+
+export type ResearchExperimentBySessionResponses = {
+  /**
+   * Experiment with linked atom and article
+   */
+  200: {
+    exp_id: string
+    research_project_id: string
+    exp_session_id: string | null
+    baseline_branch_name: string | null
+    exp_branch_name: string | null
+    exp_result_path: string | null
+    atom_id: string | null
+    exp_result_summary_path: string | null
+    exp_plan_path: string | null
+    remote_server_id: string | null
+    remote_server_config: {
+      address: string
+      port: number
+      user: string
+      password: string
+      wandb_api_key?: string
+      wandb_project_name?: string
+    } | null
+    code_path: string
+    status: "pending" | "running" | "done" | "idle" | "failed"
+    started_at: number | null
+    finished_at: number | null
+    time_created: number
+    time_updated: number
+    atom: {
+      atom_id: string
+      research_project_id: string
+      atom_name: string
+      atom_type: string
+      atom_claim_path: string | null
+      atom_evidence_type: string
+      atom_evidence_status: string
+      atom_evidence_path: string | null
+      atom_evidence_assessment_path: string | null
+      article_id: string | null
+      session_id: string | null
+      time_created: number
+      time_updated: number
+    } | null
+    article: {
+      article_id: string
+      research_project_id: string
+      path: string
+      code_path: string | null
+      title: string | null
+      source_url: string | null
+      status: "pending" | "parsed" | "failed"
+      time_created: number
+      time_updated: number
+    } | null
+  } | null
+}
+
+export type ResearchExperimentBySessionResponse =
+  ResearchExperimentBySessionResponses[keyof ResearchExperimentBySessionResponses]
+
+export type ResearchExperimentDiffData = {
+  body?: never
+  path: {
+    expId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/research/experiment/{expId}/diff"
+}
+
+export type ResearchExperimentDiffErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ResearchExperimentDiffError = ResearchExperimentDiffErrors[keyof ResearchExperimentDiffErrors]
+
+export type ResearchExperimentDiffResponses = {
+  /**
+   * Commits with file diffs
+   */
+  200: {
+    commits: Array<{
+      hash: string
+      message: string
+      author: string
+      date: string
+      diffs: Array<FileDiff>
+    }>
+  }
+}
+
+export type ResearchExperimentDiffResponse = ResearchExperimentDiffResponses[keyof ResearchExperimentDiffResponses]
+
+export type ResearchProjectSessionTreeData = {
+  body?: never
+  path: {
+    researchProjectId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/research/project/{researchProjectId}/session-tree"
+}
+
+export type ResearchProjectSessionTreeErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ResearchProjectSessionTreeError = ResearchProjectSessionTreeErrors[keyof ResearchProjectSessionTreeErrors]
+
+export type ResearchProjectSessionTreeResponses = {
+  /**
+   * Session tree
+   */
+  200: {
+    atomSessionIds: Array<string>
+    expSessionIds: Array<string>
+    atoms: Array<{
+      atom_id: string
+      atom_name: string
+      atom_type: string
+      atom_evidence_status: string
+      session_id: string | null
+      experiments: Array<{
+        exp_id: string
+        exp_session_id: string | null
+        status: "pending" | "running" | "done" | "idle" | "failed"
+      }>
+    }>
+  }
+}
+
+export type ResearchProjectSessionTreeResponse =
+  ResearchProjectSessionTreeResponses[keyof ResearchProjectSessionTreeResponses]
+
+export type ResearchServerListData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/research/server"
+}
+
+export type ResearchServerListResponses = {
+  /**
+   * List of remote servers
+   */
+  200: Array<{
+    id: string
+    config: {
+      address: string
+      port: number
+      user: string
+      password: string
+      wandb_api_key?: string
+      wandb_project_name?: string
+    }
+    time_created: number
+    time_updated: number
+  }>
+}
+
+export type ResearchServerListResponse = ResearchServerListResponses[keyof ResearchServerListResponses]
+
+export type ResearchServerCreateData = {
+  body?: {
+    config: {
+      address: string
+      port: number
+      user: string
+      password: string
+      wandb_api_key?: string
+      wandb_project_name?: string
+    }
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/research/server"
+}
+
+export type ResearchServerCreateResponses = {
+  /**
+   * Created remote server
+   */
+  200: {
+    id: string
+    config: {
+      address: string
+      port: number
+      user: string
+      password: string
+      wandb_api_key?: string
+      wandb_project_name?: string
+    }
+  }
+}
+
+export type ResearchServerCreateResponse = ResearchServerCreateResponses[keyof ResearchServerCreateResponses]
+
+export type ResearchServerDeleteData = {
+  body?: never
+  path: {
+    serverId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/research/server/{serverId}"
+}
+
+export type ResearchServerDeleteErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ResearchServerDeleteError = ResearchServerDeleteErrors[keyof ResearchServerDeleteErrors]
+
+export type ResearchServerDeleteResponses = {
+  /**
+   * Deleted
+   */
+  200: {
+    success: boolean
+  }
+}
+
+export type ResearchServerDeleteResponse = ResearchServerDeleteResponses[keyof ResearchServerDeleteResponses]
+
+export type ResearchExperimentWatchListData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/research/experiment-watch"
+}
+
+export type ResearchExperimentWatchListResponses = {
+  /**
+   * Experiment watch list
+   */
+  200: Array<{
+    watch_id: string
+    exp_id: string
+    exp_session_id: string | null
+    exp_result_path: string | null
+    wandb_entity: string
+    wandb_project: string
+    wandb_run_id: string
+    status: string
+    wandb_state: string | null
+    last_polled_at: number | null
+    error_message: string | null
+    time_created: number
+    time_updated: number
+  }>
+}
+
+export type ResearchExperimentWatchListResponse =
+  ResearchExperimentWatchListResponses[keyof ResearchExperimentWatchListResponses]
+
+export type ResearchExperimentRunsData = {
+  body?: never
+  path: {
+    expId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/research/experiment/{expId}/runs"
+}
+
+export type ResearchExperimentRunsErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ResearchExperimentRunsError = ResearchExperimentRunsErrors[keyof ResearchExperimentRunsErrors]
+
+export type ResearchExperimentRunsResponses = {
+  /**
+   * List of run directories with their files
+   */
+  200: Array<{
+    name: string
+    path: string
+    files: Array<string>
+  }>
+}
+
+export type ResearchExperimentRunsResponse = ResearchExperimentRunsResponses[keyof ResearchExperimentRunsResponses]
+
+export type ResearchExperimentWatchDeleteData = {
+  body?: never
+  path: {
+    watchId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/research/experiment-watch/{watchId}"
+}
+
+export type ResearchExperimentWatchDeleteErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ResearchExperimentWatchDeleteError =
+  ResearchExperimentWatchDeleteErrors[keyof ResearchExperimentWatchDeleteErrors]
+
+export type ResearchExperimentWatchDeleteResponses = {
+  /**
+   * Deleted
+   */
+  200: {
+    success: boolean
+  }
+}
+
+export type ResearchExperimentWatchDeleteResponse =
+  ResearchExperimentWatchDeleteResponses[keyof ResearchExperimentWatchDeleteResponses]
+
+export type ResearchExperimentDeleteData = {
+  body?: never
+  path: {
+    expId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/research/experiment/{expId}"
+}
+
+export type ResearchExperimentDeleteErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ResearchExperimentDeleteError = ResearchExperimentDeleteErrors[keyof ResearchExperimentDeleteErrors]
+
+export type ResearchExperimentDeleteResponses = {
+  /**
+   * Deleted
+   */
+  200: {
+    success: boolean
+  }
+}
+
+export type ResearchExperimentDeleteResponse =
+  ResearchExperimentDeleteResponses[keyof ResearchExperimentDeleteResponses]
+
+export type ResearchExperimentUpdateData = {
+  body?: {
+    baselineBranch?: string
+    remoteServerId?: string | null
+    codePath?: string
+  }
+  path: {
+    expId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/research/experiment/{expId}"
+}
+
+export type ResearchExperimentUpdateErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ResearchExperimentUpdateError = ResearchExperimentUpdateErrors[keyof ResearchExperimentUpdateErrors]
+
+export type ResearchExperimentUpdateResponses = {
+  /**
+   * Updated experiment
+   */
+  200: {
+    exp_id: string
+    research_project_id: string
+    exp_session_id: string | null
+    baseline_branch_name: string | null
+    exp_branch_name: string | null
+    exp_result_path: string | null
+    atom_id: string | null
+    exp_result_summary_path: string | null
+    exp_plan_path: string | null
+    remote_server_id: string | null
+    remote_server_config: {
+      address: string
+      port: number
+      user: string
+      password: string
+      wandb_api_key?: string
+      wandb_project_name?: string
+    } | null
+    code_path: string
+    status: "pending" | "running" | "done" | "idle" | "failed"
+    started_at: number | null
+    finished_at: number | null
+    time_created: number
+    time_updated: number
+  }
+}
+
+export type ResearchExperimentUpdateResponse =
+  ResearchExperimentUpdateResponses[keyof ResearchExperimentUpdateResponses]
 
 export type PermissionReplyData = {
   body?: {

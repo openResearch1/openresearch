@@ -2,12 +2,14 @@ import z from "zod"
 import path from "path"
 import { Tool } from "./tool"
 import { Database, eq, and } from "../storage/db"
-import { AtomTable, AtomRelationTable } from "../research/research.sql"
+import { AtomTable, AtomRelationTable, ExperimentTable, ExperimentWatchTable } from "../research/research.sql"
 import { Research } from "../research/research"
 import { Bus } from "@/bus"
 import { Instance } from "../project/instance"
 import { Filesystem } from "../util/filesystem"
 import { rm } from "fs/promises"
+import { Session } from "../session"
+import { git } from "../util/git"
 
 type AtomRow = typeof AtomTable.$inferSelect
 
@@ -58,14 +60,12 @@ export const AtomCreateTool = Tool.define("atom_create", {
     const atomId = crypto.randomUUID()
     const atomDir = path.join(Instance.directory, "atom_list", atomId)
     const claimPath = path.join(atomDir, "claim.md")
+    const evidencePath = path.join(atomDir, "evidence.md")
+    const evidenceAssessmentPath = path.join(atomDir, "evidence_assessment.md")
 
     await Filesystem.write(claimPath, params.claim)
-
-    let evidencePath: string | null = null
-    if (params.evidence) {
-      evidencePath = path.join(atomDir, "evidence.md")
-      await Filesystem.write(evidencePath, params.evidence)
-    }
+    await Filesystem.write(evidencePath, params.evidence ?? "")
+    await Filesystem.write(evidenceAssessmentPath, "")
 
     const now = Date.now()
     Database.use((db) =>
@@ -80,6 +80,7 @@ export const AtomCreateTool = Tool.define("atom_create", {
           atom_evidence_type: "math",
           atom_evidence_status: "pending",
           atom_evidence_path: evidencePath,
+          atom_evidence_assessment_path: evidenceAssessmentPath,
           article_id: params.articleId ?? null,
           time_created: now,
           time_updated: now,
@@ -115,11 +116,9 @@ function formatAtom(row: AtomRow): string {
     `evidence_status: ${row.atom_evidence_status}`,
     `research_project_id: ${row.research_project_id}`,
     row.atom_claim_path ? `claim_path: ${row.atom_claim_path}` : null,
-    row.atom_experiments_plan_path ? `experiments_plan_path: ${row.atom_experiments_plan_path}` : null,
     row.atom_evidence_path ? `evidence_path: ${row.atom_evidence_path}` : null,
-    row.atom_evidence_assessment_path? `evidence_assessment_path: ${row.atom_evidence_assessment_path}` : null,
+    row.atom_evidence_assessment_path ? `evidence_assessment_path: ${row.atom_evidence_assessment_path}` : null,
     row.article_id ? `article_id: ${row.article_id}` : null,
-    row.exp_id ? `exp_id: ${row.exp_id}` : null,
     row.session_id ? `session_id: ${row.session_id}` : null,
     `time_created: ${row.time_created}`,
     `time_updated: ${row.time_updated}`,
@@ -179,6 +178,80 @@ export const AtomQueryTool = Tool.define("atom_query", {
       title: `${atoms.length} atom(s)`,
       output,
       metadata: { count: atoms.length },
+    }
+  },
+})
+
+const evidenceStatuses = ["pending", "in_progress", "proven", "disproven"] as const
+
+export const AtomStatusUpdateTool = Tool.define("atom_status_update", {
+  description:
+    "Update an atom's evidence status and type. " +
+    "This tool ONLY updates status fields — it cannot modify the atom's name, type, claim, or evidence content. " +
+    "Use this after assessing evidence to mark an atom as proven, disproven, or in_progress.",
+  parameters: z.object({
+    atomId: z.string().optional().describe("The atom ID to update. If omitted, resolves from the current session."),
+    evidenceStatus: z
+      .enum(evidenceStatuses)
+      .optional()
+      .describe("New evidence status: pending, in_progress, proven, or disproven"),
+    evidenceType: z.enum(["math", "experiment"]).optional().describe("New evidence type: math or experiment"),
+  }),
+  async execute(params, ctx) {
+    let atomId = params.atomId
+
+    if (!atomId) {
+      let parentSessionId = await Research.getParentSessionId(ctx.sessionID)
+      if (!parentSessionId) {
+        parentSessionId = ctx.sessionID
+      }
+      const bound = Database.use((db) =>
+        db.select().from(AtomTable).where(eq(AtomTable.session_id, parentSessionId)).get(),
+      )
+      if (!bound) {
+        return {
+          title: "Failed",
+          output: "No atom bound to the current session and no atomId provided.",
+          metadata: { updated: false },
+        }
+      }
+      atomId = bound.atom_id
+    }
+
+    const atom = Database.use((db) => db.select().from(AtomTable).where(eq(AtomTable.atom_id, atomId!)).get())
+    if (!atom) {
+      return {
+        title: "Failed",
+        output: `Atom not found: ${atomId}`,
+        metadata: { updated: false },
+      }
+    }
+
+    const updates: Record<string, unknown> = { time_updated: Date.now() }
+    if (params.evidenceStatus) updates.atom_evidence_status = params.evidenceStatus
+    if (params.evidenceType) updates.atom_evidence_type = params.evidenceType
+
+    if (Object.keys(updates).length === 1) {
+      return {
+        title: "No changes",
+        output: "No fields to update were provided.",
+        metadata: { updated: false },
+      }
+    }
+
+    Database.use((db) => db.update(AtomTable).set(updates).where(eq(AtomTable.atom_id, atomId!)).run())
+
+    await Bus.publish(Research.Event.AtomsUpdated, { researchProjectId: atom.research_project_id })
+
+    const changed = Object.entries(updates)
+      .filter(([k]) => k !== "time_updated")
+      .map(([k, v]) => `${k}: ${v}`)
+      .join(", ")
+
+    return {
+      title: `Updated atom: ${atom.atom_name}`,
+      output: `Atom ${atomId} updated: ${changed}`,
+      metadata: { updated: true },
     }
   },
 })
@@ -268,37 +341,35 @@ export const AtomBatchCreateTool = Tool.define("atom_batch_create", {
 
     // Generate IDs and write content files
     const atomIds: string[] = []
-    const hasProof: boolean[] = []
     for (const atom of params.atoms) {
       const atomId = crypto.randomUUID()
       atomIds.push(atomId)
-      const claimPath = path.join(Instance.directory, "atom_list", atomId, "claim.md")
-      await Filesystem.write(claimPath, atom.claim)
-      if (atom.evidence) {
-        const evidencePath = path.join(Instance.directory, "atom_list", atomId, "evidence.md")
-        await Filesystem.write(evidencePath, atom.evidence)
-        hasProof.push(true)
-      } else {
-        hasProof.push(false)
-      }
+      const atomDir = path.join(Instance.directory, "atom_list", atomId)
+      await Filesystem.write(path.join(atomDir, "claim.md"), atom.claim)
+      await Filesystem.write(path.join(atomDir, "evidence.md"), atom.evidence ?? "")
+      await Filesystem.write(path.join(atomDir, "evidence_assessment.md"), "")
     }
 
     // Insert atoms and relations in a single transaction
     const now = Date.now()
     Database.transaction(() => {
-      const atomValues = params.atoms.map((atom, i) => ({
-        atom_id: atomIds[i],
-        research_project_id: researchProjectId,
-        atom_name: atom.name,
-        atom_type: atom.type,
-        atom_claim_path: path.join(Instance.directory, "atom_list", atomIds[i], "claim.md"),
-        atom_evidence_type: "math" as const,
-        atom_evidence_status: "pending" as const,
-        atom_evidence_path: hasProof[i] ? path.join(Instance.directory, "atom_list", atomIds[i], "evidence.md") : null,
-        article_id: atom.articleId ?? null,
-        time_created: now,
-        time_updated: now,
-      }))
+      const atomValues = params.atoms.map((atom, i) => {
+        const atomDir = path.join(Instance.directory, "atom_list", atomIds[i])
+        return {
+          atom_id: atomIds[i],
+          research_project_id: researchProjectId,
+          atom_name: atom.name,
+          atom_type: atom.type,
+          atom_claim_path: path.join(atomDir, "claim.md"),
+          atom_evidence_type: "math" as const,
+          atom_evidence_status: "pending" as const,
+          atom_evidence_path: path.join(atomDir, "evidence.md"),
+          atom_evidence_assessment_path: path.join(atomDir, "evidence_assessment.md"),
+          article_id: atom.articleId ?? null,
+          time_created: now,
+          time_updated: now,
+        }
+      })
       Database.use((db) => db.insert(AtomTable).values(atomValues).run())
 
       const relations = params.relations ?? []
@@ -399,6 +470,40 @@ export const AtomDeleteTool = Tool.define("atom_delete", {
     })
 
     await Promise.all(deletePromises)
+
+    // Delete associated experiments for each atom
+    for (const atomId of validAtomIds) {
+      const experiments = Database.use((db) =>
+        db.select().from(ExperimentTable).where(eq(ExperimentTable.atom_id, atomId)).all(),
+      )
+      for (const exp of experiments) {
+        // Delete experiment watchers
+        Database.use((db) =>
+          db.delete(ExperimentWatchTable).where(eq(ExperimentWatchTable.exp_id, exp.exp_id)).run(),
+        )
+        // Delete experiment record
+        Database.use((db) => db.delete(ExperimentTable).where(eq(ExperimentTable.exp_id, exp.exp_id)).run())
+        // Clean up experiment session
+        if (exp.exp_session_id) {
+          await Session.remove(exp.exp_session_id).catch(() => {})
+        }
+        // Delete experiment results directory
+        const expDir = path.join(Instance.directory, "exp_results", exp.exp_id)
+        await rm(expDir, { recursive: true, force: true }).catch(() => {})
+        // Delete experiment git branch
+        if (exp.exp_branch_name) {
+          const codePath = exp.code_path
+          const head = await git(["rev-parse", "--abbrev-ref", "HEAD"], { cwd: codePath }).catch(() => null)
+          const currentBranch = head?.stdout?.toString().trim()
+          if (currentBranch === exp.exp_branch_name) {
+            const baseline = exp.baseline_branch_name || "master"
+            await git(["checkout", "-f", baseline], { cwd: codePath }).catch(() => {})
+            await git(["clean", "-fd"], { cwd: codePath }).catch(() => {})
+          }
+          await git(["branch", "-D", exp.exp_branch_name], { cwd: codePath }).catch(() => {})
+        }
+      }
+    }
 
     // Delete atoms and related relations in a transaction
     Database.transaction(() => {

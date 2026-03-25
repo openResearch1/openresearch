@@ -1,0 +1,7 @@
+Execute a bash command on a remote server via SSH.
+
+- Connects to the specified server using the provided credentials (address, port, user, password)
+- Runs the given command on the remote server and returns stdout + stderr
+- The command runs in the remote user's default shell
+- Default timeout is 120 seconds; override with the timeout parameter
+- Use this tool when you need to run commands on a remote machine (e.g., experiment servers, GPU nodes)

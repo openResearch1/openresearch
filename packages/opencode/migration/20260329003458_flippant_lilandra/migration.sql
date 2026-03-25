@@ -1,0 +1,1 @@
+ALTER TABLE `experiment` ADD `code_path` text;

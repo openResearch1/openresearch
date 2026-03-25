@@ -18,7 +18,8 @@ const TYPE_LABELS: Record<string, string> = {
 const EVIDENCE_STATUS_LABELS: Record<string, string> = {
   pending: "Pending",
   in_progress: "In Progress",
-  done: "Done",
+  proven: "Proven",
+  disproven: "Disproven",
 }
 
 const RELATION_LABELS: Record<string, string> = {
@@ -28,25 +29,6 @@ const RELATION_LABELS: Record<string, string> = {
   other: "related to",
 }
 
-const TYPE_COLORS: Record<string, string> = {
-  fact: "#60a5fa",
-  method: "#34d399",
-  theorem: "#f87171",
-  verification: "#fbbf24",
-}
-
-const RELATION_COLORS: Record<string, string> = {
-  depends_on: "#6366f1",
-  supports: "#10b981",
-  contradicts: "#ef4444",
-  other: "#94a3b8",
-}
-
-const STATUS_STROKE: Record<string, string> = {
-  pending: "#94a3b8",
-  in_progress: "#f59e0b",
-  done: "#10b981",
-}
 
 function AtomCard(props: { atom: Atom; relations: Relation[]; atomMap: Map<string, Atom>; onClick: () => void }) {
   const outgoing = createMemo(() => props.relations.filter((r) => r.atom_id_source === props.atom.atom_id))
@@ -214,11 +196,7 @@ export function AtomsTab(props: { researchProjectId: string; currentSessionId?: 
     }
   }
 
-  const handleRelationCreate = async (input: {
-    sourceAtomId: string
-    targetAtomId: string
-    relationType: string
-  }) => {
+  const handleRelationCreate = async (input: { sourceAtomId: string; targetAtomId: string; relationType: string }) => {
     await sdk.client.research.relation.create({
       researchProjectId: props.researchProjectId,
       source_atom_id: input.sourceAtomId,

@@ -21,7 +21,7 @@ Your output must be grounded strictly in the provided project data and article c
 ### 1. Grounding
 Use only:
 - project information returned by `research_info`
-- article list/content returned by `article_read`
+- article list/metadata returned by `article_query`
 - existing background/goal content if present
 
 Do not invent article details, equations, results, assumptions, or literature beyond the provided articles.
@@ -95,9 +95,9 @@ Record:
 
 ## Step 3: Read article contents
 
-Call `article_read` without `articleId` to get the list of articles.
+Call `article_query` without `articleId` to get the list of articles with their metadata and file paths.
 
-Then for each article in the list, call `article_read` with its `articleId` to retrieve the full content.
+Then for each article in the list, use the returned `path` with the `read` tool to read the PDF content.
 
 If there are no articles, return:
 `No articles found for this project.`

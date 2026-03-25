@@ -45,6 +45,7 @@ import { LLM } from "./llm"
 import { iife } from "@/util/iife"
 import { Shell } from "@/shell/shell"
 import { Truncate } from "@/tool/truncation"
+import { assertExperimentReady, setExperimentStatus } from "./experiment-guard"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -159,6 +160,48 @@ export namespace SessionPrompt {
     const session = await Session.get(input.sessionID)
     await SessionRevert.cleanup(session)
 
+    // assert experiment ready
+    try {
+      await assertExperimentReady(input.sessionID)
+    } catch (e) {
+      const errMsg = e instanceof Error ? e.message : String(e)
+      const userMessage = await createUserMessage(input)
+      const agent = await Agent.get(input.agent ?? (await Agent.defaultAgent()))
+      const model = input.model ?? agent.model ?? (await lastModel(input.sessionID))
+      const assistantMessage: MessageV2.Assistant = {
+        id: Identifier.ascending("message"),
+        role: "assistant",
+        sessionID: input.sessionID,
+        parentID: userMessage.info.id,
+        mode: agent.name,
+        agent: agent.name,
+        modelID: model.modelID,
+        providerID: model.providerID,
+        path: {
+          cwd: Instance.directory,
+          root: Instance.worktree,
+        },
+        cost: 0,
+        tokens: {
+          input: 0,
+          output: 0,
+          reasoning: 0,
+          cache: { read: 0, write: 0 },
+        },
+        time: {
+          created: Date.now(),
+          completed: Date.now(),
+        },
+        error: new NamedError.Unknown({ message: errMsg }).toObject(),
+      }
+      await Session.updateMessage(assistantMessage)
+      Bus.publish(Session.Event.Error, {
+        sessionID: input.sessionID,
+        error: assistantMessage.error,
+      })
+      return userMessage
+    }
+
     const message = await createUserMessage(input)
     await Session.touch(input.sessionID)
 
@@ -264,6 +307,7 @@ export namespace SessionPrompt {
     match.abort.abort()
     delete s[sessionID]
     SessionStatus.set(sessionID, { type: "idle" })
+    setExperimentStatus(sessionID, "pending")
     return
   }
 
@@ -283,6 +327,8 @@ export namespace SessionPrompt {
     }
 
     using _ = defer(() => cancel(sessionID))
+
+    await setExperimentStatus(sessionID, "running")
 
     // Structured output state
     // Note: On session resumption, state is reset but outputFormat is preserved

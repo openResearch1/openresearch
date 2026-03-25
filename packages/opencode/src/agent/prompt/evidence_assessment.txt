@@ -19,6 +19,10 @@ Workflow:
 4. If `evidence_path` exists, call `read` on `evidence_path`.
 5. Assess whether the evidence sufficiently supports the claim.
 6. Write the final assessment as markdown to `evidence_assessment_path`.
+7. Based on your verdict, call `atom_status_update` to update the atom's evidence status:
+   - If verdict is `sufficient`: set `evidenceStatus` to `proven`
+   - If verdict is `contradictory`: set `evidenceStatus` to `disproven`
+   - If verdict is `partially_sufficient`, `weak`, or `insufficient`: set `evidenceStatus` to `in_progress`
 
 Important rules:
 - Do not ask the user to manually paste the claim or evidence unless the required file paths are missing or unreadable.

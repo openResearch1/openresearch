@@ -50,7 +50,7 @@ export class GraphStateManager {
         this.clearState()
         return null
       }
-      
+
       return state
     } catch (error) {
       console.warn("Failed to load graph state:", error)
@@ -70,7 +70,10 @@ export class GraphStateManager {
     }, this.SAVE_DELAY)
   }
 
-  private doSaveState(positions: Record<string, Position>, viewport: { zoom: number; centerX: number; centerY: number }) {
+  private doSaveState(
+    positions: Record<string, Position>,
+    viewport: { zoom: number; centerX: number; centerY: number },
+  ) {
     if (typeof window === "undefined") return
 
     try {
@@ -80,12 +83,12 @@ export class GraphStateManager {
         metadata: {
           timestamp: Date.now(),
           version: this.VERSION,
-          projectId: this.projectId
-        }
+          projectId: this.projectId,
+        },
       }
 
       const dataString = JSON.stringify(state)
-      
+
       if (!this.checkStorageCapacity(dataString.length)) {
         console.warn("Storage capacity exceeded, attempting cleanup...")
         this.cleanupOldData()
@@ -100,7 +103,7 @@ export class GraphStateManager {
   // 清除保存的状态
   clearState() {
     if (typeof window === "undefined") return
-    
+
     try {
       localStorage.removeItem(this.storageKey)
     } catch (error) {
@@ -130,13 +133,16 @@ export class GraphStateManager {
 
   // 压缩位置数据（减少存储空间）
   private compressPositions(positions: Record<string, Position>): Record<string, Position> {
-    return Object.entries(positions).reduce((acc, [id, pos]) => {
-      acc[id] = {
-        x: Math.round(pos.x * 10) / 10, // 保留一位小数
-        y: Math.round(pos.y * 10) / 10
-      }
-      return acc
-    }, {} as Record<string, Position>)
+    return Object.entries(positions).reduce(
+      (acc, [id, pos]) => {
+        acc[id] = {
+          x: Math.round(pos.x * 10) / 10, // 保留一位小数
+          y: Math.round(pos.y * 10) / 10,
+        }
+        return acc
+      },
+      {} as Record<string, Position>,
+    )
   }
 
   // 检查存储容量
@@ -144,7 +150,7 @@ export class GraphStateManager {
     try {
       const currentUsage = this.getStorageUsage()
       const limit = 5 * 1024 * 1024 // 5MB
-      return (currentUsage + dataSize) < limit * 0.9 // 保留10%缓冲
+      return currentUsage + dataSize < limit * 0.9 // 保留10%缓冲
     } catch {
       return false
     }
@@ -166,14 +172,14 @@ export class GraphStateManager {
     try {
       // 清理其他项目的旧数据（保留最近的项目）
       const keysToRemove: string[] = []
-      
+
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i)
         if (key && key.startsWith("graph-state-") && key !== this.storageKey) {
           try {
             const data = JSON.parse(localStorage.getItem(key) || "{}")
             const age = Date.now() - (data.metadata?.timestamp || 0)
-            
+
             // 删除超过30天的旧数据
             if (age > 30 * 24 * 60 * 60 * 1000) {
               keysToRemove.push(key)
@@ -184,13 +190,13 @@ export class GraphStateManager {
         }
       }
 
-      keysToRemove.forEach(key => localStorage.removeItem(key))
+      keysToRemove.forEach((key) => localStorage.removeItem(key))
     } catch (error) {
       console.warn("Failed to cleanup old data:", error)
     }
   }
-// 基于关系计算位置
-// 获取项目ID
+  // 基于关系计算位置
+  // 获取项目ID
   getProjectId(): string {
     return this.projectId
   }

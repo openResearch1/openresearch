@@ -1,7 +1,8 @@
 import { For, Match, Show, Switch, createEffect, createMemo, createResource, onCleanup, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { createMediaQuery } from "@solid-primitives/media"
-import { useParams } from "@solidjs/router"
+import { useNavigate, useParams } from "@solidjs/router"
+import { base64Encode } from "@opencode-ai/util/encode"
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { TooltipKeybind } from "@opencode-ai/ui/tooltip"
@@ -28,6 +29,9 @@ import { createOpenSessionFileTab, getTabReorderIndex, type Sizing } from "@/pag
 import { StickyAddButton } from "@/pages/session/review-tab"
 import { AtomsTab } from "@/pages/session/atoms-tab"
 import { AtomSessionTab } from "@/pages/session/atom-session-tab"
+import { ExpPlanTab, ExpHistoryChangeTab, ExpResultTab, ExpProgressTab } from "@/pages/session/experiment-tab"
+import { ServersTab } from "@/pages/session/servers-tab"
+import { WatchesTab } from "@/pages/session/watches-tab"
 import { setSessionHandoff } from "@/pages/session/handoff"
 
 export function SessionSidePanel(props: {
@@ -37,6 +41,7 @@ export function SessionSidePanel(props: {
   size: Sizing
 }) {
   const params = useParams()
+  const navigate = useNavigate()
   const layout = useLayout()
   const sdk = useSDK()
   const sync = useSync()
@@ -84,7 +89,7 @@ export function SessionSidePanel(props: {
   const isResearchProject = createMemo(() => !!researchProject())
 
   // Check if current session is an atom session
-  const [atomSession] = createResource(
+  const [atomSession, { refetch: refetchAtomSession }] = createResource(
     () => params.id,
     async (sessionId) => {
       if (!sessionId) return null
@@ -97,6 +102,41 @@ export function SessionSidePanel(props: {
     },
   )
   const isAtomSession = createMemo(() => !!atomSession())
+
+  // Check if current session is an experiment session
+  const [experimentSession, { refetch: refetchExperimentSession }] = createResource(
+    () => params.id,
+    async (sessionId) => {
+      if (!sessionId) return null
+      try {
+        const res = await sdk.client.research.experiment.bySession({ sessionId })
+        return res.data ?? null
+      } catch {
+        return null
+      }
+    },
+  )
+  const isExpSession = createMemo(() => !!experimentSession())
+
+  // Fetch experiment diff data at panel level; refetch when switching to the changes tab
+  const [experimentDiff, { refetch: refetchExperimentDiff }] = createResource(
+    () => experimentSession()?.exp_id,
+    async (expId) => {
+      if (!expId) return null
+      try {
+        const res = await sdk.client.research.experiment.diff({ expId })
+        return (
+          (
+            res.data as
+              | { commits: Array<{ hash: string; message: string; author: string; date: string; diffs: any[] }> }
+              | undefined
+          )?.commits ?? []
+        )
+      } catch {
+        return []
+      }
+    },
+  )
 
   const reviewEmptyKey = createMemo(() => {
     if (sync.project && !sync.project.vcs) return "session.review.noVcs"
@@ -155,7 +195,7 @@ export function SessionSidePanel(props: {
     if (!view().reviewPanel.opened()) view().reviewPanel.open()
   }
 
-  const openTab = createOpenSessionFileTab({
+  const _openTab = createOpenSessionFileTab({
     normalizeTab,
     openTab: tabs().open,
     pathFromTab: file.pathFromTab,
@@ -163,6 +203,19 @@ export function SessionSidePanel(props: {
     openReviewPanel,
     setActive: tabs().setActive,
   })
+  // Track which session ID has been "settled" (resources finished loading).
+  // Before settling, block programmatic "review" tab writes from overwriting
+  // the stored active tab during session switches.
+  let settledSessionId: string | undefined
+  createEffect(() => {
+    if (!atomSession.loading && !experimentSession.loading) {
+      settledSessionId = params.id
+    }
+  })
+  const openTab = (value: string) => {
+    if (value === "review" && params.id !== settledSessionId) return
+    _openTab(value)
+  }
 
   const contextOpen = createMemo(() => tabs().active() === "context" || tabs().all().includes("context"))
   const openedTabs = createMemo(() =>
@@ -175,7 +228,14 @@ export function SessionSidePanel(props: {
           tab !== "atoms" &&
           tab !== "atom-content" &&
           tab !== "atom-evidence" &&
-          tab !== "atom-plan"
+          tab !== "atom-plan" &&
+          tab !== "atom-assessment" &&
+          tab !== "servers" &&
+          tab !== "watches" &&
+          tab !== "exp-info" &&
+          tab !== "exp-plan" &&
+          tab !== "exp-history" &&
+          tab !== "exp-result"
         )
       }),
   )
@@ -183,19 +243,39 @@ export function SessionSidePanel(props: {
   const activeTab = createMemo(() => {
     const active = tabs().active()
     if (active === "context") return "context"
-    if (active === "review" && reviewTab()) return "review"
-    if (active === "atoms" && isResearchProject() && !isAtomSession()) return "atoms"
+    if (active === "review" && reviewTab() && !isExpSession()) return "review"
+    if (active === "atoms" && isResearchProject() && !isAtomSession() && !isExpSession()) return "atoms"
+    if (active === "servers" && isResearchProject() && !isAtomSession() && !isExpSession()) return "servers"
+    if (active === "watches" && isResearchProject() && !isAtomSession() && !isExpSession()) return "watches"
     if (active === "atom-content" && isAtomSession()) return "atom-content"
     if (active === "atom-evidence" && isAtomSession()) return "atom-evidence"
     if (active === "atom-plan" && isAtomSession()) return "atom-plan"
+    if (active === "atom-assessment" && isAtomSession()) return "atom-assessment"
+    if (active === "exp-info" && isExpSession()) return "exp-info"
+    if (active === "exp-plan" && isExpSession()) return "exp-plan"
+    if (active === "exp-history" && isExpSession()) return "exp-history"
+    if (active === "exp-result" && isExpSession()) return "exp-result"
     if (active && file.pathFromTab(active)) return normalizeTab(active)
 
+    // Fallback: pick a sensible default tab
     const first = openedTabs()[0]
     if (first) return first
     if (contextOpen()) return "context"
-    if (reviewTab() && hasReview()) return "review"
+    if (isExpSession()) return "exp-info"
     if (isAtomSession()) return "atom-content"
+    // For research projects, default to "atoms" instead of "review"
+    if (isResearchProject()) return "atoms"
+    if (reviewTab() && hasReview()) return "review"
     return "empty"
+  })
+
+  // Refetch experiment diff when switching to the changes tab, and poll while active
+  createEffect(() => {
+    if (activeTab() === "exp-history" && experimentSession()?.exp_id) {
+      refetchExperimentDiff()
+      const timer = setInterval(() => refetchExperimentDiff(), 5000)
+      onCleanup(() => clearInterval(timer))
+    }
   })
 
   const activeFileTab = createMemo(() => {
@@ -302,7 +382,39 @@ export function SessionSidePanel(props: {
                         onCleanup(stop)
                       }}
                     >
-                      <Show when={reviewTab()}>
+                      <Show when={isExpSession()}>
+                        <Tabs.Trigger value="exp-info">
+                          <div class="flex items-center gap-1.5">
+                            <div>Info</div>
+                          </div>
+                        </Tabs.Trigger>
+                        <Tabs.Trigger value="exp-plan">
+                          <div class="flex items-center gap-1.5">
+                            <div>Plan</div>
+                          </div>
+                        </Tabs.Trigger>
+                        <Tabs.Trigger value="exp-history">
+                          <div class="flex items-center gap-1.5">
+                            <div>Changes</div>
+                          </div>
+                        </Tabs.Trigger>
+                        <Tabs.Trigger value="exp-result">
+                          <div class="flex items-center gap-1.5">
+                            <div>Result</div>
+                          </div>
+                        </Tabs.Trigger>
+                        <Show when={experimentSession()?.atom?.session_id}>
+                          {(atomSessionId) => (
+                            <button
+                              class="ml-auto shrink-0 px-2 py-1 text-11-regular text-text-weak hover:text-text-base transition-colors"
+                              onClick={() => navigate(`/${base64Encode(sdk.directory)}/session/${atomSessionId()}`)}
+                            >
+                              ← Atom
+                            </button>
+                          )}
+                        </Show>
+                      </Show>
+                      <Show when={!isExpSession() && reviewTab()}>
                         <Tabs.Trigger value="review">
                           <div class="flex items-center gap-1.5">
                             <div>{language.t("session.tab.review")}</div>
@@ -312,14 +424,24 @@ export function SessionSidePanel(props: {
                           </div>
                         </Tabs.Trigger>
                       </Show>
-                      <Show when={isResearchProject() && !isAtomSession()}>
+                      <Show when={!isExpSession() && isResearchProject() && !isAtomSession()}>
                         <Tabs.Trigger value="atoms">
                           <div class="flex items-center gap-1.5">
                             <div>Atoms</div>
                           </div>
                         </Tabs.Trigger>
+                        <Tabs.Trigger value="servers">
+                          <div class="flex items-center gap-1.5">
+                            <div>Servers</div>
+                          </div>
+                        </Tabs.Trigger>
+                        <Tabs.Trigger value="watches">
+                          <div class="flex items-center gap-1.5">
+                            <div>Watches</div>
+                          </div>
+                        </Tabs.Trigger>
                       </Show>
-                      <Show when={isAtomSession()}>
+                      <Show when={!isExpSession() && isAtomSession()}>
                         <Tabs.Trigger value="atom-content">
                           <div class="flex items-center gap-1.5">
                             <div>Claim</div>
@@ -332,7 +454,12 @@ export function SessionSidePanel(props: {
                         </Tabs.Trigger>
                         <Tabs.Trigger value="atom-plan">
                           <div class="flex items-center gap-1.5">
-                            <div>Plan</div>
+                            <div>Experiment</div>
+                          </div>
+                        </Tabs.Trigger>
+                        <Tabs.Trigger value="atom-assessment">
+                          <div class="flex items-center gap-1.5">
+                            <div>Assessment</div>
                           </div>
                         </Tabs.Trigger>
                       </Show>
@@ -396,11 +523,23 @@ export function SessionSidePanel(props: {
 
                   <Show when={isResearchProject() && !isAtomSession() ? researchProject() : null} keyed>
                     {(project) => (
-                      <Tabs.Content value="atoms" class="flex flex-col h-full overflow-hidden contain-strict">
-                        <Show when={activeTab() === "atoms"}>
-                          <AtomsTab researchProjectId={project.research_project_id} currentSessionId={params.id} />
-                        </Show>
-                      </Tabs.Content>
+                      <>
+                        <Tabs.Content value="atoms" class="flex flex-col h-full overflow-hidden contain-strict">
+                          <Show when={activeTab() === "atoms"}>
+                            <AtomsTab researchProjectId={project.research_project_id} currentSessionId={params.id} />
+                          </Show>
+                        </Tabs.Content>
+                        <Tabs.Content value="servers" class="flex flex-col h-full overflow-hidden contain-strict">
+                          <Show when={activeTab() === "servers"}>
+                            <ServersTab />
+                          </Show>
+                        </Tabs.Content>
+                        <Tabs.Content value="watches" class="flex flex-col h-full overflow-hidden contain-strict">
+                          <Show when={activeTab() === "watches"}>
+                            <WatchesTab onOpenFile={(filePath) => openTab(file.tab(filePath))} />
+                          </Show>
+                        </Tabs.Content>
+                      </>
                     )}
                   </Show>
 
@@ -409,17 +548,58 @@ export function SessionSidePanel(props: {
                       <>
                         <Tabs.Content value="atom-content" class="flex flex-col h-full overflow-hidden contain-strict">
                           <Show when={activeTab() === "atom-content"}>
-                            <AtomSessionTab atom={atom} activeTab="content" />
+                            <AtomSessionTab atom={atom} activeTab="content" onRefresh={refetchAtomSession} />
                           </Show>
                         </Tabs.Content>
                         <Tabs.Content value="atom-evidence" class="flex flex-col h-full overflow-hidden contain-strict">
                           <Show when={activeTab() === "atom-evidence"}>
-                            <AtomSessionTab atom={atom} activeTab="evidence" />
+                            <AtomSessionTab atom={atom} activeTab="evidence" onRefresh={refetchAtomSession} />
                           </Show>
                         </Tabs.Content>
                         <Tabs.Content value="atom-plan" class="flex flex-col h-full overflow-hidden contain-strict">
                           <Show when={activeTab() === "atom-plan"}>
-                            <AtomSessionTab atom={atom} activeTab="plan" />
+                            <AtomSessionTab atom={atom} activeTab="plan" onRefresh={refetchAtomSession} />
+                          </Show>
+                        </Tabs.Content>
+                        <Tabs.Content
+                          value="atom-assessment"
+                          class="flex flex-col h-full overflow-hidden contain-strict"
+                        >
+                          <Show when={activeTab() === "atom-assessment"}>
+                            <AtomSessionTab atom={atom} activeTab="assessment" onRefresh={refetchAtomSession} />
+                          </Show>
+                        </Tabs.Content>
+                      </>
+                    )}
+                  </Show>
+
+                  <Show when={isExpSession() && experimentSession()} keyed>
+                    {(experiment) => (
+                      <>
+                        <Tabs.Content value="exp-info" class="flex flex-col h-full overflow-hidden contain-strict">
+                          <Show when={activeTab() === "exp-info"}>
+                            <ExpProgressTab experiment={experiment} onUpdated={refetchExperimentSession} />
+                          </Show>
+                        </Tabs.Content>
+                        <Tabs.Content value="exp-plan" class="flex flex-col h-full overflow-hidden contain-strict">
+                          <Show when={activeTab() === "exp-plan"}>
+                            <ExpPlanTab experiment={experiment} />
+                          </Show>
+                        </Tabs.Content>
+                        <Tabs.Content value="exp-history" class="flex flex-col h-full overflow-hidden contain-strict">
+                          <Show when={activeTab() === "exp-history"}>
+                            <ExpHistoryChangeTab
+                              experiment={experiment}
+                              commits={experimentDiff.latest ?? []}
+                              loading={experimentDiff.loading}
+                              error={experimentDiff.error}
+                              onRefresh={refetchExperimentDiff}
+                            />
+                          </Show>
+                        </Tabs.Content>
+                        <Tabs.Content value="exp-result" class="flex flex-col h-full overflow-hidden contain-strict">
+                          <Show when={activeTab() === "exp-result"}>
+                            <ExpResultTab experiment={experiment} onOpenFile={(filePath) => openTab(file.tab(filePath))} />
                           </Show>
                         </Tabs.Content>
                       </>

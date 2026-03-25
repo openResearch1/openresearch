@@ -26,12 +26,12 @@ That workflow is useful, but it leaves out an important part of actual research:
 
 A good research project is not just a sequence of outputs. It is a structured, evolving network that records:
 
-* what is currently believed,
-* why it is believed,
-* what has been tested,
-* what failed,
-* what remains unresolved,
-* and what might be explored next.
+- what is currently believed,
+- why it is believed,
+- what has been tested,
+- what failed,
+- what remains unresolved,
+- and what might be explored next.
 
 OpenResearch aims to make that structure explicit, so research becomes easier to inspect and revisit.
 
@@ -43,17 +43,17 @@ We model research as a graph of minimal scientific atoms.
 
 Each atom contains:
 
-* **Claim** — a precise scientific statement
-* **Evidence** — a derivation, experiment, observation, or result supporting that statement
+- **Claim** — a precise scientific statement
+- **Evidence** — a derivation, experiment, observation, or result supporting that statement
 
 Atoms are connected by typed relations such as:
 
-* `motivates`
-* `formalizes`
-* `derives`
-* `analyzes`
-* `validates`
-* `contradicts`
+- `motivates`
+- `formalizes`
+- `derives`
+- `analyzes`
+- `validates`
+- `contradicts`
 
 Instead of treating a paper as one indivisible object, we treat it as a **living reasoning graph** that reflects the current state of the project.
 
@@ -69,9 +69,9 @@ AI is usually more reliable when it operates on explicit, local objects rather t
 
 By grounding each step in a concrete `claim + evidence` unit, the system encourages:
 
-* local reasoning,
-* explicit justification,
-* and inspectable failure.
+- local reasoning,
+- explicit justification,
+- and inspectable failure.
 
 This does not guarantee correctness, but it can help reduce unsupported leaps in reasoning.
 
@@ -81,10 +81,10 @@ AI/ML research is often messy and long-running. Small insights are easy to lose,
 
 OpenResearch tries to turn those fragments into persistent structure:
 
-* each micro-result can be stored,
-* each claim can be revised,
-* each validation can be traced,
-* and new ideas can be linked back to prior work.
+- each micro-result can be stored,
+- each claim can be revised,
+- each validation can be traced,
+- and new ideas can be linked back to prior work.
 
 The result is a research memory that can accumulate over time.
 
@@ -94,11 +94,11 @@ A researcher’s value is not only execution. It also includes judgment, intuiti
 
 OpenResearch is designed to support collaboration with AI at the granularity of:
 
-* one claim,
-* one theorem,
-* one design decision,
-* one failed experiment,
-* one suspicious result.
+- one claim,
+- one theorem,
+- one design decision,
+- one failed experiment,
+- one suspicious result.
 
 That is often the level where expert input matters most.
 
@@ -129,18 +129,18 @@ OpenResearch focuses on a different set of priorities.
 
 ### Systems like FARS tend to emphasize:
 
-* end-to-end execution,
-* automation,
-* throughput,
-* and faster idea-to-paper workflows.
+- end-to-end execution,
+- automation,
+- throughput,
+- and faster idea-to-paper workflows.
 
 ### OpenResearch emphasizes:
 
-* atomic provenance,
-* inspectable reasoning state,
-* persistent scientific memory,
-* human-in-the-loop control,
-* and fine-grained research steering.
+- atomic provenance,
+- inspectable reasoning state,
+- persistent scientific memory,
+- human-in-the-loop control,
+- and fine-grained research steering.
 
 > **A pipeline-first system treats research primarily as a workflow to execute.**  
 > **OpenResearch treats research as a knowledge graph to evolutate and maintain.**
@@ -153,12 +153,12 @@ For AI/ML research, the challenge is often not only execution, but also keeping 
 
 Papers are compressed summaries of research. They often hide:
 
-* abandoned branches,
-* intermediate claims,
-* failed validations,
-* fragile assumptions,
-* alternative explanations,
-* and unresolved contradictions.
+- abandoned branches,
+- intermediate claims,
+- failed validations,
+- fragile assumptions,
+- alternative explanations,
+- and unresolved contradictions.
 
 But these are often exactly the things that matter during iterative discovery.
 
@@ -170,18 +170,18 @@ An atom graph keeps them visible and reusable.
 
 AI/ML research naturally mixes:
 
-* empirical claims,
-* algorithmic constructions,
-* theoretical guarantees,
-* implementation details,
-* and benchmark-based validation.
+- empirical claims,
+- algorithmic constructions,
+- theoretical guarantees,
+- implementation details,
+- and benchmark-based validation.
 
 OpenResearch therefore separates different logical layers, such as:
 
-* **Fact claims**
-* **Method claims**
-* **Theorem claims**
-* **Verification claims**
+- **Fact claims**
+- **Method claims**
+- **Theorem claims**
+- **Verification claims**
 
 This makes it easier to keep the graph clear and usable.
 
@@ -191,11 +191,11 @@ This makes it easier to keep the graph clear and usable.
 
 OpenResearch is not just imagined as an “AI scientist”, but as a **research operating system**:
 
-* ideas become claims,
-* claims lead to executable validation,
-* results become structured evidence,
-* contradictions become visible,
-* and projects remain navigable over time.
+- ideas become claims,
+- claims lead to executable validation,
+- results become structured evidence,
+- contradictions become visible,
+- and projects remain navigable over time.
 
 The goal is not to replace researchers, but to support more effective collaboration between humans and AI.
 
@@ -205,15 +205,15 @@ The goal is not to replace researchers, but to support more effective collaborat
 
 We envision a system where humans and AI work together to turn scientific ideas into structured knowledge and experimental results. In such a system, users could:
 
-* **analyze papers** and decompose them into claim–evidence atoms,
-* **build and maintain a persistent graph** of claims and evidence,
-* **propose new claims** with AI suggestions and human judgment,
-* **generate validation plans** and executable code,
-* **run experiments and simulations** and collect structured evidence,
-* **attach results back to the graph** while preserving provenance,
-* **accept, reject, refine, or split claims** as research evolves,
-* **support collaboration across people and projects**, and
-* **generate drafts** for papers, reports, or presentations from the graph.
+- **analyze papers** and decompose them into claim–evidence atoms,
+- **build and maintain a persistent graph** of claims and evidence,
+- **propose new claims** with AI suggestions and human judgment,
+- **generate validation plans** and executable code,
+- **run experiments and simulations** and collect structured evidence,
+- **attach results back to the graph** while preserving provenance,
+- **accept, reject, refine, or split claims** as research evolves,
+- **support collaboration across people and projects**, and
+- **generate drafts** for papers, reports, or presentations from the graph.
 
 The aim is to support a research workflow that remains transparent and traceable while still being useful in practice.
 
@@ -229,11 +229,11 @@ Because research infrastructure should also be inspectable, extensible, and shar
 
 OpenResearch is for people who care about:
 
-* building persistent scientific state,
-* reasoning locally,
-* preserving uncertainty,
-* making progress inspectable,
-* and enabling human–AI collaboration around claims.
+- building persistent scientific state,
+- reasoning locally,
+- preserving uncertainty,
+- making progress inspectable,
+- and enabling human–AI collaboration around claims.
 
 It is less about producing a paper as quickly as possible, and more about supporting a durable research process.
 
@@ -253,8 +253,8 @@ The core thesis is simple:
 
 This project may be interesting if you care about:
 
-* AI-assisted scientific research,
-* human–AI co-discovery,
-* structured scientific memory,
-* interpretable research agents,
-* and long-horizon research workflows.
+- AI-assisted scientific research,
+- human–AI co-discovery,
+- structured scientific memory,
+- interpretable research agents,
+- and long-horizon research workflows.

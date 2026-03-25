@@ -185,6 +185,7 @@ export function getToolInfo(tool: string, input: any = {}): ToolInfo {
       }
     }
     case "bash":
+    case "ssh":
       return {
         icon: "console",
         title: i18n.t("ui.tool.shell"),
@@ -284,7 +285,7 @@ function renderable(part: PartType, showReasoningSummaries = true) {
 }
 
 function toolDefaultOpen(tool: string, shell = false, edit = false) {
-  if (tool === "bash") return shell
+  if (tool === "bash" || tool === "ssh") return shell
   if (tool === "edit" || tool === "write") return edit
   if (tool === "apply_patch") return false
 }
@@ -519,7 +520,7 @@ export function AssistantParts(props: {
             const value = part()
             if (!value) return
             if (value.part.type !== "tool") return
-            if (value.part.tool !== "bash") return
+            if (value.part.tool !== "bash" && value.part.tool !== "ssh") return
             return value.part
           })
           const kind = createMemo(() => {
@@ -1541,85 +1542,92 @@ ToolRegistry.register({
   },
 })
 
-ToolRegistry.register({
-  name: "bash",
-  render(props) {
-    const i18n = useI18n()
-    const pending = () => busy(props.status)
-    const reveal = useToolReveal(pending, () => props.reveal !== false)
-    const subtitle = () => props.input.description ?? props.metadata.description
-    const cmd = createMemo(() => {
-      const value = props.input.command ?? props.metadata.command
-      if (typeof value === "string") return value
-      return ""
-    })
-    const output = createMemo(() => {
-      if (typeof props.output === "string") return props.output
-      if (typeof props.metadata.output === "string") return props.metadata.output
-      return ""
-    })
-    const command = createMemo(() => `$ ${cmd()}`)
-    const result = createMemo(() => stripAnsi(output()))
-    const text = createMemo(() => {
-      const value = result()
-      return `${command()}${value ? "\n\n" + value : ""}`
-    })
-    const hasOutput = createMemo(() => result().length > 0)
-    const [copied, setCopied] = createSignal(false)
+function ShellToolRenderer(props: any) {
+  const i18n = useI18n()
+  const pending = () => busy(props.status)
+  const reveal = useToolReveal(pending, () => props.reveal !== false)
+  const subtitle = () => props.input.description ?? props.metadata.description
+  const cmd = createMemo(() => {
+    const value = props.input.command ?? props.metadata.command
+    if (typeof value === "string") return value
+    return ""
+  })
+  const output = createMemo(() => {
+    if (typeof props.output === "string") return props.output
+    if (typeof props.metadata.output === "string") return props.metadata.output
+    return ""
+  })
+  const command = createMemo(() => `$ ${cmd()}`)
+  const result = createMemo(() => stripAnsi(output()))
+  const text = createMemo(() => {
+    const value = result()
+    return `${command()}${value ? "\n\n" + value : ""}`
+  })
+  const hasOutput = createMemo(() => result().length > 0)
+  const [copied, setCopied] = createSignal(false)
 
-    const handleCopy = async () => {
-      const content = text()
-      if (!content) return
-      await navigator.clipboard.writeText(content)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    }
+  const handleCopy = async () => {
+    const content = text()
+    if (!content) return
+    await navigator.clipboard.writeText(content)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
 
-    return (
-      <ToolCall
-        variant="panel"
-        {...props}
-        icon="console"
-        animate
-        springContent
-        defaultOpen={false}
-        trigger={
-          <div data-slot="basic-tool-tool-info-structured">
-            <div data-slot="basic-tool-tool-info-main">
-              <span data-slot="basic-tool-tool-title">
-                <TextShimmer text={i18n.t("ui.tool.shell")} active={pending()} />
-              </span>
-              <Show when={subtitle()}>{(text) => <ShellText text={text()} animate={reveal()} />}</Show>
-            </div>
-          </div>
-        }
-      >
-        <div data-component="bash-output">
-          <div data-slot="bash-copy">
-            <Tooltip
-              value={copied() ? i18n.t("ui.message.copied") : i18n.t("ui.message.copy")}
-              placement="top"
-              gutter={4}
-            >
-              <IconButton
-                icon={copied() ? "check" : "copy"}
-                size="small"
-                variant="secondary"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={handleCopy}
-                aria-label={copied() ? i18n.t("ui.message.copied") : i18n.t("ui.message.copy")}
-              />
-            </Tooltip>
-          </div>
-          <div data-slot="bash-scroll" data-scrollable>
-            <pre data-slot="bash-pre">
-              <code>{text()}</code>
-            </pre>
+  return (
+    <ToolCall
+      variant="panel"
+      {...props}
+      icon="console"
+      animate
+      springContent
+      defaultOpen={false}
+      trigger={
+        <div data-slot="basic-tool-tool-info-structured">
+          <div data-slot="basic-tool-tool-info-main">
+            <span data-slot="basic-tool-tool-title">
+              <TextShimmer text={i18n.t("ui.tool.shell")} active={pending()} />
+            </span>
+            <Show when={subtitle()}>{(text) => <ShellText text={text()} animate={reveal()} />}</Show>
           </div>
         </div>
-      </ToolCall>
-    )
-  },
+      }
+    >
+      <div data-component="bash-output">
+        <div data-slot="bash-copy">
+          <Tooltip
+            value={copied() ? i18n.t("ui.message.copied") : i18n.t("ui.message.copy")}
+            placement="top"
+            gutter={4}
+          >
+            <IconButton
+              icon={copied() ? "check" : "copy"}
+              size="small"
+              variant="secondary"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={handleCopy}
+              aria-label={copied() ? i18n.t("ui.message.copied") : i18n.t("ui.message.copy")}
+            />
+          </Tooltip>
+        </div>
+        <div data-slot="bash-scroll" data-scrollable>
+          <pre data-slot="bash-pre">
+            <code>{text()}</code>
+          </pre>
+        </div>
+      </div>
+    </ToolCall>
+  )
+}
+
+ToolRegistry.register({
+  name: "bash",
+  render: ShellToolRenderer,
+})
+
+ToolRegistry.register({
+  name: "ssh",
+  render: ShellToolRenderer,
 })
 
 ToolRegistry.register({

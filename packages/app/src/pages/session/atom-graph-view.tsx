@@ -35,7 +35,8 @@ const TYPE_LABELS: Record<string, string> = {
 const EVIDENCE_STATUS_LABELS: Record<string, string> = {
   pending: "Pending",
   in_progress: "In Progress",
-  done: "Done",
+  proven: "Proven",
+  disproven: "Disproven",
 }
 
 const RELATION_LABELS: Record<string, string> = {
@@ -690,7 +691,14 @@ export function AtomGraphView(props: {
     const confirmOpen = state.confirmOpen
 
     const onKey = (evt: KeyboardEvent) => {
-      if (!containerRef || state.selectedIds.length === 0 || state.active || state.dragging || deleting || confirmOpen) {
+      if (
+        !containerRef ||
+        state.selectedIds.length === 0 ||
+        state.active ||
+        state.dragging ||
+        deleting ||
+        confirmOpen
+      ) {
         return
       }
       const target = evt.target as HTMLElement | null
@@ -844,7 +852,7 @@ export function AtomGraphView(props: {
       </Show>
       <Show when={state.anchorVisible && !state.dragging && !state.active}>
         <button
-          class="absolute z-20 flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-indigo-300/70 bg-slate-900/90 text-[12px] font-medium text-indigo-200 shadow-lg shadow-indigo-500/20 transition-transform hover:scale-110"
+          class="absolute z-20 flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-border-interactive-base/70 bg-background-strong/90 text-[12px] font-medium text-text-interactive-base shadow-lg transition-transform hover:scale-110"
           style={{
             left: `${state.anchorX}px`,
             top: `${state.anchorY}px`,
@@ -870,7 +878,7 @@ export function AtomGraphView(props: {
       </Show>
       <Show when={state.deleteVisible && !state.dragging && !state.active && state.hoverNodeId}>
         <button
-          class="absolute z-20 flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-slate-800/80 text-[12px] text-slate-400 shadow-lg transition-colors hover:text-red-400"
+          class="absolute z-20 flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-surface-raised-base/80 text-[12px] text-text-weak shadow-lg transition-colors hover:text-icon-critical-hover"
           style={{
             left: `${state.deleteX}px`,
             top: `${state.deleteY}px`,
@@ -899,30 +907,30 @@ export function AtomGraphView(props: {
           ×
         </button>
       </Show>
-      <div class="absolute bottom-4 right-4 z-20 bg-slate-800/90 backdrop-blur-sm rounded-lg px-3 py-2 border border-slate-700">
-        <div class="text-[10px] text-slate-400 mb-2 font-medium">ATOM TYPES</div>
+      <div class="absolute bottom-4 right-4 z-20 bg-surface-raised-base/90 backdrop-blur-sm rounded-lg px-3 py-2 border border-border-weak-base">
+        <div class="text-[10px] text-text-weak mb-2 font-medium">ATOM TYPES</div>
         <div class="flex flex-col gap-1.5 mb-3">
           {legendItems.map((item) => (
             <div class="flex items-center gap-2">
               <div class="w-3 h-3 rounded-full" style={{ background: item.color }} />
-              <span class="text-xs text-slate-300">{item.label}</span>
+              <span class="text-xs text-text-base">{item.label}</span>
             </div>
           ))}
         </div>
-        <div class="border-t border-slate-700 pt-2">
-          <div class="text-[10px] text-slate-400 mb-2 font-medium">RELATIONS</div>
+        <div class="border-t border-border-weak-base pt-2">
+          <div class="text-[10px] text-text-weak mb-2 font-medium">RELATIONS</div>
           <div class="flex flex-col gap-1.5">
             {relationLegendItems.map((item) => (
               <div class="flex items-center gap-2">
                 <div class="w-3 h-0.5 rounded-full" style={{ background: item.color }} />
-                <span class="text-xs text-slate-300">{item.label}</span>
+                <span class="text-xs text-text-base">{item.label}</span>
               </div>
             ))}
           </div>
         </div>
         <button
           onClick={() => triggerAutoLayout()}
-          class="mt-3 w-full px-2 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition-colors flex items-center justify-center gap-1"
+          class="mt-3 w-full px-2 py-1.5 text-xs bg-surface-weak hover:bg-surface-weaker text-text-base rounded transition-colors flex items-center justify-center gap-1"
         >
           <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path
@@ -936,8 +944,8 @@ export function AtomGraphView(props: {
         </button>
       </div>
       <Show when={props.loading}>
-        <div class="absolute inset-0 flex items-center justify-center bg-slate-900/80 z-10">
-          <div class="text-gray-500">Loading graph...</div>
+        <div class="absolute inset-0 flex items-center justify-center bg-background-strong/80 z-10">
+          <div class="text-text-weak">Loading graph...</div>
         </div>
       </Show>
       <Show when={state.active}>
@@ -957,7 +965,7 @@ export function AtomGraphView(props: {
                 setState("relationType", value)
                 void submitRelation()
               }}
-              class="w-full appearance-none bg-transparent px-3 py-1.5 pr-8 text-[13px] font-medium tracking-[0.01em] text-slate-100/88 outline-none"
+              class="w-full appearance-none bg-transparent px-3 py-1.5 pr-8 text-[13px] font-medium tracking-[0.01em] text-text-strong outline-none"
             >
               <option value="" disabled>
                 Select relation
@@ -966,33 +974,33 @@ export function AtomGraphView(props: {
                 <option value={value}>{label}</option>
               ))}
             </select>
-            <div class="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-slate-200/55">
+            <div class="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-text-weak">
               <svg class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7">
                 <path d="M5 7.5L10 12.5L15 7.5" stroke-linecap="round" stroke-linejoin="round" />
               </svg>
             </div>
           </div>
           <Show when={state.error}>
-            <div class="mt-1 rounded-2xl border border-red-400/20 bg-red-500/10 px-2.5 py-1.5 text-[11px] text-red-100">
+            <div class="mt-1 rounded-2xl border border-border-critical-base/20 bg-surface-critical-base/10 px-2.5 py-1.5 text-[11px] text-text-on-critical-base">
               {state.error}
             </div>
           </Show>
         </div>
       </Show>
       <Show when={state.confirmOpen}>
-        <div class="absolute inset-0 z-30 flex items-center justify-center bg-slate-950/70 backdrop-blur-[1px]">
-          <div class="w-[360px] rounded-xl border border-slate-700 bg-slate-900 shadow-2xl p-4">
-            <div class="text-sm font-medium text-slate-100">Delete Atom</div>
-            <div class="mt-3 text-sm text-slate-300">
+        <div class="absolute inset-0 z-30 flex items-center justify-center bg-background-strong/70 backdrop-blur-[1px]">
+          <div class="w-[360px] rounded-xl border border-border-weak-base bg-surface-float-base shadow-2xl p-4">
+            <div class="text-sm font-medium text-text-strong">Delete Atom</div>
+            <div class="mt-3 text-sm text-text-base">
               Delete{" "}
-              <span class="text-slate-100">
+              <span class="text-text-strong">
                 {deleteAtoms().length === 1
                   ? (deleteAtoms()[0]?.atom_name ?? state.deleteIds[0]?.slice(0, 8))
                   : `${state.deleteIds.length} atoms`}
               </span>{" "}
               and all related relations, local files, and linked sessions?
             </div>
-            <div class="mt-2 text-xs text-slate-500">This action cannot be undone.</div>
+            <div class="mt-2 text-xs text-text-weaker">This action cannot be undone.</div>
             <div class="mt-4 flex items-center justify-end gap-2">
               <button
                 onClick={() =>
@@ -1003,14 +1011,14 @@ export function AtomGraphView(props: {
                   })
                 }
                 disabled={state.deleting}
-                class="px-3 py-1.5 text-xs rounded bg-slate-800 text-slate-300 hover:bg-slate-700 disabled:opacity-60 transition-colors"
+                class="px-3 py-1.5 text-xs rounded bg-surface-raised-base text-text-base hover:bg-surface-raised-base-hover disabled:opacity-60 transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={() => removeAtom()}
                 disabled={state.deleting}
-                class="px-3 py-1.5 text-xs rounded bg-red-500 text-white hover:bg-red-400 disabled:opacity-60 transition-colors"
+                class="px-3 py-1.5 text-xs rounded bg-surface-critical-strong text-text-on-critical-base hover:bg-surface-critical-strong disabled:opacity-60 transition-colors"
               >
                 {state.deleting ? "Deleting..." : "Delete"}
               </button>
@@ -1019,13 +1027,13 @@ export function AtomGraphView(props: {
         </div>
       </Show>
       <Show when={props.error}>
-        <div class="absolute inset-0 flex items-center justify-center bg-slate-900/80 z-10">
-          <div class="text-red-500">Error loading graph</div>
+        <div class="absolute inset-0 flex items-center justify-center bg-background-strong/80 z-10">
+          <div class="text-icon-critical-base">Error loading graph</div>
         </div>
       </Show>
       <Show when={!props.loading && !props.error && props.atoms.length === 0}>
-        <div class="absolute inset-0 flex items-center justify-center bg-slate-900/80 z-10">
-          <div class="text-gray-500">No atoms to display</div>
+        <div class="absolute inset-0 flex items-center justify-center bg-background-strong/80 z-10">
+          <div class="text-text-weak">No atoms to display</div>
         </div>
       </Show>
     </div>

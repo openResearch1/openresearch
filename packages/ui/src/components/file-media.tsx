@@ -1,5 +1,16 @@
 import type { FileContent } from "@opencode-ai/sdk/v2"
-import { createEffect, createMemo, createResource, createSignal, Match, on, onCleanup, Show, Switch, type JSX } from "solid-js"
+import {
+  createEffect,
+  createMemo,
+  createResource,
+  createSignal,
+  Match,
+  on,
+  onCleanup,
+  Show,
+  Switch,
+  type JSX,
+} from "solid-js"
 import { useI18n } from "../context/i18n"
 import {
   dataUrlFromMediaValue,
@@ -427,10 +438,7 @@ export function FileMedia(props: { media?: FileMediaOptions; fallback: () => JSX
                   </Show>
                 </div>
               </Show>
-              <Show
-                when={editing()}
-                fallback={<Markdown text={text} />}
-              >
+              <Show when={editing()} fallback={<Markdown text={text} />}>
                 <div class="grid min-h-[24rem] grid-cols-1 gap-3 lg:grid-cols-2">
                   <div class="flex min-h-0 flex-col overflow-hidden rounded-lg border border-border-weak-base bg-background-base">
                     <div class="border-b border-border-weak-base px-3 py-2 text-12-medium text-text-weak">Markdown</div>

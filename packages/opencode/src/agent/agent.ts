@@ -15,6 +15,12 @@ import PROMPT_RESEARCH from "./prompt/research.txt"
 import PROMPT_SUMMARY from "./prompt/summary.txt"
 import PROMPT_TITLE from "./prompt/title.txt"
 import PROMPT_RESEARCH_PROJECT_INIT from "./prompt/research_project_init.txt"
+import PROMPT_ARTICLE_CODE_ATTACH from "./prompt/article_code_attach.txt"
+import PROMPT_EXPERIMENT from "./prompt/experiment.txt"
+import PROMPT_EXPERIMENT_COMMIT from "./prompt/experiment_commit.txt"
+import PROMPT_EXPERIMENT_PLAN from "./prompt/experiment_plan.txt"
+import PROMPT_EXPERIMENT_DEPLOY from "./prompt/experiment_deploy.txt"
+import PROMPT_EXPERIMENT_SUMMARY from "./prompt/experiment_summary.txt"
 import PROMPT_EVIDENCE_ASSESSMENT from "./prompt/evidence_assessment.txt"
 import { PermissionNext } from "@/permission/next"
 import { mergeDeep, pipe, sortBy, values } from "remeda"
@@ -64,6 +70,7 @@ export namespace Agent {
         ...Object.fromEntries(whitelistedDirs.map((dir) => [dir, "allow"])),
       },
       research_doc_edit: "ask",
+      article_code_attach: "deny",
       question: "deny",
       plan_enter: "deny",
       plan_exit: "deny",
@@ -91,6 +98,49 @@ export namespace Agent {
           user,
         ),
         mode: "primary",
+        native: true,
+      },
+      experiment: {
+        name: "experiment",
+        description:
+          "Experiment execution agent. Reads the experiment plan and implements code changes strictly within the experiment's code_path.",
+        options: {},
+        permission: PermissionNext.merge(
+          defaults,
+          PermissionNext.fromConfig({
+            question: "allow",
+            plan_enter: "allow",
+          }),
+          user,
+        ),
+        prompt: PROMPT_EXPERIMENT,
+        mode: "primary",
+        native: true,
+      },
+      experiment_plan: {
+        name: "experiment_plan",
+        description:
+          "Experiment plan generation agent. Analyzes the atom's claim, evidence, related atoms, and codebase to design a detailed experiment plan.",
+        options: {},
+        permission: PermissionNext.merge(
+          defaults,
+          PermissionNext.fromConfig({
+            question: "allow",
+          }),
+          user,
+        ),
+        prompt: PROMPT_EXPERIMENT_PLAN,
+        mode: "subagent",
+        native: true,
+      },
+      experiment_deploy: {
+        name: "experiment_deploy",
+        description:
+          "Experiment deploy agent. Syncs code to a remote server, configures the conda environment, runs the experiment, and collects error info if it fails.",
+        options: {},
+        permission: PermissionNext.merge(defaults, PermissionNext.fromConfig({}), user),
+        prompt: PROMPT_EXPERIMENT_DEPLOY,
+        mode: "subagent",
         native: true,
       },
       research: {
@@ -237,13 +287,78 @@ export namespace Agent {
           PermissionNext.fromConfig({
             "*": "deny",
             research_info: "allow",
-            // article_read: "allow",
+            article_query: "allow",
             research_background_edit: "allow",
             research_goal_edit: "allow",
             atom_batch_create: "allow",
             question: "allow",
             read: "allow",
             research_doc_edit: "ask",
+          }),
+          user,
+        ),
+        options: {},
+        mode: "subagent",
+        native: true,
+      },
+      article_code_attach: {
+        name: "article_code_attach",
+        description:
+          "Attach source code to a research article. Accepts a GitHub URL or local path from the user, or automatically searches the article PDF and the web for the code repository.",
+        prompt: PROMPT_ARTICLE_CODE_ATTACH,
+        permission: PermissionNext.merge(
+          defaults,
+          PermissionNext.fromConfig({
+            "*": "deny",
+            article_query: "allow",
+            article_code_attach: "allow",
+            read: "allow",
+            question: "allow",
+            websearch: "allow",
+            webfetch: "allow",
+          }),
+          user,
+        ),
+        options: {},
+        mode: "subagent",
+        native: true,
+      },
+      experiment_commit: {
+        name: "experiment_commit",
+        description:
+          "Summarize code changes in the experiment's code_path and create a structured git commit with change details and stats.",
+        prompt: PROMPT_EXPERIMENT_COMMIT,
+        permission: PermissionNext.merge(
+          defaults,
+          PermissionNext.fromConfig({
+            "*": "deny",
+            bash: "allow",
+            read: "allow",
+            glob: "allow",
+            grep: "allow",
+          }),
+          user,
+        ),
+        options: {},
+        mode: "subagent",
+        native: true,
+      },
+      experiment_summary: {
+        name: "experiment_summary",
+        description:
+          "Summarize completed experiment results for an atom and write the evidence to evidence.md. Reads experiment watchers, W&B metrics, and synthesizes findings.",
+        prompt: PROMPT_EXPERIMENT_SUMMARY,
+        permission: PermissionNext.merge(
+          defaults,
+          PermissionNext.fromConfig({
+            "*": "deny",
+            atom_query: "allow",
+            experiment_query: "allow",
+            read: "allow",
+            write: "allow",
+            edit: "allow",
+            apply_patch: "allow",
+            glob: "allow",
           }),
           user,
         ),
@@ -261,6 +376,7 @@ export namespace Agent {
           PermissionNext.fromConfig({
             "*": "deny",
             atom_query: "allow",
+            atom_status_update: "allow",
             read: "allow",
             write: "allow",
             edit: "allow",

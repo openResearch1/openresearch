@@ -291,7 +291,7 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
           </Show>
         </div>
         <Show when={store.actionError}>
-          {(message) => <p class="text-xs text-text-danger-base text-center max-w-2xl">{message()}</p>}
+          {(message) => <p class="text-xs text-icon-critical-base text-center max-w-2xl">{message()}</p>}
         </Show>
         <div class="flex flex-col items-center gap-2">
           <div class="flex items-center justify-center gap-1">

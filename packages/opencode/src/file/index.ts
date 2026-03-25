@@ -700,10 +700,7 @@ export namespace File {
           : result.files
         : kind === "directory"
           ? result.dirs
-          : [
-              ...(isGlobalHome && query ? await store.homefiles() : result.files),
-              ...result.dirs,
-            ]
+          : [...(isGlobalHome && query ? await store.homefiles() : result.files), ...result.dirs]
 
     const searchLimit = kind === "directory" && !preferHidden ? limit * 20 : limit
     const sorted = fuzzysort.go(query, items, { limit: searchLimit }).map((r) => r.target)
