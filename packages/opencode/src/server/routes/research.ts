@@ -5,11 +5,16 @@ import path from "path"
 import { Filesystem } from "@/util/filesystem"
 import { Database } from "@/storage/db"
 import { Project } from "@/project/project"
+import { Instance } from "@/project/instance"
 import { ResearchProjectTable, ArticleTable, AtomTable, AtomRelationTable } from "@/research/research.sql"
 import { eq } from "drizzle-orm"
 import { Session } from "@/session"
+import { Research } from "@/research/research"
+import { linkKinds } from "@/research/research.sql"
+import { Bus } from "@/bus"
 import { errors } from "../error"
 import fs from "fs"
+import { rm } from "fs/promises"
 import { git } from "@/util/git"
 
 const createSchema = z.object({
@@ -58,6 +63,18 @@ const atomRelationSchema = z.object({
   note: z.string().nullable(),
   time_created: z.number(),
   time_updated: z.number(),
+})
+
+const atomRelationCreateSchema = z.object({
+  source_atom_id: z.string().min(1, "source atom required"),
+  target_atom_id: z.string().min(1, "target atom required"),
+  relation_type: z.enum(linkKinds),
+  note: z.string().optional(),
+})
+
+const atomDeleteResponseSchema = z.object({
+  atom_id: z.string(),
+  deleted: z.literal(true),
 })
 
 const researchProjectSchema = z.object({
@@ -138,6 +155,130 @@ export const ResearchRoutes = new Hono()
       }
 
       return c.json({ atoms, relations })
+    },
+  )
+  .post(
+    "/project/:researchProjectId/relation",
+    describeRoute({
+      summary: "Create atom relation",
+      description: "Create a directed relation between two atoms in the same research project.",
+      operationId: "research.relation.create",
+      responses: {
+        200: {
+          description: "Created relation",
+          content: {
+            "application/json": {
+              schema: resolver(atomRelationSchema),
+            },
+          },
+        },
+        ...errors(400, 404),
+      },
+    }),
+    validator("json", atomRelationCreateSchema),
+    async (c) => {
+      const researchProjectId = c.req.param("researchProjectId")
+      const body = c.req.valid("json")
+
+      if (body.source_atom_id === body.target_atom_id) {
+        return c.json({ success: false, message: "source and target atoms must be different" }, 400)
+      }
+
+      const source = Database.use((db) => db.select().from(AtomTable).where(eq(AtomTable.atom_id, body.source_atom_id)).get())
+      if (!source || source.research_project_id !== researchProjectId) {
+        return c.json({ success: false, message: `source atom not found: ${body.source_atom_id}` }, 404)
+      }
+
+      const target = Database.use((db) => db.select().from(AtomTable).where(eq(AtomTable.atom_id, body.target_atom_id)).get())
+      if (!target || target.research_project_id !== researchProjectId) {
+        return c.json({ success: false, message: `target atom not found: ${body.target_atom_id}` }, 404)
+      }
+
+      const now = Date.now()
+
+      try {
+        Database.use((db) =>
+          db
+            .insert(AtomRelationTable)
+            .values({
+              atom_id_source: body.source_atom_id,
+              atom_id_target: body.target_atom_id,
+              relation_type: body.relation_type,
+              note: body.note ?? null,
+              time_created: now,
+              time_updated: now,
+            })
+            .run(),
+        )
+      } catch (error: any) {
+        if (error?.code === "SQLITE_CONSTRAINT_PRIMARYKEY") {
+          return c.json({ success: false, message: "relation already exists" }, 400)
+        }
+        throw error
+      }
+
+      await Bus.publish(Research.Event.AtomsUpdated, { researchProjectId })
+
+      return c.json({
+        atom_id_source: body.source_atom_id,
+        atom_id_target: body.target_atom_id,
+        relation_type: body.relation_type,
+        note: body.note ?? null,
+        time_created: now,
+        time_updated: now,
+      })
+    },
+  )
+  .delete(
+    "/project/:researchProjectId/atom/:atomId",
+    describeRoute({
+      summary: "Delete atom",
+      description: "Delete one atom and all relations pointing to or from it.",
+      operationId: "research.atom.delete",
+      responses: {
+        200: {
+          description: "Deleted atom",
+          content: {
+            "application/json": {
+              schema: resolver(atomDeleteResponseSchema),
+            },
+          },
+        },
+        ...errors(404),
+      },
+    }),
+    async (c) => {
+      const researchProjectId = c.req.param("researchProjectId")
+      const atomId = c.req.param("atomId")
+
+      const atom = Database.use((db) => db.select().from(AtomTable).where(eq(AtomTable.atom_id, atomId)).get())
+      if (!atom || atom.research_project_id !== researchProjectId) {
+        return c.json({ success: false, message: `atom not found: ${atomId}` }, 404)
+      }
+
+      const dir = path.join(Instance.directory, "atom_list", atomId)
+      try {
+        await rm(dir, { recursive: true, force: true })
+      } catch (error) {
+        console.warn(`Failed to remove atom directory ${dir}:`, error)
+      }
+
+      if (atom.session_id) {
+        await Session.remove(atom.session_id)
+      }
+
+      Database.transaction(() => {
+        Database.use((db) => db.delete(AtomRelationTable).where(eq(AtomRelationTable.atom_id_source, atomId)).run())
+        Database.use((db) => db.delete(AtomRelationTable).where(eq(AtomRelationTable.atom_id_target, atomId)).run())
+        Database.use((db) => db.delete(AtomTable).where(eq(AtomTable.atom_id, atomId)).run())
+      })
+
+      await Bus.publish(Research.Event.AtomsUpdated, { researchProjectId })
+
+      return c.json({
+        atom_id: atomId,
+        deleted: true as const,
+      })
     },
   )
   .post(

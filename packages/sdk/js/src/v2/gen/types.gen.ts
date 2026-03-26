@@ -1377,7 +1377,7 @@ export type Config = {
    */
   small_model?: string
   /**
-   * Default agent to use when none is specified. Must be a primary agent. Falls back to 'build' if not set or if the specified agent is invalid.
+   * Default agent to use when none is specified. Must be a primary agent. Falls back to 'research' if not set or if the specified agent is invalid.
    */
   default_agent?: string
   /**
@@ -1396,6 +1396,7 @@ export type Config = {
    * Agent configuration, see https://opencode.ai/docs/agents
    */
   agent?: {
+    research?: AgentConfig
     plan?: AgentConfig
     build?: AgentConfig
     general?: AgentConfig
@@ -3845,6 +3846,7 @@ export type ResearchAtomsListResponses = {
       atom_evidence_status: string
       atom_experiments_plan_path: string | null
       atom_evidence_path: string | null
+      atom_evidence_assessment_path: string | null
       article_id: string | null
       exp_id: string | null
       session_id: string | null
@@ -3863,6 +3865,86 @@ export type ResearchAtomsListResponses = {
 }
 
 export type ResearchAtomsListResponse = ResearchAtomsListResponses[keyof ResearchAtomsListResponses]
+
+export type ResearchRelationCreateData = {
+  body?: {
+    source_atom_id: string
+    target_atom_id: string
+    relation_type: "motivates" | "formalizes" | "derives" | "analyzes" | "validates" | "contradicts" | "other"
+    note?: string
+  }
+  path: {
+    researchProjectId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/research/project/{researchProjectId}/relation"
+}
+
+export type ResearchRelationCreateErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ResearchRelationCreateError = ResearchRelationCreateErrors[keyof ResearchRelationCreateErrors]
+
+export type ResearchRelationCreateResponses = {
+  /**
+   * Created relation
+   */
+  200: {
+    atom_id_source: string
+    atom_id_target: string
+    relation_type: string
+    note: string | null
+    time_created: number
+    time_updated: number
+  }
+}
+
+export type ResearchRelationCreateResponse = ResearchRelationCreateResponses[keyof ResearchRelationCreateResponses]
+
+export type ResearchAtomDeleteData = {
+  body?: never
+  path: {
+    researchProjectId: string
+    atomId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/research/project/{researchProjectId}/atom/{atomId}"
+}
+
+export type ResearchAtomDeleteErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ResearchAtomDeleteError = ResearchAtomDeleteErrors[keyof ResearchAtomDeleteErrors]
+
+export type ResearchAtomDeleteResponses = {
+  /**
+   * Deleted atom
+   */
+  200: {
+    atom_id: string
+    deleted: true
+  }
+}
+
+export type ResearchAtomDeleteResponse = ResearchAtomDeleteResponses[keyof ResearchAtomDeleteResponses]
 
 export type ResearchProjectCreateData = {
   body?: {
@@ -3977,6 +4059,7 @@ export type ResearchSessionAtomGetResponses = {
       atom_evidence_status: string
       atom_experiments_plan_path: string | null
       atom_evidence_path: string | null
+      atom_evidence_assessment_path: string | null
       article_id: string | null
       exp_id: string | null
       session_id: string | null

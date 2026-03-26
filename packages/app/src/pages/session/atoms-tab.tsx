@@ -214,6 +214,33 @@ export function AtomsTab(props: { researchProjectId: string; currentSessionId?: 
     }
   }
 
+  const handleRelationCreate = async (input: {
+    sourceAtomId: string
+    targetAtomId: string
+    relationType: string
+  }) => {
+    await sdk.client.research.relation.create({
+      researchProjectId: props.researchProjectId,
+      source_atom_id: input.sourceAtomId,
+      target_atom_id: input.targetAtomId,
+      relation_type: input.relationType as
+        | "motivates"
+        | "formalizes"
+        | "derives"
+        | "analyzes"
+        | "validates"
+        | "contradicts"
+        | "other",
+    })
+  }
+
+  const handleAtomDelete = async (atomId: string) => {
+    await sdk.client.research.atom.delete({
+      researchProjectId: props.researchProjectId,
+      atomId,
+    })
+  }
+
   return (
     <div class="relative flex-1 min-h-0 overflow-hidden h-full flex flex-col">
       <div class="px-3 pt-3 pb-1 flex items-center justify-between">
@@ -259,6 +286,8 @@ export function AtomsTab(props: { researchProjectId: string; currentSessionId?: 
                 loading={loading()}
                 error={error()}
                 onAtomClick={handleAtomClick}
+                onAtomDelete={handleAtomDelete}
+                onRelationCreate={handleRelationCreate}
                 researchProjectId={props.researchProjectId}
               />
             </div>

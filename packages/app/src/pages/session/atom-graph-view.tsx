@@ -1,12 +1,13 @@
-import { createEffect, createSignal, onCleanup, onMount, Show, untrack } from "solid-js"
+import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js"
+import { createStore } from "solid-js/store"
 import { Graph } from "@antv/g6"
 import type { ResearchAtomsListResponse } from "@opencode-ai/sdk/v2"
 import { GraphState, GraphStateManager } from "./graph-state-manager"
 
 type Atom = ResearchAtomsListResponse["atoms"][number]
 type Relation = ResearchAtomsListResponse["relations"][number]
+type RelationType = keyof typeof RELATION_LABELS
 
-// 颜色映射
 const TYPE_COLORS: Record<string, string> = {
   fact: "#60a5fa",
   method: "#34d399",
@@ -57,12 +58,212 @@ export function AtomGraphView(props: {
 }) {
   let containerRef: HTMLDivElement | undefined
   const [containerReady, setContainerReady] = createSignal(false)
+  const [state, setState] = createStore({
+    hoverNodeId: "",
+    anchorVisible: false,
+    anchorX: 0,
+    anchorY: 0,
+    deleteVisible: false,
+    deleteX: 0,
+    deleteY: 0,
+    active: false,
+    dragging: false,
+    sourceId: "",
+    targetId: "",
+    selectedIds: [] as string[],
+    relationType: "" as "" | RelationType,
+    relationX: 0,
+    relationY: 0,
+    saving: false,
+    error: "",
+    startX: 0,
+    startY: 0,
+    endX: 0,
+    endY: 0,
+    deleting: false,
+    confirmOpen: false,
+    deleteIds: [] as string[],
+  })
+
   const setContainerRef = (el: HTMLDivElement) => {
     containerRef = el
-    setContainerReady(true) // 触发响应式更新
+    el.oncontextmenu = (evt) => {
+      evt.preventDefault()
+    }
+    setContainerReady(true)
   }
-  let graph: Graph | undefined
-  let stateManager: GraphStateManager
+
+  const clearHideAnchor = () => {
+    if (!hideAnchorTimer) return
+    clearTimeout(hideAnchorTimer)
+    hideAnchorTimer = undefined
+  }
+
+  const getPoint = (id: string) => {
+    if (!graph) return
+    const pos = graph.getElementPosition(id)
+    const point = graph.getViewportByCanvas(pos)
+    return {
+      x: point[0],
+      y: point[1],
+    }
+  }
+
+  const syncState = (id: string, next: string[]) => {
+    if (!graph || !id) return
+    void graph.setElementState(id, next)
+  }
+
+  const clearHover = () => {
+    if (!hoverId) return
+    syncState(hoverId, [])
+    hoverId = ""
+  }
+
+  const hideAnchor = () => {
+    clearHideAnchor()
+    if (anchorPinned || state.dragging || state.active || state.confirmOpen) return
+    setState({
+      anchorVisible: false,
+      hoverNodeId: "",
+      deleteVisible: false,
+    })
+  }
+
+  const scheduleAnchorHide = () => {
+    clearHideAnchor()
+    hideAnchorTimer = setTimeout(() => {
+      hideAnchor()
+    }, 120)
+  }
+
+  const showAnchor = (id: string) => {
+    const point = getPoint(id)
+    if (!point || state.dragging || state.active || state.confirmOpen) return
+
+    clearHideAnchor()
+    setState({
+      hoverNodeId: id,
+      anchorVisible: true,
+      anchorX: point.x + 24,
+      anchorY: point.y,
+      deleteVisible: true,
+      deleteX: point.x + 14,
+      deleteY: point.y - 18,
+    })
+  }
+
+  const beginDraft = (sourceId: string) => {
+    const point = getPoint(sourceId)
+    if (!point) return
+
+    anchorPinned = false
+    clearHover()
+    syncState(sourceId, ["connect-source"])
+    setState({
+      anchorVisible: false,
+      deleteVisible: false,
+      hoverNodeId: "",
+      dragging: true,
+      sourceId,
+      targetId: "",
+      startX: point.x,
+      startY: point.y,
+      endX: point.x,
+      endY: point.y,
+      error: "",
+    })
+  }
+
+  const moveDraft = (evt: any) => {
+    if (!state.dragging || !containerRef) return
+
+    const e = evt.originalEvent as MouseEvent | PointerEvent | undefined
+    if (!e) return
+
+    const rect = containerRef.getBoundingClientRect()
+    setState({
+      endX: e.clientX - rect.left,
+      endY: e.clientY - rect.top,
+    })
+  }
+
+  const resetDraft = () => {
+    clearHover()
+    if (state.sourceId) {
+      syncState(state.sourceId, [])
+    }
+    setState({
+      dragging: false,
+      sourceId: "",
+      targetId: "",
+      startX: 0,
+      startY: 0,
+      endX: 0,
+      endY: 0,
+    })
+  }
+
+  const finishDraft = (targetId: string) => {
+    if (!state.dragging || !state.sourceId || !targetId || state.sourceId === targetId) {
+      resetDraft()
+      return
+    }
+
+    const sourcePoint = getPoint(state.sourceId)
+    const targetPoint = getPoint(targetId)
+
+    clearHover()
+    syncState(state.sourceId, [])
+
+    setState({
+      active: true,
+      dragging: false,
+      targetId,
+      relationType: "",
+      saving: false,
+      error: "",
+      relationX: sourcePoint && targetPoint ? (sourcePoint.x + targetPoint.x) / 2 : state.endX,
+      relationY: sourcePoint && targetPoint ? (sourcePoint.y + targetPoint.y) / 2 : state.endY,
+      startX: 0,
+      startY: 0,
+      endX: 0,
+      endY: 0,
+      anchorVisible: false,
+      hoverNodeId: "",
+    })
+  }
+
+  const closeDraft = () => {
+    if (state.saving) return
+    setState({
+      active: false,
+      dragging: false,
+      sourceId: "",
+      targetId: "",
+      relationType: "",
+      error: "",
+      relationX: 0,
+      relationY: 0,
+      startX: 0,
+      startY: 0,
+      endX: 0,
+      endY: 0,
+    })
+  }
+
+  const closeMenu = () => {
+    return
+  }
+
+  const hideTooltip = () => {
+    const tooltip = document.getElementById("atom-tooltip")
+    if (!tooltip) return
+    if ((tooltip as any).cleanup) {
+      ;(tooltip as any).cleanup()
+    }
+    tooltip.remove()
+  }
 
   const graphOptions = {
     autoFit: "view" as const,
@@ -86,6 +287,24 @@ export function AtomGraphView(props: {
           shadowColor: "rgba(99,102,241,0.4)",
           shadowBlur: 16,
         },
+        "connect-source": {
+          stroke: "#818cf8",
+          lineWidth: 3,
+          shadowColor: "rgba(99,102,241,0.35)",
+          shadowBlur: 18,
+        },
+        "connect-target": {
+          stroke: "#f8fafc",
+          lineWidth: 4,
+          shadowColor: "rgba(248,250,252,0.45)",
+          shadowBlur: 20,
+        },
+        selected: {
+          stroke: "#f8fafc",
+          lineWidth: 4,
+          shadowColor: "rgba(248,250,252,0.32)",
+          shadowBlur: 18,
+        },
       },
     },
     edge: {
@@ -108,7 +327,11 @@ export function AtomGraphView(props: {
       nodesep: 25,
       ranksep: 40,
     },
-    behaviors: ["drag-canvas", "zoom-canvas", "drag-element"],
+    behaviors: [
+      { type: "drag-canvas", key: "drag-canvas" },
+      { type: "zoom-canvas", key: "zoom-canvas" },
+      { type: "drag-element", key: "drag-element", enable: true },
+    ],
     animation: false,
   }
 
@@ -139,128 +362,6 @@ export function AtomGraphView(props: {
     return { nodes, edges }
   }
 
-  const initGraph = () => {
-    try {
-      graph = new Graph({
-        container: containerRef,
-        data: toGraphData(),
-        ...graphOptions,
-      } as any)
-
-      graph.on("node:click", (evt: any) => {
-        const nodeId = evt.target?.id
-        if (nodeId) props.onAtomClick(nodeId)
-      })
-
-      graph.on("node:dragend", (evt: any) => {
-        saveCurrentState()
-      })
-
-      graph.on("viewportchange", (evt: any) => {
-        saveCurrentState()
-      })
-
-      setupTooltip()
-      let graphState = stateManager?.loadState()
-      if (graphState == null) {
-        graph.render().then(() => {
-          saveCurrentState()
-        })
-      } else {
-        applySavedPositions(graphState).then(() => {})
-      }
-    } catch (error) {
-      // 清理失败的状态
-      if (graph) {
-        graph.destroy()
-        graph = undefined
-      }
-    }
-  }
-
-  const applySavedPositions = async (savedState: GraphState) => {
-    if (!graph || !stateManager) return
-
-    if (!savedState?.positions) return
-
-    const updateData = {
-      nodes: [] as any[],
-      edges: [] as any[],
-    }
-
-    Object.entries(savedState.positions).forEach(([atomId, position]) => {
-      updateData.nodes.push({
-        id: atomId,
-        style: {
-          x: position.x,
-          y: position.y,
-        },
-      })
-    })
-
-    const currentAtomIdList = new Set<String>()
-    props.atoms.forEach((atom) => {
-      currentAtomIdList.add(atom.atom_id)
-    })
-    const filteredNodes = updateData.nodes.filter((node) => {
-      return currentAtomIdList.has(node.id)
-    })
-
-    if (filteredNodes.length > 0) {
-      try {
-        graph?.updateNodeData(filteredNodes)
-        await graph?.draw()
-        await graph?.fitView()
-      } catch (error) {}
-    }
-  }
-
-  const saveCurrentState = () => {
-    if (!graph || !stateManager) return
-
-    try {
-      const positions: Record<string, { x: number; y: number }> = {}
-      if (graph.getNodeData().length == 0) {
-        stateManager?.clearState()
-        return
-      }
-
-      // 获取当前所有节点位置
-      graph.getNodeData().forEach((node: any) => {
-        if (node.id && node.style) {
-          positions[node.id] = {
-            x: node.style.x || 0,
-            y: node.style.y || 0,
-          }
-        }
-      })
-
-      const zoom = graph.getZoom()
-      const viewport = graph.getCanvasCenter()
-
-      let centerX = viewport[0],
-        centerY = viewport[1]
-
-      stateManager.saveState(positions, {
-        zoom: zoom,
-        centerX: centerX,
-        centerY: centerY,
-      })
-    } catch (error) {
-      console.warn("Failed to save graph state:", error)
-    }
-  }
-
-  const triggerAutoLayout = async () => {
-    if (!graph || !stateManager) return
-
-    stateManager.clearState()
-    await graph.layout()
-    await graph.fitView()
-    await graph.render()
-    saveCurrentState()
-  }
-
   const setupTooltip = () => {
     if (!graph) return
 
@@ -289,12 +390,11 @@ export function AtomGraphView(props: {
 
     const destroyTooltip = () => {
       const tooltip = document.getElementById("atom-tooltip")
-      if (tooltip) {
-        if ((tooltip as any).cleanup) {
-          ;(tooltip as any).cleanup()
-        }
-        tooltip.remove()
+      if (!tooltip) return
+      if ((tooltip as any).cleanup) {
+        ;(tooltip as any).cleanup()
       }
+      tooltip.remove()
     }
 
     const updateTooltipPosition = (tooltip: HTMLElement, e: MouseEvent) => {
@@ -313,13 +413,8 @@ export function AtomGraphView(props: {
         top = e.clientY - tooltipRect.height - 10
       }
 
-      if (left < 0) {
-        left = 10
-      }
-
-      if (top < 0) {
-        top = 10
-      }
+      if (left < 0) left = 10
+      if (top < 0) top = 10
 
       tooltip.style.left = `${left}px`
       tooltip.style.top = `${top}px`
@@ -328,11 +423,11 @@ export function AtomGraphView(props: {
     graph.on("node:pointerenter", (evt: any) => {
       const nodeId = evt.target?.id
       if (nodeId) {
+        showAnchor(nodeId)
         const atom = props.atoms.find((a) => a.atom_id === nodeId)
         if (atom) {
           const typeLabel = TYPE_LABELS[atom.atom_type] ?? atom.atom_type
           const statusLabel = EVIDENCE_STATUS_LABELS[atom.atom_evidence_status] ?? atom.atom_evidence_status
-
           const tooltip = createTooltip()
 
           tooltip.innerHTML = `
@@ -343,7 +438,6 @@ export function AtomGraphView(props: {
 
           updateTooltipPosition(tooltip, evt.originalEvent as MouseEvent)
 
-          // 鼠标移动时更新位置
           const handleMouseMove = (e: MouseEvent) => {
             updateTooltipPosition(tooltip, e)
           }
@@ -356,21 +450,102 @@ export function AtomGraphView(props: {
       }
     })
 
-    graph.on("node:pointerleave", (evt: any) => {
-      destroyTooltip()
+    graph.on("node:pointerleave", () => {
+      const tooltip = document.getElementById("atom-tooltip")
+      if (tooltip) {
+        if ((tooltip as any).cleanup) {
+          ;(tooltip as any).cleanup()
+        }
+        tooltip.remove()
+      }
+      scheduleAnchorHide()
     })
   }
 
-  const updateGraph = () => {
-    if (!graph || !containerRef) {
-      return
-    }
-
+  const initGraph = () => {
     try {
-      const data = toGraphData()
-      graph.setData(data)
+      graph = new Graph({
+        container: containerRef,
+        data: toGraphData(),
+        ...graphOptions,
+      } as any)
 
-      let graphState = stateManager.loadState()
+      graph.on("node:click", (evt: any) => {
+        if (state.dragging || state.active || state.confirmOpen) return
+        const nodeId = evt.target?.id
+        if (!nodeId) return
+        const e = evt.originalEvent as MouseEvent | PointerEvent | undefined
+        const multi = !!e && (("metaKey" in e && e.metaKey) || ("ctrlKey" in e && e.ctrlKey))
+        const next = multi
+          ? state.selectedIds.includes(nodeId)
+            ? state.selectedIds.filter((id) => id !== nodeId)
+            : [...state.selectedIds, nodeId]
+          : [nodeId]
+        setState("selectedIds", next)
+      })
+
+      graph.on("node:dblclick", (evt: any) => {
+        if (state.dragging || state.active || state.confirmOpen) return
+        const nodeId = evt.target?.id
+        if (nodeId) props.onAtomClick(nodeId)
+      })
+
+      graph.on("node:pointermove", (evt: any) => {
+        if (state.dragging) {
+          moveDraft(evt)
+          const nodeId = evt.target?.id
+          if (!nodeId || nodeId === state.sourceId) {
+            clearHover()
+            return
+          }
+          if (hoverId === nodeId) return
+          clearHover()
+          hoverId = nodeId
+          syncState(nodeId, ["connect-target"])
+          return
+        }
+
+        const nodeId = evt.target?.id
+        if (nodeId) {
+          showAnchor(nodeId)
+        }
+      })
+
+      graph.on("canvas:pointermove", (evt: any) => {
+        if (!state.dragging) return
+        moveDraft(evt)
+        clearHover()
+      })
+
+      graph.on("node:pointerup", (evt: any) => {
+        if (!state.dragging) return
+        const nodeId = evt.target?.id
+        finishDraft(nodeId)
+      })
+
+      graph.on("canvas:pointerup", () => {
+        if (!state.dragging) return
+        resetDraft()
+      })
+
+      graph.on("canvas:click", () => {
+        hideAnchor()
+        setState("selectedIds", [])
+        if (state.active && !state.saving) {
+          closeDraft()
+        }
+      })
+
+      graph.on("node:dragend", () => {
+        saveCurrentState()
+      })
+
+      graph.on("viewportchange", () => {
+        saveCurrentState()
+      })
+
+      setupTooltip()
+      const graphState = stateManager?.loadState()
       if (graphState == null) {
         graph.render().then(() => {
           saveCurrentState()
@@ -378,30 +553,159 @@ export function AtomGraphView(props: {
       } else {
         applySavedPositions(graphState).then(() => {})
       }
-    } catch (error) {}
+    } catch {
+      if (graph) {
+        graph.destroy()
+        graph = undefined
+      }
+    }
+  }
+
+  const applySavedPositions = async (savedState: GraphState) => {
+    if (!graph || !stateManager || !savedState?.positions) return
+
+    const updateData = {
+      nodes: [] as any[],
+      edges: [] as any[],
+    }
+
+    Object.entries(savedState.positions).forEach(([atomId, position]) => {
+      updateData.nodes.push({
+        id: atomId,
+        style: {
+          x: position.x,
+          y: position.y,
+        },
+      })
+    })
+
+    const ids = new Set<string>()
+    props.atoms.forEach((atom) => {
+      ids.add(atom.atom_id)
+    })
+
+    const filteredNodes = updateData.nodes.filter((node) => ids.has(node.id))
+    if (filteredNodes.length <= 0) return
+
+    try {
+      graph.updateNodeData(filteredNodes)
+      await graph.draw()
+      await graph.fitView()
+    } catch {}
+  }
+
+  const saveCurrentState = () => {
+    if (!graph || !stateManager) return
+
+    try {
+      const positions: Record<string, { x: number; y: number }> = {}
+      if (graph.getNodeData().length === 0) {
+        stateManager.clearState()
+        return
+      }
+
+      graph.getNodeData().forEach((node: any) => {
+        if (node.id && node.style) {
+          positions[node.id] = {
+            x: node.style.x || 0,
+            y: node.style.y || 0,
+          }
+        }
+      })
+
+      const zoom = graph.getZoom()
+      const viewport = graph.getCanvasCenter()
+      stateManager.saveState(positions, {
+        zoom,
+        centerX: viewport[0],
+        centerY: viewport[1],
+      })
+    } catch (error) {
+      console.warn("Failed to save graph state:", error)
+    }
+  }
+
+  const triggerAutoLayout = async () => {
+    if (!graph || !stateManager) return
+    stateManager.clearState()
+    await graph.layout()
+    await graph.fitView()
+    await graph.render()
+    saveCurrentState()
+  }
+
+  const updateGraph = () => {
+    if (!graph || !containerRef) return
+
+    try {
+      graph.setData(toGraphData())
+      const graphState = stateManager.loadState()
+      if (graphState == null) {
+        graph.render().then(() => {
+          saveCurrentState()
+        })
+      } else {
+        applySavedPositions(graphState).then(() => {})
+      }
+    } catch {}
   }
 
   createEffect(() => {
     const atoms = props.atoms
     const relations = props.relations
-    const isContainerReady = containerReady()
+    const ready = containerReady()
 
-    if (isContainerReady && containerRef) {
-      if (!graph) {
-        initGraph()
-      } else {
-        updateGraph()
-      }
+    if (!ready || !containerRef) return
+
+    if (!graph) {
+      initGraph()
+      return
     }
+
+    updateGraph()
+  })
+
+  createEffect(() => {
+    const selected = state.selectedIds
+    if (!graph) return
+
+    const ids = new Set(selected)
+    props.atoms.forEach((atom) => {
+      if (atom.atom_id === state.sourceId && state.dragging) return
+      if (atom.atom_id === hoverId) return
+      void graph!.setElementState(atom.atom_id, ids.has(atom.atom_id) ? ["selected"] : [])
+    })
+  })
+
+  createEffect(() => {
+    const deleting = state.deleting
+    const confirmOpen = state.confirmOpen
+
+    const onKey = (evt: KeyboardEvent) => {
+      if (!containerRef || state.selectedIds.length === 0 || state.active || state.dragging || deleting || confirmOpen) {
+        return
+      }
+      const target = evt.target as HTMLElement | null
+      const tag = target?.tagName
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target?.isContentEditable) return
+      if (evt.key !== "Delete" && evt.key !== "Backspace") return
+      evt.preventDefault()
+      setState("deleteIds", [...state.selectedIds])
+      setState("confirmOpen", true)
+      setState("anchorVisible", false)
+      setState("deleteVisible", false)
+    }
+
+    window.addEventListener("keydown", onKey)
+    onCleanup(() => window.removeEventListener("keydown", onKey))
   })
 
   onCleanup(() => {
-    // 保存当前状态
+    clearHideAnchor()
     if (graph) {
       saveCurrentState()
     }
 
-    // 清理tooltip
     const tooltip = document.getElementById("atom-tooltip")
     if (tooltip) {
       if ((tooltip as any).cleanup) {
@@ -410,7 +714,6 @@ export function AtomGraphView(props: {
       tooltip.remove()
     }
 
-    // 清理graph实例
     if (graph) {
       try {
         graph.destroy()
@@ -433,8 +736,161 @@ export function AtomGraphView(props: {
     color: RELATION_COLORS[type],
   }))
 
+  const relationMenu = () => {
+    if (!containerRef) {
+      return {
+        left: state.relationX,
+        top: state.relationY,
+        up: true,
+      }
+    }
+
+    const width = 188
+    const height = state.error ? 88 : 44
+    const gap = 12
+    const pad = 8
+    const maxX = containerRef.clientWidth - width / 2 - pad
+    const minX = width / 2 + pad
+    const preferUp = state.relationY - height - gap >= pad
+    const up = preferUp || state.relationY + height + gap > containerRef.clientHeight - pad
+    const left = Math.min(Math.max(state.relationX, minX), maxX)
+    const top = up
+      ? Math.max(state.relationY - height / 2 - gap, height / 2 + pad)
+      : Math.min(state.relationY + height / 2 + gap, containerRef.clientHeight - height / 2 - pad)
+
+    return { left, top, up }
+  }
+
+  const source = () => props.atoms.find((item) => item.atom_id === state.sourceId)
+  const target = () => props.atoms.find((item) => item.atom_id === state.targetId)
+  const deleteAtoms = () => props.atoms.filter((item) => state.deleteIds.includes(item.atom_id))
+
+  const submitRelation = async () => {
+    if (state.saving || !state.sourceId || !state.targetId || !state.relationType) return
+
+    setState("saving", true)
+    setState("error", "")
+
+    try {
+      await props.onRelationCreate({
+        sourceAtomId: state.sourceId,
+        targetAtomId: state.targetId,
+        relationType: state.relationType,
+      })
+      setState({
+        active: false,
+        dragging: false,
+        sourceId: "",
+        targetId: "",
+        relationType: "",
+        saving: false,
+        error: "",
+        relationX: 0,
+        relationY: 0,
+        startX: 0,
+        startY: 0,
+        endX: 0,
+        endY: 0,
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to create relation"
+      setState("saving", false)
+      setState("error", message)
+    }
+  }
+
+  const removeAtom = async () => {
+    if (state.deleteIds.length === 0 || state.deleting) return
+
+    setState("deleting", true)
+    try {
+      for (const id of state.deleteIds) {
+        await props.onAtomDelete(id)
+      }
+      setState({
+        confirmOpen: false,
+        deleting: false,
+        deleteIds: [],
+        selectedIds: [],
+      })
+    } catch {
+      setState("deleting", false)
+    }
+  }
+
   return (
-    <div ref={setContainerRef} class="w-full h-full min-h-[400px] relative">
+    <div ref={setContainerRef} class="w-full h-full min-h-[400px] relative" onClick={() => closeMenu()}>
+      <Show when={state.dragging}>
+        <svg class="absolute inset-0 z-20 pointer-events-none overflow-visible">
+          <line
+            x1={state.startX}
+            y1={state.startY}
+            x2={state.endX}
+            y2={state.endY}
+            stroke="#818cf8"
+            stroke-width="2"
+            stroke-dasharray="6 4"
+            stroke-linecap="round"
+          />
+        </svg>
+      </Show>
+      <Show when={state.anchorVisible && !state.dragging && !state.active}>
+        <button
+          class="absolute z-20 flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-indigo-300/70 bg-slate-900/90 text-[12px] font-medium text-indigo-200 shadow-lg shadow-indigo-500/20 transition-transform hover:scale-110"
+          style={{
+            left: `${state.anchorX}px`,
+            top: `${state.anchorY}px`,
+          }}
+          onMouseEnter={() => {
+            anchorPinned = true
+            clearHideAnchor()
+          }}
+          onMouseLeave={() => {
+            anchorPinned = false
+            scheduleAnchorHide()
+          }}
+          onMouseDown={(evt) => {
+            evt.preventDefault()
+            evt.stopPropagation()
+            if (!state.hoverNodeId) return
+            beginDraft(state.hoverNodeId)
+          }}
+          title="Create relation"
+        >
+          +
+        </button>
+      </Show>
+      <Show when={state.deleteVisible && !state.dragging && !state.active && state.hoverNodeId}>
+        <button
+          class="absolute z-20 flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-slate-800/80 text-[12px] text-slate-400 shadow-lg transition-colors hover:text-red-400"
+          style={{
+            left: `${state.deleteX}px`,
+            top: `${state.deleteY}px`,
+          }}
+          onMouseEnter={() => {
+            anchorPinned = true
+            clearHideAnchor()
+          }}
+          onMouseLeave={() => {
+            anchorPinned = false
+            scheduleAnchorHide()
+          }}
+          onClick={(evt) => {
+            evt.preventDefault()
+            evt.stopPropagation()
+            if (!state.hoverNodeId) return
+            hideTooltip()
+            setState("selectedIds", [state.hoverNodeId])
+            setState("deleteIds", [state.hoverNodeId])
+            setState("confirmOpen", true)
+            setState("anchorVisible", false)
+            setState("deleteVisible", false)
+          }}
+          title="Delete atom"
+        >
+          ×
+        </button>
+      </Show>
       <div class="absolute bottom-4 right-4 z-20 bg-slate-800/90 backdrop-blur-sm rounded-lg px-3 py-2 border border-slate-700">
         <div class="text-[10px] text-slate-400 mb-2 font-medium">ATOM TYPES</div>
         <div class="flex flex-col gap-1.5 mb-3">
@@ -474,6 +930,84 @@ export function AtomGraphView(props: {
       <Show when={props.loading}>
         <div class="absolute inset-0 flex items-center justify-center bg-slate-900/80 z-10">
           <div class="text-gray-500">Loading graph...</div>
+        </div>
+      </Show>
+      <Show when={state.active}>
+        <div
+          class="absolute z-30 w-[188px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/8 bg-[linear-gradient(180deg,rgba(84,101,126,0.34),rgba(37,46,60,0.22))] shadow-[0_12px_24px_rgba(0,0,0,0.20)] backdrop-blur-2xl px-2.5 py-1"
+          style={{
+            left: `${relationMenu().left}px`,
+            top: `${relationMenu().top}px`,
+          }}
+          onClick={(evt) => evt.stopPropagation()}
+        >
+          <div class="relative">
+            <select
+              value={state.relationType}
+              onInput={(evt) => {
+                const value = evt.currentTarget.value as RelationType
+                setState("relationType", value)
+                void submitRelation()
+              }}
+              class="w-full appearance-none bg-transparent px-3 py-1.5 pr-8 text-[13px] font-medium tracking-[0.01em] text-slate-100/88 outline-none"
+            >
+              <option value="" disabled>
+                Select relation
+              </option>
+              {Object.entries(RELATION_LABELS).map(([value, label]) => (
+                <option value={value}>{label}</option>
+              ))}
+            </select>
+            <div class="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-slate-200/55">
+              <svg class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7">
+                <path d="M5 7.5L10 12.5L15 7.5" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </div>
+          </div>
+          <Show when={state.error}>
+            <div class="mt-1 rounded-2xl border border-red-400/20 bg-red-500/10 px-2.5 py-1.5 text-[11px] text-red-100">
+              {state.error}
+            </div>
+          </Show>
+        </div>
+      </Show>
+      <Show when={state.confirmOpen}>
+        <div class="absolute inset-0 z-30 flex items-center justify-center bg-slate-950/70 backdrop-blur-[1px]">
+          <div class="w-[360px] rounded-xl border border-slate-700 bg-slate-900 shadow-2xl p-4">
+            <div class="text-sm font-medium text-slate-100">Delete Atom</div>
+            <div class="mt-3 text-sm text-slate-300">
+              Delete{" "}
+              <span class="text-slate-100">
+                {deleteAtoms().length === 1
+                  ? (deleteAtoms()[0]?.atom_name ?? state.deleteIds[0]?.slice(0, 8))
+                  : `${state.deleteIds.length} atoms`}
+              </span>{" "}
+              and all related relations, local files, and linked sessions?
+            </div>
+            <div class="mt-2 text-xs text-slate-500">This action cannot be undone.</div>
+            <div class="mt-4 flex items-center justify-end gap-2">
+              <button
+                onClick={() =>
+                  setState({
+                    confirmOpen: false,
+                    deleting: false,
+                    deleteIds: [],
+                  })
+                }
+                disabled={state.deleting}
+                class="px-3 py-1.5 text-xs rounded bg-slate-800 text-slate-300 hover:bg-slate-700 disabled:opacity-60 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => removeAtom()}
+                disabled={state.deleting}
+                class="px-3 py-1.5 text-xs rounded bg-red-500 text-white hover:bg-red-400 disabled:opacity-60 transition-colors"
+              >
+                {state.deleting ? "Deleting..." : "Delete"}
+              </button>
+            </div>
+          </div>
         </div>
       </Show>
       <Show when={props.error}>

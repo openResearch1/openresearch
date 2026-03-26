@@ -6,7 +6,7 @@ import { Timestamps } from "@/storage/schema.sql"
 const atomKinds = ["fact", "method", "theorem", "verification"] as const
 const evidenceKinds = ["math", "experiment"] as const
 const evidenceSteps = ["pending", "in_progress", "done"] as const
-const linkKinds = ["motivates", "formalizes", "derives", "analyzes", "validates", "contradicts", "other"] as const
+export const linkKinds = ["motivates", "formalizes", "derives", "analyzes", "validates", "contradicts", "other"] as const
 
 export const ResearchProjectTable = sqliteTable(
   "research_project",

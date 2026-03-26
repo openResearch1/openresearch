@@ -105,6 +105,8 @@ import type {
   QuestionRejectResponses,
   QuestionReplyErrors,
   QuestionReplyResponses,
+  ResearchAtomDeleteErrors,
+  ResearchAtomDeleteResponses,
   ResearchAtomSessionCreateErrors,
   ResearchAtomSessionCreateResponses,
   ResearchAtomsListErrors,
@@ -113,6 +115,8 @@ import type {
   ResearchProjectCreateResponses,
   ResearchProjectGetErrors,
   ResearchProjectGetResponses,
+  ResearchRelationCreateErrors,
+  ResearchRelationCreateResponses,
   ResearchSessionAtomGetErrors,
   ResearchSessionAtomGetResponses,
   SessionAbortErrors,
@@ -2505,6 +2509,57 @@ export class Atoms extends HeyApiClient {
   }
 }
 
+export class Relation extends HeyApiClient {
+  /**
+   * Create atom relation
+   *
+   * Create a directed relation between two atoms in the same research project.
+   */
+  public create<ThrowOnError extends boolean = false>(
+    parameters: {
+      researchProjectId: string
+      directory?: string
+      workspace?: string
+      source_atom_id?: string
+      target_atom_id?: string
+      relation_type?: "motivates" | "formalizes" | "derives" | "analyzes" | "validates" | "contradicts" | "other"
+      note?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "researchProjectId" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "source_atom_id" },
+            { in: "body", key: "target_atom_id" },
+            { in: "body", key: "relation_type" },
+            { in: "body", key: "note" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      ResearchRelationCreateResponses,
+      ResearchRelationCreateErrors,
+      ThrowOnError
+    >({
+      url: "/research/project/{researchProjectId}/relation",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
 export class Session3 extends HeyApiClient {
   /**
    * Create or get session for an atom
@@ -2544,6 +2599,42 @@ export class Session3 extends HeyApiClient {
 }
 
 export class Atom extends HeyApiClient {
+  /**
+   * Delete atom
+   *
+   * Delete one atom and all relations pointing to or from it.
+   */
+  public delete<ThrowOnError extends boolean = false>(
+    parameters: {
+      researchProjectId: string
+      atomId: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "researchProjectId" },
+            { in: "path", key: "atomId" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<ResearchAtomDeleteResponses, ResearchAtomDeleteErrors, ThrowOnError>(
+      {
+        url: "/research/project/{researchProjectId}/atom/{atomId}",
+        ...options,
+        ...params,
+      },
+    )
+  }
+
   private _session?: Session3
   get session(): Session3 {
     return (this._session ??= new Session3({ client: this.client }))
@@ -2604,6 +2695,11 @@ export class Research extends HeyApiClient {
   private _atoms?: Atoms
   get atoms(): Atoms {
     return (this._atoms ??= new Atoms({ client: this.client }))
+  }
+
+  private _relation?: Relation
+  get relation(): Relation {
+    return (this._relation ??= new Relation({ client: this.client }))
   }
 
   private _atom?: Atom
