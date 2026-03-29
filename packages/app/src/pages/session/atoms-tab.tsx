@@ -29,7 +29,6 @@ const RELATION_LABELS: Record<string, string> = {
   other: "related to",
 }
 
-
 function AtomCard(props: { atom: Atom; relations: Relation[]; atomMap: Map<string, Atom>; onClick: () => void }) {
   const outgoing = createMemo(() => props.relations.filter((r) => r.atom_id_source === props.atom.atom_id))
   const incoming = createMemo(() => props.relations.filter((r) => r.atom_id_target === props.atom.atom_id))

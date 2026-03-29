@@ -599,7 +599,10 @@ export function SessionSidePanel(props: {
                         </Tabs.Content>
                         <Tabs.Content value="exp-result" class="flex flex-col h-full overflow-hidden contain-strict">
                           <Show when={activeTab() === "exp-result"}>
-                            <ExpResultTab experiment={experiment} onOpenFile={(filePath) => openTab(file.tab(filePath))} />
+                            <ExpResultTab
+                              experiment={experiment}
+                              onOpenFile={(filePath) => openTab(file.tab(filePath))}
+                            />
                           </Show>
                         </Tabs.Content>
                       </>

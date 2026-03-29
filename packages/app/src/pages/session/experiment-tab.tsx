@@ -308,8 +308,12 @@ export function ExpHistoryChangeTab(props: ExpHistoryChangeTabProps) {
                       </div>
                       <div class="shrink-0 flex items-center gap-2 text-12-regular">
                         <span class="text-text-weak">{commit().diffs.length} files</span>
-                        <span class="text-icon-success-base">+{commit().diffs.reduce((s, d) => s + d.additions, 0)}</span>
-                        <span class="text-icon-critical-base">-{commit().diffs.reduce((s, d) => s + d.deletions, 0)}</span>
+                        <span class="text-icon-success-base">
+                          +{commit().diffs.reduce((s, d) => s + d.additions, 0)}
+                        </span>
+                        <span class="text-icon-critical-base">
+                          -{commit().diffs.reduce((s, d) => s + d.deletions, 0)}
+                        </span>
                       </div>
                     </Accordion.Trigger>
                     <Accordion.Content>
@@ -442,7 +446,12 @@ export function ExpResultTab(props: ExperimentTabProps & { onOpenFile?: (filePat
                     <Show when={wandbEntity() && props.experiment.remote_server_config?.wandb_project_name}>
                       <button
                         class="px-2 py-0.5 rounded text-11-regular bg-background-stronger text-text-base hover:text-text-strong transition-colors"
-                        onClick={() => window.open(`https://wandb.ai/${wandbEntity()}/${props.experiment.remote_server_config!.wandb_project_name}/runs/${run.name}`, "_blank")}
+                        onClick={() =>
+                          window.open(
+                            `https://wandb.ai/${wandbEntity()}/${props.experiment.remote_server_config!.wandb_project_name}/runs/${run.name}`,
+                            "_blank",
+                          )
+                        }
                       >
                         W&B
                       </button>

@@ -478,9 +478,7 @@ export const AtomDeleteTool = Tool.define("atom_delete", {
       )
       for (const exp of experiments) {
         // Delete experiment watchers
-        Database.use((db) =>
-          db.delete(ExperimentWatchTable).where(eq(ExperimentWatchTable.exp_id, exp.exp_id)).run(),
-        )
+        Database.use((db) => db.delete(ExperimentWatchTable).where(eq(ExperimentWatchTable.exp_id, exp.exp_id)).run())
         // Delete experiment record
         Database.use((db) => db.delete(ExperimentTable).where(eq(ExperimentTable.exp_id, exp.exp_id)).run())
         // Clean up experiment session

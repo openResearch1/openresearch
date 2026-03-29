@@ -367,9 +367,7 @@ export const ResearchRoutes = new Hono()
       )
       for (const exp of experiments) {
         // Delete experiment watchers
-        Database.use((db) =>
-          db.delete(ExperimentWatchTable).where(eq(ExperimentWatchTable.exp_id, exp.exp_id)).run(),
-        )
+        Database.use((db) => db.delete(ExperimentWatchTable).where(eq(ExperimentWatchTable.exp_id, exp.exp_id)).run())
         // Delete experiment record
         Database.use((db) => db.delete(ExperimentTable).where(eq(ExperimentTable.exp_id, exp.exp_id)).run())
         // Clean up experiment session
@@ -1470,9 +1468,7 @@ export const ResearchRoutes = new Hono()
         return c.json({ success: false, message: `experiment not found: ${expId}` }, 404)
       }
       // Delete experiment watchers
-      Database.use((db) =>
-        db.delete(ExperimentWatchTable).where(eq(ExperimentWatchTable.exp_id, expId)).run(),
-      )
+      Database.use((db) => db.delete(ExperimentWatchTable).where(eq(ExperimentWatchTable.exp_id, expId)).run())
       Database.use((db) => db.delete(ExperimentTable).where(eq(ExperimentTable.exp_id, expId)).run())
       if (experiment.exp_session_id) {
         await Session.remove(experiment.exp_session_id).catch(() => {})

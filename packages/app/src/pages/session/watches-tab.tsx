@@ -159,7 +159,10 @@ export function WatchesTab(props: { onOpenFile?: (filePath: string) => void }) {
                         class="px-2 py-0.5 rounded text-11-regular bg-background-stronger text-text-base hover:text-text-strong transition-colors"
                         onClick={(e) => {
                           e.stopPropagation()
-                          window.open(`https://wandb.ai/${watch.wandb_entity}/${watch.wandb_project}/runs/${watch.wandb_run_id}`, "_blank")
+                          window.open(
+                            `https://wandb.ai/${watch.wandb_entity}/${watch.wandb_project}/runs/${watch.wandb_run_id}`,
+                            "_blank",
+                          )
                         }}
                       >
                         W&B

@@ -86,9 +86,7 @@ function formatExpResult(r: ExpResult): string {
     `time_updated: ${e.time_updated}`,
     r.code_path ? `code_path: ${r.code_path}` : `code_path: (not set)`,
     r.exp_plan_path ? `exp_plan_path: ${r.exp_plan_path}` : `exp_plan_path: (not set)`,
-    r.runs.length > 0
-      ? `runs:\n${r.runs.map((run) => `  - ${run.name} [${run.files.join(", ")}]`).join("\n")}`
-      : null,
+    r.runs.length > 0 ? `runs:\n${r.runs.map((run) => `  - ${run.name} [${run.files.join(", ")}]`).join("\n")}` : null,
   ]
     .filter(Boolean)
     .join("\n")
