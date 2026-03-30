@@ -25,7 +25,11 @@ export function AtomSessionTab(props: {
   const sdk = useSDK()
 
   const returnSessionId = createMemo(() => {
-    return sessionStorage.getItem(`atom-session-return-${params.id}`)
+    // Direct return: saved when navigating from a specific session to this atom session
+    const direct = sessionStorage.getItem(`atom-session-return-${params.id}`)
+    if (direct) return direct
+    // Fallback: last main (non-atom, non-exp) session for this research project
+    return sessionStorage.getItem(`research-project-main-session-${props.atom.research_project_id}`)
   })
 
   const dialog = useDialog()

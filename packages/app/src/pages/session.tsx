@@ -220,6 +220,21 @@ export default function Page() {
     ),
   )
 
+  // Auto-select the "experiment" agent for fresh experiment sessions
+  createEffect(
+    on(
+      () => params.id,
+      () => {
+        const session = info()
+        if (!session) return
+        if (lastUserMessage()) return
+        if (session.title.startsWith("Exp: ")) {
+          local.agent.set("experiment")
+        }
+      },
+    ),
+  )
+
   createEffect(
     on(
       () => ({ dir: params.dir, id: params.id }),

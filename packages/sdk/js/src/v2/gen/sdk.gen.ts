@@ -132,6 +132,8 @@ import type {
   ResearchExperimentWatchDeleteErrors,
   ResearchExperimentWatchDeleteResponses,
   ResearchExperimentWatchListResponses,
+  ResearchExperimentWatchRefreshErrors,
+  ResearchExperimentWatchRefreshResponses,
   ResearchProjectCreateErrors,
   ResearchProjectCreateResponses,
   ResearchProjectGetErrors,
@@ -3224,6 +3226,40 @@ export class ExperimentWatch extends HeyApiClient {
       ThrowOnError
     >({
       url: "/research/experiment-watch/{watchId}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Force refresh a watch: re-fetch wandb data and overwrite local summary/config
+   */
+  public refresh<ThrowOnError extends boolean = false>(
+    parameters: {
+      watchId: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "watchId" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      ResearchExperimentWatchRefreshResponses,
+      ResearchExperimentWatchRefreshErrors,
+      ThrowOnError
+    >({
+      url: "/research/experiment-watch/{watchId}/refresh",
       ...options,
       ...params,
     })

@@ -118,6 +118,16 @@ export function SessionSidePanel(props: {
   )
   const isExpSession = createMemo(() => !!experimentSession())
 
+  // Record the last main (non-atom, non-exp) session for this research project
+  // so atom/exp sessions can use it as a fallback return target
+  createEffect(() => {
+    const rp = researchProject()
+    const sessionId = params.id
+    if (rp && sessionId && !isAtomSession() && !isExpSession()) {
+      sessionStorage.setItem(`research-project-main-session-${rp.research_project_id}`, sessionId)
+    }
+  })
+
   // Fetch experiment diff data at panel level; refetch when switching to the changes tab
   const [experimentDiff, { refetch: refetchExperimentDiff }] = createResource(
     () => experimentSession()?.exp_id,

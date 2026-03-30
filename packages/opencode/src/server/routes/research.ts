@@ -27,6 +27,7 @@ import { Instance } from "@/project/instance"
 import { Snapshot } from "@/snapshot"
 import { computeExperimentDiff } from "@/util/git-diff"
 import { checkExperimentReadyByExpId } from "@/session/experiment-guard"
+import { forceRefreshWatch } from "@/research/experiment-watcher"
 
 const createSchema = z.object({
   name: z.string().min(1, "name required"),
@@ -1441,6 +1442,33 @@ export const ResearchRoutes = new Hono()
       }
       Database.use((db) => db.delete(ExperimentWatchTable).where(eq(ExperimentWatchTable.watch_id, watchId)).run())
       return c.json({ success: true })
+    },
+  )
+  // ── Experiment watch force refresh ──
+  .post(
+    "/experiment-watch/:watchId/refresh",
+    describeRoute({
+      summary: "Force refresh a watch: re-fetch wandb data and overwrite local summary/config",
+      operationId: "research.experimentWatch.refresh",
+      responses: {
+        200: {
+          description: "Refresh result",
+          content: {
+            "application/json": {
+              schema: resolver(z.object({ success: z.boolean(), message: z.string() })),
+            },
+          },
+        },
+        ...errors(404),
+      },
+    }),
+    async (c) => {
+      const watchId = c.req.param("watchId")
+      const result = await forceRefreshWatch(watchId)
+      if (!result.success && result.message.includes("not found")) {
+        return c.json(result, 404)
+      }
+      return c.json(result)
     },
   )
   // ── Experiment delete & update ──

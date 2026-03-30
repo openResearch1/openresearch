@@ -6757,6 +6757,73 @@
         ]
       }
     },
+    "/research/experiment-watch/{watchId}/refresh": {
+      "post": {
+        "operationId": "research.experimentWatch.refresh",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "watchId",
+            "required": true
+          }
+        ],
+        "summary": "Force refresh a watch: re-fetch wandb data and overwrite local summary/config",
+        "responses": {
+          "200": {
+            "description": "Refresh result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["success", "message"]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.research.experimentWatch.refresh({\n  ...\n})"
+          }
+        ]
+      }
+    },
     "/research/experiment/{expId}": {
       "delete": {
         "operationId": "research.experiment.delete",
