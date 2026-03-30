@@ -37,9 +37,8 @@ const createSchema = z.object({
 })
 
 async function copyFile(src: string, dest: string) {
-  const file = Bun.file(src)
-  if (!(await file.exists())) throw new Error(`file not found: ${src}`)
-  await fs.promises.cp(src, dest, { force: false })
+  if (!(await Filesystem.exists(src))) throw new Error(`file not found: ${src}`)
+  await fs.promises.cp(src, dest, { force: false, recursive: await Filesystem.isDir(src) })
 }
 
 const uniqueID = () => crypto.randomUUID()
@@ -493,6 +492,9 @@ export const ResearchRoutes = new Hono()
       for (const src of paperSources) {
         if (!(await Filesystem.exists(src))) {
           return c.json({ success: false, message: `paper not found: ${src}` }, 400)
+        }
+        if (!(await Filesystem.isDir(src)) && path.extname(src).toLowerCase() !== ".pdf") {
+          return c.json({ success: false, message: `unsupported article source: ${src}` }, 400)
         }
       }
       if (body.backgroundPath && !(await Filesystem.exists(body.backgroundPath))) {

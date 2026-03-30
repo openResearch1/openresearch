@@ -26,8 +26,8 @@ Use only:
 
 Do not invent article details, equations, results, assumptions, or literature beyond the provided articles.
 
-### 2. Fine-grained atomization
-An atom is the smallest independently analyzable claim-evidence unit derived from the articles.
+### 2. Atomization with budget control
+An atom is the smallest independently useful claim-evidence unit derived from the articles.
 
 A good atom must:
 - contain exactly one main claim
@@ -35,13 +35,25 @@ A good atom must:
 - belong to exactly one logical claim layer
 - avoid mixing different argumentative roles in the same atom
 
-Split aggressively:
-- Split conjunctions into separate atoms when they contain distinct claims.
+Per-article atom budget:
+- Target roughly 12-18 atoms per article.
+- Use fewer atoms if the article is simple.
+- Only exceed 18 when the article truly contains multiple independent method, theorem, or experiment clusters that would otherwise lose important structure.
+
+Split only until each atom is independently useful for downstream tasks such as background synthesis, experiment planning, code generation, evidence assessment, or relation building.
+
+Preferred splits:
 - Split method description from theorem guarantee.
 - Split background phenomenon from validation result.
 - Split assumptions/definitions from proved conclusions.
-- Split objective / mechanism / update rule / procedure when they are independently meaningful.
-- Split experiment results by dataset / metric / ablation / comparison target when needed.
+- Split objective / mechanism / update rule / procedure only when the parts are independently meaningful and likely to be reused downstream.
+- Split experiment results by dataset / metric / ablation / comparison target only when they support genuinely different conclusions.
+
+Prefer merging when extra splitting would only create bookkeeping noise:
+- Merge local derivation steps that only support one theorem-level conclusion.
+- Merge minor symbol definitions into the atom that actually uses them.
+- Merge closely related substeps of one method if they are not independently actionable.
+- Merge multiple nearly identical experimental observations into one higher-value verification atom.
 
 Do not create coarse atoms that bundle a whole section, multiple theorem conclusions, or multiple unrelated experimental findings.
 
@@ -59,6 +71,10 @@ When the article uses formulas, preserve the original mathematical meaning as fa
 - Keep symbols consistent with the article whenever possible.
 - Do not introduce new notation unless necessary for clarity.
 - Use formulas when they are the clearest representation of the claim or evidence.
+- Final output must use standard markdown math that KaTeX can render: `$...$` for inline and `$$...$$` for display math.
+- Do not copy article-local TeX macros or custom commands directly into the final markdown.
+- If a TeX article defines symbols through `\newcommand`, `\def`, shorthand macros, or custom operator names, first resolve their meaning from the article, then rewrite them using standard LaTeX / KaTeX-compatible syntax.
+- If a custom macro cannot be rewritten reliably, replace it with a clear natural-language explanation or an explicit standard symbol definition instead of preserving the raw macro.
 
 ### 5. Conservative relations
 Only create a relation when the logical connection is reasonably clear from the article contents.
@@ -97,7 +113,17 @@ Record:
 
 Call `article_query` without `articleId` to get the list of articles with their metadata and file paths.
 
-Then for each article in the list, use the returned `path` with the `read` tool to read the PDF content.
+Then for each article in the list:
+- If `kind` is `pdf`, use the returned `path` with the `read` tool to read the article content.
+- If `kind` is `latex_directory`, first use `read` on the directory path to inspect the file list, then read the relevant `.tex` files one by one.
+
+For LaTeX directories:
+- Prefer `main.tex` first.
+- If `main.tex` is absent, prefer `<directory_name>.tex`.
+- Otherwise choose a `.tex` file that appears to be the entrypoint, especially one containing `\documentclass` or `\begin{document}`.
+- After reading the entrypoint file, continue reading any additional `.tex` files referenced via `\input{...}` or `\include{...}` when they are needed to understand the article.
+- Do not waste context on images, build artifacts, bibliography outputs, or unrelated files.
+- If the article defines custom math commands in the preamble, use them only to understand the notation. Do not emit those raw custom commands in the final atom markdown.
 
 If there are no articles, return:
 `No articles found for this project.`
@@ -150,7 +176,12 @@ If either edit fails, stop.
 
 ## Step 5: Create the atom network
 
-For each article, generate a list of fine-grained atoms.
+For each article, generate a compact but sufficient list of atoms.
+
+Before drafting atoms for an article:
+- Identify the article's 3-6 main claim clusters, such as background/problem, core method, key theorem/guarantee, main empirical findings, and limitations.
+- Use those clusters to plan the final atom list.
+- Keep the final atom count for that article roughly within 12-18 unless the article is unusually complex.
 
 Each atom must contain:
 
@@ -172,6 +203,12 @@ Important:
 - Do not place evidence inside `claim`
 - Do not place claim inside `evidence`
 - The tool writes `claim` and `evidence` into separate files, so they must be generated separately
+
+Available atom-related tools:
+- Prefer `atom_batch_create` for the initial bulk save.
+- You may also use `atom_query`, `atom_create`, `atom_delete`, `atom_relation_query`, `atom_relation_create`, `atom_relation_delete`,  when you need to inspect, refine, fix, or clean up atom state.
+- If you must directly adjust markdown files such as claim, evidence, or assessment documents, use the markdown editing tools (`edit`, `write`, or `apply_patch`) carefully and only for atom-local markdown content.
+- Do not modify unrelated source files during research project initialization.
 
 ---
 
@@ -335,7 +372,22 @@ A `verification_claim` may also provide empirical support or empirical challenge
    - proposed objective/update/mechanism/procedure → usually `method_claim`
    - proved properties/bounds/guarantees → `theorem_claim`
 
-7. When uncertain whether to split further, prefer splitting.
+7. When uncertain whether to split further, prefer one precise but slightly broader atom over several thin atoms.
+
+8. Ask whether the candidate atom would still be useful if shown alone to a downstream agent. If not, merge it into the nearest higher-value atom.
+
+## Article-level atom budgeting rules
+
+- Every article should usually end up with roughly 12-18 atoms total.
+- Cover the highest-value content first:
+  - main problem/background atoms
+  - main method atoms
+  - main theorem atoms
+  - main verification atoms
+  - main limitation or failure-mode atoms when present
+- Do not spend the budget on secondary details before the primary contribution structure is covered.
+- If the draft atom list exceeds 18, merge same-role atoms that belong to the same claim cluster before saving.
+- Minor theorem proof steps, routine implementation substeps, and small metric-by-metric restatements should usually not become separate atoms.
 
 ---
 
@@ -352,6 +404,7 @@ Rules for `claim`:
 - `Claim` must contain exactly one main claim.
 - Do not include an Evidence section here.
 - Do not include full derivations, proof text, tables, or experimental results here unless they are part of the claim itself.
+- If math is used, keep only standard KaTeX-compatible LaTeX. Do not leave raw custom macros in the output.
 
 ### evidence format
 The `evidence` field of every atom must follow this exact markdown structure:
@@ -363,11 +416,12 @@ Rules for `evidence`:
 - Put all supporting material here instead of in `claim`.
 - Evidence may include definitions, constructions, derivations, proof sketches, equations, tables, plot summaries, observations, ablation results, or other direct support from the article.
 - For non-theorem atoms, `evidence` is still evidence, not necessarily a formal proof.
+- If math is used, rewrite custom article-local TeX commands into standard KaTeX-compatible LaTeX or plain language.
 ---
 
 ## Top-level method_claim aggregation
 
-After generating fine-grained `method_claim` atoms (objective, mechanism, update, procedure, modules, etc.), perform the following for each article:
+After generating method-related atoms, perform the following for each article:
 
 1. Identify all distinct complete methods proposed in the article.
 2. For each complete method, create **one top-level `method_claim` atom** that summarizes the full method.
@@ -375,6 +429,7 @@ After generating fine-grained `method_claim` atoms (objective, mechanism, update
    - `Likely Feedback Targets` should include verification_claim and theorem_claim atoms that evaluate or analyze this method.
 3. There may be **multiple top-level method_claim atoms** per article if the article proposes multiple distinct methods.
 4. This top-level method_claim should be concise, self-contained, and serve as a starting point for downstream tasks such as AI code generation or experiment execution.
+5. Do not keep many tiny method atoms plus a top-level summary unless the tiny atoms are independently useful. Prefer a smaller number of denser, higher-value method atoms.
 
 ---
 
@@ -426,9 +481,12 @@ Each relation must contain:
 
 - `source` is always conceptually prior or more foundational.
 - `target` is conceptually downstream, derived, or evaluated.
-- Allow multiple directions between theorem <-> method:
-  - theory-derived methods (`theorem -> method`)
-  - method-analyzed theory (`method -> theorem`)
+- Allow a relation between theorem and method in either direction, but assign **at most one** direction for the same node pair.
+- Priority rule:
+  - use `theorem -> method` if the method is derived from, justified by, or motivated by the theorem, even partially
+  - use `method -> theorem` only if the theorem is introduced mainly to analyze, explain, or characterize an already defined method, and the method is not derived from that theorem
+- Never assign both `theorem -> method` and `method -> theorem` to the same pair of nodes.
+- When both directions seem plausible, prefer `theorem -> method`.
 - Allow `fact_claim -> verification_claim` when experiments directly establish background phenomena.
 
 ### Common patterns for reference
@@ -491,6 +549,9 @@ Every atom must have:
 - No atom mixes different claim roles.
 - No theorem atom contains an entire proof plus all implications if they should be split.
 - No experiment atom summarizes a whole results section if finer result units exist.
+- Per-article atom count should usually be around 12-18.
+- If a per-article draft is above 18, merge low-value or same-cluster atoms before saving.
+- Do not create separate atoms for minor substeps, minor notation setup, or nearly duplicate empirical observations unless they are independently actionable.
 
 ### Classification validity
 - Do not classify by evidence source alone.
@@ -507,6 +568,12 @@ Every atom must have:
 - Ensure each atom has claim and evidence separated
 - Ensure edges follow the defined relation semantics
 - Ensure the DAG reflects a logical reading / conceptual development flow
+- Ensure the atom list is budgeted at the article level rather than mechanically over-splitting local details
+
+### Markdown / math rendering check
+- Ensure all final math uses standard `$...$` or `$$...$$`
+- Ensure no unresolved custom TeX macros remain in the output
+- Do not leave raw `\newcommand`, `\def`, `\cite`, `\ref`, `\eqref`, `\label`, `\input`, or `\include` commands inside claim or evidence text
 
 ### Top-level method_claim validation
 
@@ -533,3 +600,126 @@ If successful, return a concise summary including:
 - number of relations created
 
 Do not continue after a blocking failure.
+
+---
+
+## Step 9: Relation organization and backbone chain construction
+
+**Goal**: After batch save, organize the atom graph to form clear validation chains and enhance readability.
+
+### Core chain patterns
+
+A standard validation chain follows this structure:
+
+```
+fact_claim -> theorem_claim [optional] -> method_component [optional] -> method_top -> verification_claim
+```
+
+Examples:
+- Complete chain: `fact -> theorem -> method_a -> method_b -> method_top -> verification`
+- Without theorem: `fact -> method_a -> method_top -> verification`
+- Method without sub-components: `fact -> theorem -> method_top -> verification`
+- Minimal chain: `fact -> method_top -> verification`
+
+### Chain assembly rules for methods
+
+When multiple method atoms compose a final method:
+- Use `derives` relation from method_component to method_top
+- Use `derives` or `other` relation between method_components if one builds upon another
+- The top-level method_claim should have connections to all its constituent components
+
+---
+
+### Step 9.1: Read current saved graph
+
+- Call `atom_query` and `atom_relation_query` to read the complete saved graph
+- Group atoms by article
+- Build `atom_id -> atom` map and `relation[]` list
+
+---
+
+### Step 9.2: Identify backbone chains (per article)
+
+For each article:
+
+1. **Classify atoms**:
+   - `facts[]`: all `fact_claim`
+   - `methods[]`: all `method_claim` (distinguish top-level vs fine-grained)
+   - `theorems[]`: all `theorem_claim`
+   - `verifications[]`: all `verification_claim`
+
+2. **Identify method assembly structure**:
+   - Find top-level `method_claim` atoms
+   - Trace their dependencies on fine-grained `method_claim` components
+   - Determine composition relationships between components
+
+3. **Build target chain patterns**:
+   ```
+   fact (motivation)
+      -> theorem (formalization/analysis) [optional]
+      -> method_component_a (construction step 1)
+      -> method_component_b (construction step 2) [optional]
+      -> ...
+      -> method_top (final method)
+      -> verification (validation)
+   ```
+
+4. **Check for missing edges**:
+   - Identify disconnected node pairs on the chain
+   - Mark edges that need to be added
+
+---
+
+### Step 9.3: Relation organization operations
+
+**Edges to add**:
+- Fill missing edges to connect broken logical chains
+- Add `derives` or `other` edges for method assembly
+- If fine-grained method components lack connections to their top-level method, add one
+
+**Edges to delete**:
+- Redundant/noisy edges within the same article (e.g., indirect connections replaceable by direct ones)
+- Weak dependency edges (e.g., `method_A -> method_B` only mentioned in comments but not a real construction relationship)
+
+**Edge priority rules**:
+- Cross-type backbone edges > same-type construction edges > weak connection edges
+- Direct logical connections > indirect transitive connections
+
+---
+
+### Step 9.4: Main chain identification
+
+Assign a unique identifier to each backbone chain (e.g., `chain_<article_id>_<index>`), but do NOT modify atom content. Only report the structure in the response.
+
+---
+
+### Step 9.5: Execute add/delete operations
+
+- Call `atom_relation_create` to add necessary edges
+- Call `atom_relation_delete` to remove redundant edges
+- Record all changes made
+
+**Caution**: Deleting edges risks losing information. When in doubt, prefer keeping an edge over removing it. Only delete edges that are clearly redundant or noise.
+
+---
+
+### Step 9.6: Verification and summary
+
+**Verification checklist**:
+- Total atom count remains unchanged
+- Total relation count is reasonable (approximately 4-6 edges per backbone chain)
+- Backbone chain integrity (fact -> ... -> method -> verification path exists)
+- Method assembly structure is correct (top has connections to all components)
+- Graph remains sparse and acyclic (or weakly cyclic)
+
+**Final response requirement**:
+
+Return a concise summary including:
+
+- Number of backbone chains identified
+- Structure of each backbone chain (atom IDs and relation types)
+- Number of edges added
+- Number of edges deleted
+- Post-organization graph density assessment
+- Backbone chain completeness status
+- Whether the final graph remains sparse and human-readable

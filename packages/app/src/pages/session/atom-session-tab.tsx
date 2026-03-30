@@ -17,6 +17,7 @@ export function AtomSessionTab(props: {
   atom: Atom
   activeTab: "content" | "evidence" | "plan" | "assessment"
   onRefresh?: () => void
+  onOpenFile?: (filePath: string) => void
 }) {
   const file = useFile()
   const navigate = useNavigate()
@@ -194,6 +195,12 @@ export function AtomSessionTab(props: {
     return fileState()?.content?.content ?? null
   })
 
+  const openCurrentFile = () => {
+    const path = filePath()
+    if (!path) return
+    props.onOpenFile?.(path)
+  }
+
   const isLoading = createMemo(() => {
     return fileState()?.loading ?? false
   })
@@ -325,14 +332,34 @@ export function AtomSessionTab(props: {
 
         <Show when={isLoading()}>
           <div class="rounded-md border border-border-weak-base bg-background-base p-3">
-            <div class="text-12-semibold text-text-strong mb-2">{tabTitle()}</div>
+            <div class="flex items-center justify-between gap-2 mb-2">
+              <div class="text-12-semibold text-text-strong">{tabTitle()}</div>
+              <Show when={filePath()}>
+                <button
+                  onClick={openCurrentFile}
+                  class="px-2 py-1 rounded text-11-regular bg-background-stronger text-text-base hover:text-text-strong transition-colors"
+                >
+                  Open File
+                </button>
+              </Show>
+            </div>
             <div class="text-12-regular text-text-weak">Loading...</div>
           </div>
         </Show>
 
         <Show when={hasError()}>
           <div class="rounded-md border border-border-weak-base bg-background-base p-3">
-            <div class="text-12-semibold text-text-strong mb-2">{tabTitle()}</div>
+            <div class="flex items-center justify-between gap-2 mb-2">
+              <div class="text-12-semibold text-text-strong">{tabTitle()}</div>
+              <Show when={filePath()}>
+                <button
+                  onClick={openCurrentFile}
+                  class="px-2 py-1 rounded text-11-regular bg-background-stronger text-text-base hover:text-text-strong transition-colors"
+                >
+                  Open File
+                </button>
+              </Show>
+            </div>
             <div class="text-12-regular text-text-weak">Failed to load file content.</div>
           </div>
         </Show>
@@ -380,7 +407,17 @@ export function AtomSessionTab(props: {
 
         <Show when={!isLoading() && !hasError() && props.activeTab !== "plan"}>
           <div class="rounded-md border border-border-weak-base bg-background-base p-3">
-            <div class="text-12-semibold text-text-strong mb-2">{tabTitle()}</div>
+            <div class="flex items-center justify-between gap-2 mb-2">
+              <div class="text-12-semibold text-text-strong">{tabTitle()}</div>
+              <Show when={filePath()}>
+                <button
+                  onClick={openCurrentFile}
+                  class="px-2 py-1 rounded text-11-regular bg-background-stronger text-text-base hover:text-text-strong transition-colors"
+                >
+                  Open File
+                </button>
+              </Show>
+            </div>
             <Show when={fileContent()?.trim() ? fileContent() : null} keyed>
               {(content) => <Markdown text={content} class="text-12-regular" />}
             </Show>

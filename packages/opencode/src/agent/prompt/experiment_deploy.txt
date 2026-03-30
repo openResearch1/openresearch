@@ -28,6 +28,8 @@ The remote workspace path should be `~/experiments/<exp_id>/`.
 
 Use the `ssh` tool to set up the environment on the remote server. **Reuse existing conda environments whenever possible.**
 
+**IMPORTANT: Do NOT use `conda activate`. It does not work in non-interactive SSH sessions (the shell is not initialized with `conda init`). Always use `conda run -n <env_name> --no-banner` instead — it correctly sets up the environment without requiring shell initialization.**
+
 1. Check if conda is available: `which conda`
 2. List existing conda environments and their installed packages:
    ```
@@ -35,33 +37,33 @@ Use the `ssh` tool to set up the environment on the remote server. **Reuse exist
    ```
 3. **Try to reuse an existing environment.** Pick an existing env that has a compatible Python version. Check its packages:
    ```
-   conda activate <existing_env> && pip list
+   conda run -n <existing_env> --no-banner pip list
    ```
    - If the existing env already has most required packages, use it and only install the missing ones incrementally:
      ```
-     conda activate <existing_env> && pip install <missing_packages> -i https://pypi.tuna.tsinghua.edu.cn/simple
+     conda run -n <existing_env> --no-banner pip install <missing_packages> -i https://pypi.tuna.tsinghua.edu.cn/simple
      ```
    - Only create a new environment if no existing env has a compatible Python version or reusing one would cause conflicts:
      ```
      conda create -n <env_name> python=<version> -y
-     conda activate <env_name> && pip install <packages> -i https://pypi.tuna.tsinghua.edu.cn/simple
+     conda run -n <env_name> --no-banner pip install <packages> -i https://pypi.tuna.tsinghua.edu.cn/simple
      ```
-4. Note: since each SSH command runs in a fresh shell, chain `conda activate` with subsequent commands using `&&`.
+4. Note: since each SSH command runs in a fresh shell, `conda activate` will NOT work. Always use `conda run -n <env_name> --no-banner <command>` to run any command inside the conda environment.
 5. If a `requirements.txt` exists in the code, install it:
    ```
-   conda activate <env_name> && cd <remote_path> && pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+   conda run -n <env_name> --no-banner bash -c "cd <remote_path> && pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple"
    ```
 ### Step 3: Run the Experiment
 
 Use `nohup` to launch the experiment in the background so it continues running even if the SSH connection drops. Redirect stdout and stderr to a log file.
 
 ```
-conda activate <env_name> && cd <remote_path> && nohup <run_command> > output.log 2>&1 &
+cd <remote_path> && nohup conda run -n <env_name> --no-banner <run_command> > output.log 2>&1 &
 ```
 
 Then immediately check that the process started successfully:
 ```
-conda activate <env_name> && cd <remote_path> && sleep 3 && tail -n 30 output.log
+cd <remote_path> && sleep 3 && tail -n 30 output.log
 ```
 
 ### Step 4: Monitor Startup

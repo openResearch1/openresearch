@@ -548,17 +548,32 @@ export function SessionSidePanel(props: {
                       <>
                         <Tabs.Content value="atom-content" class="flex flex-col h-full overflow-hidden contain-strict">
                           <Show when={activeTab() === "atom-content"}>
-                            <AtomSessionTab atom={atom} activeTab="content" onRefresh={refetchAtomSession} />
+                            <AtomSessionTab
+                              atom={atom}
+                              activeTab="content"
+                              onRefresh={refetchAtomSession}
+                              onOpenFile={(filePath) => openTab(file.tab(filePath))}
+                            />
                           </Show>
                         </Tabs.Content>
                         <Tabs.Content value="atom-evidence" class="flex flex-col h-full overflow-hidden contain-strict">
                           <Show when={activeTab() === "atom-evidence"}>
-                            <AtomSessionTab atom={atom} activeTab="evidence" onRefresh={refetchAtomSession} />
+                            <AtomSessionTab
+                              atom={atom}
+                              activeTab="evidence"
+                              onRefresh={refetchAtomSession}
+                              onOpenFile={(filePath) => openTab(file.tab(filePath))}
+                            />
                           </Show>
                         </Tabs.Content>
                         <Tabs.Content value="atom-plan" class="flex flex-col h-full overflow-hidden contain-strict">
                           <Show when={activeTab() === "atom-plan"}>
-                            <AtomSessionTab atom={atom} activeTab="plan" onRefresh={refetchAtomSession} />
+                            <AtomSessionTab
+                              atom={atom}
+                              activeTab="plan"
+                              onRefresh={refetchAtomSession}
+                              onOpenFile={(filePath) => openTab(file.tab(filePath))}
+                            />
                           </Show>
                         </Tabs.Content>
                         <Tabs.Content
@@ -566,7 +581,12 @@ export function SessionSidePanel(props: {
                           class="flex flex-col h-full overflow-hidden contain-strict"
                         >
                           <Show when={activeTab() === "atom-assessment"}>
-                            <AtomSessionTab atom={atom} activeTab="assessment" onRefresh={refetchAtomSession} />
+                            <AtomSessionTab
+                              atom={atom}
+                              activeTab="assessment"
+                              onRefresh={refetchAtomSession}
+                              onOpenFile={(filePath) => openTab(file.tab(filePath))}
+                            />
                           </Show>
                         </Tabs.Content>
                       </>
