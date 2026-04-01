@@ -116,7 +116,7 @@ function DialogPathPicker(props: PathPickerProps) {
   })
 
   const handleItemClick = (item: ListItem) => {
-    if (item.type === "directory" && props.mode === "files") {
+    if (item.type === "directory") {
       enterDir(item.path)
       return
     }
@@ -175,7 +175,7 @@ function DialogPathPicker(props: PathPickerProps) {
                 <FileIcon node={{ path: item.path, type: item.type }} class="shrink-0 size-4" />
                 <div class="flex items-center text-14-regular min-w-0 gap-1">
                   <span class="text-text-weak truncate">{getFilename(item.path)}</span>
-                  <Show when={item.type === "directory" && props.mode === "files"}>
+                  <Show when={item.type === "directory"}>
                     <span class="text-text-weak text-11-regular">/</span>
                   </Show>
                 </div>
@@ -194,6 +194,22 @@ function DialogPathPicker(props: PathPickerProps) {
             </Button>
             <Button onClick={confirm} disabled={selected().size === 0}>
               确认选择 ({selected().size})
+            </Button>
+          </div>
+        </Show>
+
+        <Show when={props.mode === "directories" && !props.multiple}>
+          <div class="flex justify-end gap-2 pt-2">
+            <Button variant="ghost" onClick={props.onClose}>
+              取消
+            </Button>
+            <Button
+              onClick={() => {
+                props.onSelect(cwd())
+                props.onClose()
+              }}
+            >
+              选择此文件夹
             </Button>
           </div>
         </Show>
