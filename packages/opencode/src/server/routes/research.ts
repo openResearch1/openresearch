@@ -70,6 +70,7 @@ const remoteServerConfigSchema = z.object({
   port: z.number(),
   user: z.string(),
   password: z.string(),
+  resource_root: z.string().optional(),
   wandb_api_key: z.string().optional(),
   wandb_project_name: z.string().optional(),
 })

@@ -6,6 +6,7 @@ interface ServerConfig {
   port: number
   user: string
   password: string
+  resource_root?: string
   wandb_api_key?: string
   wandb_project_name?: string
 }
@@ -29,6 +30,7 @@ export function ServersTab() {
   const [formPort, setFormPort] = createSignal("22")
   const [formUser, setFormUser] = createSignal("root")
   const [formPassword, setFormPassword] = createSignal("")
+  const [formResourceRoot, setFormResourceRoot] = createSignal("")
   const [formWandbApiKey, setFormWandbApiKey] = createSignal("")
   const [formWandbProject, setFormWandbProject] = createSignal("")
 
@@ -67,6 +69,7 @@ export function ServersTab() {
           port,
           user: formUser(),
           password: formPassword(),
+          ...(formResourceRoot() ? { resource_root: formResourceRoot() } : {}),
           ...(formWandbApiKey() ? { wandb_api_key: formWandbApiKey() } : {}),
           ...(formWandbProject() ? { wandb_project_name: formWandbProject() } : {}),
         },
@@ -86,6 +89,7 @@ export function ServersTab() {
     setFormPort("22")
     setFormUser("root")
     setFormPassword("")
+    setFormResourceRoot("")
     setFormWandbApiKey("")
     setFormWandbProject("")
   }
@@ -141,6 +145,15 @@ export function ServersTab() {
             <div class="flex gap-2">
               <input
                 type="text"
+                placeholder="Resource Root (/data/opencode)"
+                value={formResourceRoot()}
+                onInput={(e) => setFormResourceRoot(e.currentTarget.value)}
+                class="flex-1 rounded border border-border-weak-base bg-background-stronger px-2 py-1 text-12-regular text-text-base outline-none focus:border-border-base"
+              />
+            </div>
+            <div class="flex gap-2">
+              <input
+                type="text"
                 placeholder="W&B Project Name"
                 value={formWandbProject()}
                 onInput={(e) => setFormWandbProject(e.currentTarget.value)}
@@ -181,20 +194,24 @@ export function ServersTab() {
           <Match when={true}>
             <div class="flex flex-col gap-2">
               {/* Table header */}
-              <div class="grid grid-cols-[1fr_60px_70px_40px] gap-2 px-2 py-1 text-11-regular text-text-weak uppercase tracking-wider">
+              <div class="grid grid-cols-[1fr_60px_70px_minmax(120px,1fr)_40px] gap-2 px-2 py-1 text-11-regular text-text-weak uppercase tracking-wider">
                 <div>Address</div>
                 <div>Port</div>
                 <div>User</div>
+                <div>Resource Root</div>
                 <div />
               </div>
               <For each={servers()}>
                 {(server) => (
-                  <div class="grid grid-cols-[1fr_60px_70px_40px] gap-2 items-center rounded-md border border-border-weak-base bg-background-base px-2 py-2 text-12-regular text-text-base">
+                  <div class="grid grid-cols-[1fr_60px_70px_minmax(120px,1fr)_40px] gap-2 items-center rounded-md border border-border-weak-base bg-background-base px-2 py-2 text-12-regular text-text-base">
                     <div class="truncate" title={server.config.address}>
                       {server.config.address}
                     </div>
                     <div>{server.config.port}</div>
                     <div class="truncate">{server.config.user}</div>
+                    <div class="truncate" title={server.config.resource_root ?? ""}>
+                      {server.config.resource_root ?? "-"}
+                    </div>
                     <button
                       class="text-text-weak hover:text-text-strong transition-colors text-11-regular"
                       onClick={() => handleDelete(server.id)}

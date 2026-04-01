@@ -35,6 +35,7 @@ From the `experiment_query` result, check `remote_server_config` for server deta
 
 If server configuration or W&B configuration is not available in the context, ask the user for:
 - Server: address, port, user, password
+- Remote resource storage: `resource_root`
 - W&B: project name, API key
 
 ## Step 2: Design the Experiment Plan
@@ -44,6 +45,7 @@ Based on all the context gathered, design an experiment that would provide evide
 - What specific hypothesis is being tested
 - What metrics will demonstrate success or failure
 - What is the minimal but sufficient experiment to validate the claim
+- What remote resources are needed, where they should live on the server, and which CLI args the code must expose to consume them
 
 ## Step 3: Write the Plan
 
@@ -87,17 +89,46 @@ The engineering details for implementing the method described above. Include:
 - Which files need to be created or modified
 - A description of the key code changes required
 - Any new dependencies to install
+- Every new CLI argument required for remote resource paths, including whether it is required and which file consumes it
+- How each CLI argument maps to a remote absolute resource path planned later in this document
+
+### W&B Adaptation (Mandatory)
+The code MUST be adapted for W&B integration:
+- Accept W&B configuration via CLI arguments (`--wandb-project`, `--wandb-run-id`)
+- Read W&B API key from `WANDB_API_KEY` environment variable (do NOT hardcode or call `wandb.login()` — wandb library auto-reads it from env)
+- Use `<exp_id>_<timestamp>` as both W&B run name and run id
+- Initialize with `wandb.init(project=args.wandb_project, id=args.wandb_run_id, name=args.wandb_run_id)`
+- Log all key metrics, parameters, and results
+- Call `wandb.finish()` at the end
+- Keep important runtime output in stdout/stderr so it remains visible in the remote console log
+- Do NOT rely on W&B-only logging for startup status, training progress, error reporting, or key debug information
+- Do NOT replace, suppress, or redirect normal console output when adding W&B support
+- The planned code changes MUST preserve readable console output for `experiment_run` to inspect via `output.log`
 
 ## 7. Remote Server Environment Setup
 - Required software and dependencies
 - GPU/CPU/memory requirements
 - Environment setup: use conda to create isolated environments (e.g., `conda create -n exp_name python=3.x`), but install all dependencies via pip inside the conda environment (e.g., `conda activate exp_name && pip install ...`)
 - How to transfer data and code to the server
+- Which download tools are required on the server to fetch planned resources (e.g. `wget`, `curl`, `git`, `huggingface-cli`)
 
 ## 8. Dataset Preparation
 - Step-by-step instructions for preparing the dataset on the remote server
 - Download commands or data transfer steps
 - Preprocessing scripts to run
+
+## 9. Resource Download Plan
+- The `resource_root` to use on the remote server
+- Every model, dataset, checkpoint, or artifact the experiment requires
+- For each resource:
+  - `name`
+  - `type`
+  - `source`
+  - `target_path` as a remote absolute path, typically under `resource_root`
+  - whether it should be shared across experiments or be experiment-specific
+  - verification checks that confirm the download is usable
+  - the exact runtime CLI argument that must receive `target_path`
+- The final `run_command` shape, including all required resource path arguments
 ```
 
 ## Rules
@@ -107,3 +138,5 @@ The engineering details for implementing the method described above. Include:
 - Reference actual file paths from the codebase where relevant.
 - All data collection must go through W&B — do not plan for local-only result storage.
 - The plan must be executable on a remote server via SSH.
+- Resource paths must be planned as remote absolute paths. Do not rely on code-relative paths for large models or datasets.
+- If remote resources are needed, the plan must explicitly require corresponding CLI args in the code changes section.
