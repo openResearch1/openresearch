@@ -320,6 +320,40 @@ export namespace Server {
             })
           },
         )
+        .post(
+          "/path/mkdir",
+          describeRoute({
+            summary: "Create directory",
+            description: "Create a directory on the local filesystem.",
+            operationId: "path.mkdir",
+            responses: {
+              200: {
+                description: "Created directory",
+                content: {
+                  "application/json": {
+                    schema: resolver(
+                      z.object({
+                        path: z.string(),
+                      }),
+                    ),
+                  },
+                },
+              },
+            },
+          }),
+          validator(
+            "json",
+            z.object({
+              path: z.string(),
+            }),
+          ),
+          async (c) => {
+            const body = c.req.valid("json")
+            const path = Filesystem.resolve(body.path)
+            await Filesystem.mkdir(path)
+            return c.json({ path })
+          },
+        )
         .get(
           "/vcs",
           describeRoute({

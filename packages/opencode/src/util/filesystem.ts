@@ -1,4 +1,4 @@
-import { chmod, mkdir, readFile, writeFile } from "fs/promises"
+import { chmod, mkdir as fsMkdir, readFile, writeFile } from "fs/promises"
 import { createWriteStream, existsSync, statSync } from "fs"
 import { lookup } from "mime-types"
 import { realpathSync } from "fs"
@@ -60,7 +60,7 @@ export namespace Filesystem {
       }
     } catch (e) {
       if (isEnoent(e)) {
-        await mkdir(dirname(p), { recursive: true })
+        await fsMkdir(dirname(p), { recursive: true })
         if (mode) {
           await writeFile(p, content, { mode })
         } else {
@@ -83,7 +83,7 @@ export namespace Filesystem {
   ): Promise<void> {
     const dir = dirname(p)
     if (!existsSync(dir)) {
-      await mkdir(dir, { recursive: true })
+      await fsMkdir(dir, { recursive: true })
     }
 
     const nodeStream = stream instanceof ReadableStream ? Readable.fromWeb(stream as any) : stream
@@ -93,6 +93,10 @@ export namespace Filesystem {
     if (mode) {
       await chmod(p, mode)
     }
+  }
+
+  export async function mkdir(p: string): Promise<void> {
+    await fsMkdir(p, { recursive: true })
   }
 
   export function mimeType(p: string): string {
