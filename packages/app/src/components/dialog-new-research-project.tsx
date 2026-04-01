@@ -11,6 +11,7 @@ import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLayout } from "@/context/layout"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { showToast } from "@opencode-ai/ui/toast"
 
 function cleanInput(value: string) {
   const first = (value ?? "").split(/\r?\n/)[0] ?? ""
@@ -50,6 +51,8 @@ function DialogPathPicker(props: PathPickerProps) {
   const sync = useGlobalSync()
   const [filter, setFilter] = createSignal("")
   const [selected, setSelected] = createSignal<Set<string>>(new Set())
+  const [newFolderName, setNewFolderName] = createSignal("")
+  const [creatingFolder, setCreatingFolder] = createSignal(false)
 
   const home = createMemo(() => props.startDir?.() || sync.data.path.home || sync.data.path.directory || "/")
   const [cwd, setCwd] = createSignal("")
@@ -71,6 +74,51 @@ function DialogPathPicker(props: PathPickerProps) {
   const enterDir = (dirPath: string) => {
     setCwd(dirPath)
     setFilter("")
+  }
+
+  async function handleCreateFolder() {
+    const name = cleanInput(newFolderName())
+    if (!name) {
+      showToast({
+        variant: "error",
+        title: "Enter a folder name first",
+      })
+      return
+    }
+
+    const next = trimTrailing(joinPath(cwd(), name))
+
+    setCreatingFolder(true)
+    try {
+      const res = await fetch(new URL("/path/mkdir", sdk.url), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ path: next }),
+      })
+
+      if (!res.ok) {
+        const error = await res.json().catch(() => undefined)
+        throw new Error(error?.message ?? "Failed to create folder")
+      }
+
+      setNewFolderName("")
+      enterDir(next)
+      showToast({
+        variant: "success",
+        title: "Folder created",
+        description: next,
+      })
+    } catch (error: unknown) {
+      showToast({
+        variant: "error",
+        title: "Failed to create folder",
+        description: error instanceof Error ? error.message : "Please try again",
+      })
+    } finally {
+      setCreatingFolder(false)
+    }
   }
 
   type ListItem = { path: string; type: "file" | "directory" }
@@ -160,6 +208,21 @@ function DialogPathPicker(props: PathPickerProps) {
         <div class="shrink-0">
           <TextField label="搜索" placeholder="输入文件名搜索" value={filter()} onChange={setFilter} autoFocus />
         </div>
+
+        <Show when={props.mode === "directories"}>
+          <div class="shrink-0 flex items-end gap-2">
+            <TextField
+              class="flex-1"
+              label="New folder"
+              placeholder="Folder name"
+              value={newFolderName()}
+              onChange={setNewFolderName}
+            />
+            <Button variant="ghost" onClick={handleCreateFolder} disabled={creatingFolder()}>
+              Create
+            </Button>
+          </div>
+        </Show>
 
         <List
           class="flex-1 min-h-0 [&_[data-slot=list-scroll]]:flex-1 [&_[data-slot=list-scroll]]:min-h-0"
