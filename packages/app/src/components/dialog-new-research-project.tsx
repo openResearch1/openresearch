@@ -260,16 +260,20 @@ export function DialogNewResearchProject(props: DialogNewResearchProjectProps) {
   async function handleCreate() {
     if (!canSubmit()) return
 
+    const projectName = name().trim()
+    const parentDir = targetDir().trim()
+    const fullPath = `${parentDir}/${projectName}`
+
     const payload = {
-      name: name().trim(),
-      targetPath: targetDir().trim(),
+      name: projectName,
+      targetPath: fullPath,
       papers: paperPaths(),
       backgroundPath: backgroundPath(),
       goalPath: goalPath(),
     }
 
     // 保存当前的目标路径，避免在异步回调中访问 signal
-    const currentTargetDir = payload.targetPath
+    const currentTargetDir = fullPath
 
     setSubmitting(true)
     setError(undefined)
