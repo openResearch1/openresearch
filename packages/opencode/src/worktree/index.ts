@@ -10,6 +10,7 @@ import { Project } from "../project/project"
 import { Database, eq } from "../storage/db"
 import { ProjectTable } from "../project/project.sql"
 import { fn } from "../util/fn"
+import { git } from "../util/git"
 import { Log } from "../util/log"
 import { BusEvent } from "@/bus/bus-event"
 import { GlobalBus } from "@/bus/global"
@@ -476,7 +477,7 @@ export namespace Worktree {
 
     const stop = async (target: string) => {
       if (!(await exists(target))) return
-      await $`git fsmonitor--daemon stop`.quiet().nothrow().cwd(target)
+      await git(["fsmonitor--daemon", "stop"], { cwd: target })
     }
 
     const list = await $`git worktree list --porcelain`.quiet().nothrow().cwd(Instance.worktree)
