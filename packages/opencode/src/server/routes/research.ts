@@ -33,6 +33,7 @@ import { checkExperimentReadyByExpId } from "@/session/experiment-guard"
 import { forceRefreshWatch } from "@/research/experiment-watcher"
 import { forceRefreshLocalDownload } from "@/research/experiment-local-download-watcher"
 import { ExperimentExecutionWatch } from "@/research/experiment-execution-watch"
+import { Global } from "@/global"
 
 const createSchema = z.object({
   name: z.string().min(1, "name required"),
@@ -241,6 +242,43 @@ const researchProjectSchema = z.object({
 })
 
 export const ResearchRoutes = new Hono()
+  .post(
+    "/upload",
+    describeRoute({
+      summary: "Upload paper files",
+      description: "Upload PDF files to a temporary server directory, returns server-side paths.",
+      operationId: "research.upload",
+      responses: {
+        200: {
+          description: "Uploaded file paths",
+          content: {
+            "application/json": {
+              schema: resolver(z.object({ paths: z.array(z.object({ name: z.string(), path: z.string() })) })),
+            },
+          },
+        },
+        ...errors(400),
+      },
+    }),
+    async (c) => {
+      const body = await c.req.parseBody({ all: true })
+      const files = body["files"]
+      const fileList = Array.isArray(files) ? files : files ? [files] : []
+      if (fileList.length === 0) return c.json({ success: false, message: "no files" }, 400)
+
+      const uploadDir = path.join(Global.Path.cache, "uploads")
+      await fs.promises.mkdir(uploadDir, { recursive: true })
+
+      const results: { name: string; path: string }[] = []
+      for (const file of fileList) {
+        if (!(file instanceof File)) continue
+        const dest = path.join(uploadDir, `${crypto.randomUUID()}-${file.name}`)
+        await Bun.write(dest, file)
+        results.push({ name: file.name, path: dest })
+      }
+      return c.json({ paths: results })
+    },
+  )
   .get(
     "/project/by-project/:projectId",
     describeRoute({

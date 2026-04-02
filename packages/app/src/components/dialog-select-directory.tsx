@@ -337,16 +337,24 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
       (f) => f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf"),
     )
     if (pdfs.length === 0) return
-    const newPapers = pdfs.map((f) => ({
-      name: f.name,
-      // Tauri exposes the absolute OS path on the File object
-      path: (f as unknown as { path?: string }).path || f.name,
-    }))
-    setDroppedPapers((prev) => {
-      const existingPaths = new Set(prev.map((p) => p.path))
-      const unique = newPapers.filter((p) => !existingPaths.has(p.path))
-      return [...prev, ...unique]
-    })
+
+    // Upload files to server, get back server-side paths
+    const formData = new FormData()
+    for (const f of pdfs) formData.append("files", f)
+
+    setCreating(true)
+    setCreateError(undefined)
+    fetch(`${sdk.url}/research/upload`, { method: "POST", body: formData })
+      .then((r) => r.json() as Promise<{ paths: Array<{ name: string; path: string }> }>)
+      .then((res) => {
+        const uploaded = res.paths ?? []
+        setDroppedPapers((prev) => {
+          const existing = new Set(prev.map((p) => p.path))
+          return [...prev, ...uploaded.filter((p) => !existing.has(p.path))]
+        })
+      })
+      .catch(() => setCreateError("上传文件失败，请重试"))
+      .finally(() => setCreating(false))
   }
 
   function removePaper(index: number) {
@@ -393,11 +401,14 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
       <div class="flex flex-col gap-3 px-4 pt-4 pb-4 border-b border-border-weak-base">
         <div
           class={`border-2 border-dashed rounded-lg p-5 flex flex-col items-center gap-2 text-center transition-colors select-none ${
-            dragOver()
-              ? "border-brand-base bg-brand-faint text-brand-base"
-              : "border-border-weak-base hover:border-border-base text-text-weak"
+            creating()
+              ? "border-border-weak-base text-text-weak opacity-60 cursor-wait"
+              : dragOver()
+                ? "border-brand-base bg-brand-faint text-brand-base"
+                : "border-border-weak-base hover:border-border-base text-text-weak"
           }`}
           onDragOver={(e) => {
+            if (creating()) return
             e.preventDefault()
             setDragOver(true)
           }}
@@ -405,7 +416,9 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
           onDrop={handlePaperDrop}
         >
           <Icon name="cloud-upload" class="size-6 shrink-0" />
-          <div class="text-13-regular">拖入 PDF 论文到此处（可多次拖入）</div>
+          <div class="text-13-regular">
+            {creating() ? "上传中…" : "拖入 PDF 论文到此处（可多次拖入）"}
+          </div>
         </div>
 
         <Show when={droppedPapers().length > 0}>
