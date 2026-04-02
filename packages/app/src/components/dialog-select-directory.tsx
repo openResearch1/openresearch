@@ -365,17 +365,12 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
     setCreating(true)
     setCreateError(undefined)
     try {
-      // 用 AI 生成项目名（直接 fetch，SDK 无此方法）
-      const suggestRes = await fetch(`${sdk.url}/research/project/suggest-name`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ papers: papers.map((p) => p.path) }),
-      }).then((r) => r.json() as Promise<{ name: string }>)
-      const projectName = suggestRes?.name || "research-project"
-      const targetPath = `${home()}/${projectName}`
+      // 用第一个文件名（去掉扩展名）作为项目名
+      const firstName = getFilename(papers[0].name).replace(/\.[^.]+$/, "") || "research-project"
+      const targetPath = `${home()}/${firstName}`
 
       const res = await sdk.client.research.project.create({
-        name: projectName,
+        name: firstName,
         targetPath,
         papers: papers.map((p) => p.path),
         backgroundPath: undefined,
@@ -447,7 +442,7 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
                 disabled={droppedPapers().length === 0 || creating()}
                 loading={creating()}
               >
-                {creating() ? "AI 生成名称中…" : "创建目录"}
+                创建目录
               </Button>
             </div>
           </div>
