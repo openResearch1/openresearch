@@ -402,7 +402,12 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
     setCreating(true)
     setCreateError(undefined)
     try {
-      const baseName = getFilename(papers[0].name).replace(/\.[^.]+$/, "") || "research-project"
+      const MAX_NAME_LEN = 50
+      const joined = papers
+        .map((p) => getFilename(p.name).replace(/\.[^.]+$/, ""))
+        .filter(Boolean)
+        .join("+")
+      const baseName = (joined.length > MAX_NAME_LEN ? joined.slice(0, MAX_NAME_LEN) : joined) || "research-project"
       const homeDir = home()
       const paperPaths = papers.map((p) => p.path)
 
