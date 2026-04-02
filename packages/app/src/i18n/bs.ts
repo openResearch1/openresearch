@@ -834,4 +834,52 @@ export const dict = {
   "common.time.daysAgo.short": "prije {{count}} d",
   "settings.providers.connected.environmentDescription": "Povezano sa vašim varijablama okruženja",
   "settings.providers.custom.description": "Dodajte provajdera kompatibilnog s OpenAI putem osnovnog URL-a.",
+
+  "dialog.newProject.title": "Novi Istraživački Projekat",
+  "dialog.newProject.description": "Uvozite radove, opcione pozadine i ciljeve, brzo započnite novu temu.",
+  "dialog.newProject.button": "Novo",
+
+  "dialog.newProject.form.title": "Novi Istraživački Projekat",
+
+  "dialog.newProject.form.name.label": "Naziv Projekta",
+  "dialog.newProject.form.name.placeholder": "Unesite naziv istraživačkog projekta",
+
+  "dialog.newProject.form.location.label": "Lokacija",
+  "dialog.newProject.form.location.placeholder": "Unesite ili odaberite lokaciju projekta",
+  "dialog.newProject.form.location.tip": "Podržava ručni unos ili pretragu i odabir mape",
+  "dialog.newProject.form.location.button.select": "Odaberi Mapu",
+  "dialog.newProject.form.location.button.clear": "Obriši",
+
+  "dialog.newProject.form.paper.label": "Radovi (Višestruki odabir PDF)",
+  "dialog.newProject.form.paper.placeholder": "Odaberite putanju rada",
+  "dialog.newProject.form.paper.tip": "Podržava odabir više PDF radova odjednom",
+  "dialog.newProject.form.paper.button.select": "Odaberi Datoteke",
+  "dialog.newProject.form.paper.button.clear": "Obriši",
+
+  "dialog.newProject.form.background.label": "Pozadina (Opciono, Markdown)",
+  "dialog.newProject.form.background.placeholder": "Automatski generiše AI ako nije učitano",
+  "dialog.newProject.form.background.tip": "Automatski generiše AI ako nije učitano",
+  "dialog.newProject.form.background.button.select": "Odaberi Datoteku",
+  "dialog.newProject.form.background.button.clear": "Obriši",
+
+  "dialog.newProject.form.goal.label": "Ciljevi (Opciono, Markdown)",
+  "dialog.newProject.form.goal.placeholder": "Automatski generiše AI ako nije učitano",
+  "dialog.newProject.form.goal.tip": "Automatski generiše AI ako nije učitano",
+  "dialog.newProject.form.goal.button.select": "Odaberi Datoteku",
+  "dialog.newProject.form.goal.button.clear": "Obriši",
+
+  "dialog.newProject.form.submit": "Kreiraj",
+  "dialog.newProject.form.cancel": "Otkaži",
+
+
+  "dialog.newProject.form.location.folderDialog.title": "Odaberi Lokaciju Kreiranja",
+  "dialog.newProject.form.folderDialog.search.label": "Pretraga",
+  "dialog.newProject.form.folderDialog.search.placeholder": "Unesite ime datoteke za pretragu",
+  "dialog.newProject.form.location.folderDialog.button.cancel": "Otkaži",
+  "dialog.newProject.form.location.folderDialog.button.confirm": "Odaberi ovu Mapu",
+  "dialog.newProject.form.paper.fileDialog.title": "Odaberi Radove (PDF, Višestruki odabir)",
+  "dialog.newProject.form.paper.fileDialog.button.cancel": "Otkaži",
+  "dialog.newProject.form.paper.fileDialog.button.confirm": "Potvrdi Odabir ({count})",
+  "dialog.newProject.form.background.fileDialog.title": "Odaberi Pozadinu Istraživanja (Markdown)",
+  "dialog.newProject.form.goal.fileDialog.title": "Odaberi Ciljeve Istraživanja (Markdown)"
 }

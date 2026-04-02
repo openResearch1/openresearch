@@ -828,4 +828,51 @@ export const dict = {
   "common.time.daysAgo.short": "{{count}}d siden",
   "settings.providers.connected.environmentDescription": "Tilsluttet fra dine miljøvariabler",
   "settings.providers.custom.description": "Tilføj en OpenAI-kompatibel udbyder via basis-URL.",
+
+  "dialog.newProject.title": "Nyt Forskningsprojekt",
+  "dialog.newProject.description": "Importer papirer, valgfri baggrund og mål, start hurtigt et nyt emne.",
+  "dialog.newProject.button": "Ny",
+
+  "dialog.newProject.form.title": "Nyt Forskningsprojekt",
+
+  "dialog.newProject.form.name.label": "Projektnavn",
+  "dialog.newProject.form.name.placeholder": "Indtast forskningsprojektnavn",
+
+  "dialog.newProject.form.location.label": "Placering",
+  "dialog.newProject.form.location.placeholder": "Indtast eller vælg projektplacering",
+  "dialog.newProject.form.location.tip": "Understøtter manuel indtastning eller søgning og valg af mappe",
+  "dialog.newProject.form.location.button.select": "Vælg Mappe",
+  "dialog.newProject.form.location.button.clear": "Ryd",
+
+  "dialog.newProject.form.paper.label": "Papirer (Flervalg PDF)",
+  "dialog.newProject.form.paper.placeholder": "Vælg papirsti",
+  "dialog.newProject.form.paper.tip": "Understøtter valg af flere PDF-papirer på én gang",
+  "dialog.newProject.form.paper.button.select": "Vælg Filer",
+  "dialog.newProject.form.paper.button.clear": "Ryd",
+
+  "dialog.newProject.form.background.label": "Baggrund (Valgfri, Markdown)",
+  "dialog.newProject.form.background.placeholder": "Autogenereret af AI, hvis ikke uploadet",
+  "dialog.newProject.form.background.tip": "Autogenereret af AI, hvis ikke uploadet",
+  "dialog.newProject.form.background.button.select": "Vælg Fil",
+  "dialog.newProject.form.background.button.clear": "Ryd",
+
+  "dialog.newProject.form.goal.label": "Mål (Valgfri, Markdown)",
+  "dialog.newProject.form.goal.placeholder": "Autogenereret af AI, hvis ikke uploadet",
+  "dialog.newProject.form.goal.tip": "Autogenereret af AI, hvis ikke uploadet",
+  "dialog.newProject.form.goal.button.select": "Vælg Fil",
+  "dialog.newProject.form.goal.button.clear": "Ryd",
+
+  "dialog.newProject.form.submit": "Opret",
+  "dialog.newProject.form.cancel": "Annuller",
+
+  "dialog.newProject.form.location.folderDialog.title": "Vælg Oprettelsesplacering",
+  "dialog.newProject.form.folderDialog.search.label": "Søg",
+  "dialog.newProject.form.folderDialog.search.placeholder": "Indtast filnavn for at søge",
+  "dialog.newProject.form.location.folderDialog.button.cancel": "Annuller",
+  "dialog.newProject.form.location.folderDialog.button.confirm": "Vælg denne Mappe",
+  "dialog.newProject.form.paper.fileDialog.title": "Vælg Papirer (PDF, Flervalg)",
+  "dialog.newProject.form.paper.fileDialog.button.cancel": "Annuller",
+  "dialog.newProject.form.paper.fileDialog.button.confirm": "Bekræft Valg ({count})",
+  "dialog.newProject.form.background.fileDialog.title": "Vælg Forskningsbaggrund (Markdown)",
+  "dialog.newProject.form.goal.fileDialog.title": "Vælg Forskningsmål (Markdown)"
 }

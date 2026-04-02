@@ -749,4 +749,51 @@ export const dict = {
   "common.time.daysAgo.short": "قبل {{count}} ي",
   "settings.providers.connected.environmentDescription": "متصل من متغيرات البيئة الخاصة بك",
   "settings.providers.custom.description": "أضف مزود متوافق مع OpenAI بواسطة عنوان URL الأساسي.",
+
+  "dialog.newProject.title": "مشروع بحثي جديد",
+  "dialog.newProject.description": "استيراد الأوراق البحثية، الخلفية والأهداف الاختيارية، وابدأ موضوعًا جديدًا بسرعة.",
+  "dialog.newProject.button": "جديد",
+
+  "dialog.newProject.form.title": "مشروع بحثي جديد",
+
+  "dialog.newProject.form.name.label": "اسم المشروع",
+  "dialog.newProject.form.name.placeholder": "أدخل اسم المشروع البحثي",
+
+  "dialog.newProject.form.location.label": "الموقع",
+  "dialog.newProject.form.location.placeholder": "أدخل أو حدد موقع المشروع",
+  "dialog.newProject.form.location.tip": "يدعم الإدخال اليدوي أو البحث وتحديد المجلد",
+  "dialog.newProject.form.location.button.select": "تحديد المجلد",
+  "dialog.newProject.form.location.button.clear": "مسح",
+
+  "dialog.newProject.form.paper.label": "الأوراق البحثية (تحديد ملفات PDF متعددة)",
+  "dialog.newProject.form.paper.placeholder": "حدد مسار الأوراق البحثية",
+  "dialog.newProject.form.paper.tip": "يدعم تحديد ملفات PDF متعددة في مرة واحدة",
+  "dialog.newProject.form.paper.button.select": "تحديد الملفات",
+  "dialog.newProject.form.paper.button.clear": "مسح",
+
+  "dialog.newProject.form.background.label": "الخلفية البحثية (اختياري، Markdown)",
+  "dialog.newProject.form.background.placeholder": "يتم إنشاؤها تلقائيًا بواسطة الذكاء الاصطناعي إذا لم يتم تحميلها",
+  "dialog.newProject.form.background.tip": "يتم إنشاؤها تلقائيًا بواسطة الذكاء الاصطناعي إذا لم يتم تحميلها",
+  "dialog.newProject.form.background.button.select": "تحديد الملف",
+  "dialog.newProject.form.background.button.clear": "مسح",
+
+  "dialog.newProject.form.goal.label": "الأهداف البحثية (اختياري، Markdown)",
+  "dialog.newProject.form.goal.placeholder": "يتم إنشاؤها تلقائيًا بواسطة الذكاء الاصطناعي إذا لم يتم تحميلها",
+  "dialog.newProject.form.goal.tip": "يتم إنشاؤها تلقائيًا بواسطة الذكاء الاصطناعي إذا لم يتم تحميلها",
+  "dialog.newProject.form.goal.button.select": "تحديد الملف",
+  "dialog.newProject.form.goal.button.clear": "مسح",
+
+  "dialog.newProject.form.submit": "إنشاء",
+  "dialog.newProject.form.cancel": "إلغاء",
+
+  "dialog.newProject.form.location.folderDialog.title": "تحديد موقع الإنشاء",
+  "dialog.newProject.form.folderDialog.search.label": "بحث",
+  "dialog.newProject.form.folderDialog.search.placeholder": "أدخل اسم الملف للبحث",
+  "dialog.newProject.form.location.folderDialog.button.cancel": "إلغاء",
+  "dialog.newProject.form.location.folderDialog.button.confirm": "تحديد هذا المجلد",
+  "dialog.newProject.form.paper.fileDialog.title": "تحديد الأوراق البحثية (PDF، متعدد الاختيارات)",
+  "dialog.newProject.form.paper.fileDialog.button.cancel": "إلغاء",
+  "dialog.newProject.form.paper.fileDialog.button.confirm": "تأكيد الاختيار ({count})",
+  "dialog.newProject.form.background.fileDialog.title": "تحديد خلفية البحث (Markdown)",
+  "dialog.newProject.form.goal.fileDialog.title": "تحديد أهداف البحث (Markdown)",
 }

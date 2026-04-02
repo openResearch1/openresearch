@@ -755,4 +755,51 @@ export const dict = {
   "common.time.daysAgo.short": "{{count}} dni temu",
   "settings.providers.connected.environmentDescription": "Połączono ze zmiennymi środowiskowymi",
   "settings.providers.custom.description": "Dodaj dostawcę zgodnego z OpenAI poprzez podstawowy URL.",
+
+  "dialog.newProject.title": "Nowy Projekt Badawczy",
+  "dialog.newProject.description": "Importuj artykuły, opcjonalne tło i cele, szybko rozpocznij nowy temat.",
+  "dialog.newProject.button": "Nowy",
+
+  "dialog.newProject.form.title": "Nowy Projekt Badawczy",
+
+  "dialog.newProject.form.name.label": "Nazwa Projektu",
+  "dialog.newProject.form.name.placeholder": "Wpisz nazwę projektu badawczego",
+
+  "dialog.newProject.form.location.label": "Lokalizacja",
+  "dialog.newProject.form.location.placeholder": "Wpisz lub wybierz lokalizację projektu",
+  "dialog.newProject.form.location.tip": "Obsługuje ręczne wprowadzanie lub wyszukiwanie i wybór folderu",
+  "dialog.newProject.form.location.button.select": "Wybierz Folder",
+  "dialog.newProject.form.location.button.clear": "Wyczyść",
+
+  "dialog.newProject.form.paper.label": "Artykuły (Wielokrotny wybór PDF)",
+  "dialog.newProject.form.paper.placeholder": "Wybierz ścieżkę artykułu",
+  "dialog.newProject.form.paper.tip": "Obsługuje wybór wielu artykułów PDF naraz",
+  "dialog.newProject.form.paper.button.select": "Wybierz Pliki",
+  "dialog.newProject.form.paper.button.clear": "Wyczyść",
+
+  "dialog.newProject.form.background.label": "Tło (Opcjonalne, Markdown)",
+  "dialog.newProject.form.background.placeholder": "Automatycznie generowane przez AI, jeśli nie przesłano",
+  "dialog.newProject.form.background.tip": "Automatycznie generowane przez AI, jeśli nie przesłano",
+  "dialog.newProject.form.background.button.select": "Wybierz Plik",
+  "dialog.newProject.form.background.button.clear": "Wyczyść",
+
+  "dialog.newProject.form.goal.label": "Cele (Opcjonalne, Markdown)",
+  "dialog.newProject.form.goal.placeholder": "Automatycznie generowane przez AI, jeśli nie przesłano",
+  "dialog.newProject.form.goal.tip": "Automatycznie generowane przez AI, jeśli nie przesłano",
+  "dialog.newProject.form.goal.button.select": "Wybierz Plik",
+  "dialog.newProject.form.goal.button.clear": "Wyczyść",
+
+  "dialog.newProject.form.submit": "Utwórz",
+  "dialog.newProject.form.cancel": "Anuluj",
+
+  "dialog.newProject.form.location.folderDialog.title": "Wybierz Lokalizację Tworzenia",
+  "dialog.newProject.form.folderDialog.search.label": "Wyszukaj",
+  "dialog.newProject.form.folderDialog.search.placeholder": "Wpisz nazwę pliku do wyszukania",
+  "dialog.newProject.form.location.folderDialog.button.cancel": "Anuluj",
+  "dialog.newProject.form.location.folderDialog.button.confirm": "Wybierz ten Folder",
+  "dialog.newProject.form.paper.fileDialog.title": "Wybierz Artykuły (PDF, Wielokrotny wybór)",
+  "dialog.newProject.form.paper.fileDialog.button.cancel": "Anuluj",
+  "dialog.newProject.form.paper.fileDialog.button.confirm": "Potwierdź Wybór ({count})",
+  "dialog.newProject.form.background.fileDialog.title": "Wybierz Tło Badawcze (Markdown)",
+  "dialog.newProject.form.goal.fileDialog.title": "Wybierz Cele Badawcze (Markdown)",
 }

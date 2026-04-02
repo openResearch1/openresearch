@@ -826,4 +826,51 @@ export const dict = {
   "common.time.daysAgo.short": "{{count}} วันที่แล้ว",
   "settings.providers.connected.environmentDescription": "เชื่อมต่อจากตัวแปรสภาพแวดล้อมของคุณ",
   "settings.providers.custom.description": "เพิ่มผู้ให้บริการที่รองรับ OpenAI ด้วย URL หลัก",
+
+  "dialog.newProject.title": "สร้างโครงการวิจัยใหม่",
+  "dialog.newProject.description": "นำเข้าบทความ, พื้นหลังและเป้าหมายที่เลือกได้ เริ่มต้นหัวข้อใหม่ได้อย่างรวดเร็ว",
+  "dialog.newProject.button": "สร้างใหม่",
+
+  "dialog.newProject.form.title": "สร้างโครงการวิจัยใหม่",
+
+  "dialog.newProject.form.name.label": "ชื่อโครงการ",
+  "dialog.newProject.form.name.placeholder": "กรุณาป้อนชื่อโครงการวิจัย",
+
+  "dialog.newProject.form.location.label": "ตำแหน่ง",
+  "dialog.newProject.form.location.placeholder": "กรุณาป้อนหรือเลือกตำแหน่งโครงการ",
+  "dialog.newProject.form.location.tip": "รองรับการป้อนด้วยตนเองหรือค้นหาและเลือกโฟลเดอร์",
+  "dialog.newProject.form.location.button.select": "เลือกโฟลเดอร์",
+  "dialog.newProject.form.location.button.clear": "ล้าง",
+
+  "dialog.newProject.form.paper.label": "บทความ (เลือกหลายไฟล์ PDF)",
+  "dialog.newProject.form.paper.placeholder": "กรุณาเลือกเส้นทางบทความ",
+  "dialog.newProject.form.paper.tip": "รองรับการเลือกหลายไฟล์ PDF บทความในคราวเดียว",
+  "dialog.newProject.form.paper.button.select": "เลือกไฟล์",
+  "dialog.newProject.form.paper.button.clear": "ล้าง",
+
+  "dialog.newProject.form.background.label": "พื้นหลังการวิจัย (ไม่บังคับ, Markdown)",
+  "dialog.newProject.form.background.placeholder": "AI จะสร้างอัตโนมัติหากไม่อัปโหลด",
+  "dialog.newProject.form.background.tip": "AI จะสร้างอัตโนมัติหากไม่อัปโหลด",
+  "dialog.newProject.form.background.button.select": "เลือกไฟล์",
+  "dialog.newProject.form.background.button.clear": "ล้าง",
+
+  "dialog.newProject.form.goal.label": "เป้าหมายการวิจัย (ไม่บังคับ, Markdown)",
+  "dialog.newProject.form.goal.placeholder": "AI จะสร้างอัตโนมัติหากไม่อัปโหลด",
+  "dialog.newProject.form.goal.tip": "AI จะสร้างอัตโนมัติหากไม่อัปโหลด",
+  "dialog.newProject.form.goal.button.select": "เลือกไฟล์",
+  "dialog.newProject.form.goal.button.clear": "ล้าง",
+
+  "dialog.newProject.form.submit": "สร้าง",
+  "dialog.newProject.form.cancel": "ยกเลิก",
+
+  "dialog.newProject.form.location.folderDialog.title": "เลือกตำแหน่งสร้าง",
+  "dialog.newProject.form.folderDialog.search.label": "ค้นหา",
+  "dialog.newProject.form.folderDialog.search.placeholder": "ป้อนชื่อไฟล์เพื่อค้นหา",
+  "dialog.newProject.form.location.folderDialog.button.cancel": "ยกเลิก",
+  "dialog.newProject.form.location.folderDialog.button.confirm": "เลือกโฟลเดอร์นี้",
+  "dialog.newProject.form.paper.fileDialog.title": "เลือกเอกสารวิจัย (PDF, เลือกหลายรายการ)",
+  "dialog.newProject.form.paper.fileDialog.button.cancel": "ยกเลิก",
+  "dialog.newProject.form.paper.fileDialog.button.confirm": "ยืนยันการเลือก ({count})",
+  "dialog.newProject.form.background.fileDialog.title": "เลือกพื้นหลังการวิจัย (Markdown)",
+  "dialog.newProject.form.goal.fileDialog.title": "เลือกเป้าหมายการวิจัย (Markdown)",
 }

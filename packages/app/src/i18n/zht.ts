@@ -819,4 +819,57 @@ export const dict = {
   "common.time.daysAgo.short": "{{count}}天前",
   "settings.providers.connected.environmentDescription": "已從環境變數連線",
   "settings.providers.custom.description": "透過基本 URL 新增與 OpenAI 相容的提供者。",
+
+  "dialog.newProject.title": "新增研究專案",
+"dialog.newProject.description": "匯入論文、可選背景與目標，快速開始新研究。",
+"dialog.newProject.button": "新增",
+
+"dialog.newProject.form.title": "新增研究專案",
+
+"dialog.newProject.form.name.label": "研究專案名稱",
+"dialog.newProject.form.name.placeholder": "請輸入研究專案名稱",
+
+"dialog.newProject.form.location.label": "建立位置",
+"dialog.newProject.form.location.placeholder": "請輸入或選擇建立位置",
+"dialog.newProject.form.location.tip": "支援手動輸入，也可搜尋並選擇資料夾",
+"dialog.newProject.form.location.button.select": "選擇資料夾",
+"dialog.newProject.form.location.button.clear": "清除",
+
+"dialog.newProject.form.paper.label": "論文（可多選 PDF）",
+"dialog.newProject.form.paper.placeholder": "請選擇論文路徑",
+"dialog.newProject.form.paper.tip": "支援一次選取多篇 PDF 論文",
+"dialog.newProject.form.paper.button.select": "選擇檔案",
+"dialog.newProject.form.paper.button.clear": "清除",
+
+"dialog.newProject.form.background.label": "研究背景（可選，Markdown）",
+"dialog.newProject.form.background.placeholder": "未上傳則由 AI 自動產生",
+"dialog.newProject.form.background.tip": "未上傳則由 AI 自動產生",
+"dialog.newProject.form.background.button.select": "選擇檔案",
+"dialog.newProject.form.background.button.clear": "清除",
+
+"dialog.newProject.form.goal.label": "研究目標（可選，Markdown）",
+"dialog.newProject.form.goal.placeholder": "未上傳則由 AI 自動產生",
+"dialog.newProject.form.goal.tip": "未上傳則由 AI 自動產生",
+"dialog.newProject.form.goal.button.select": "選擇檔案",
+"dialog.newProject.form.goal.button.clear": "清除",
+
+"dialog.newProject.form.submit": "建立",
+"dialog.newProject.form.cancel": "取消",
+
+// ========== 選擇資料夾彈窗 ==========
+"dialog.newProject.form.location.folderDialog.title": "選擇建立位置",
+"dialog.newProject.form.folderDialog.search.label": "搜尋",
+"dialog.newProject.form.folderDialog.search.placeholder": "輸入檔名搜尋",
+"dialog.newProject.form.location.folderDialog.button.cancel": "取消",
+"dialog.newProject.form.location.folderDialog.button.confirm": "選擇此資料夾",
+
+"dialog.newProject.form.paper.fileDialog.title": "選擇論文（PDF，可多選）",
+"dialog.newProject.form.paper.fileDialog.button.cancel": "取消",
+"dialog.newProject.form.paper.fileDialog.button.confirm": "確認選擇（{count}）",
+
+
+"dialog.newProject.form.background.fileDialog.title": "選擇科研背景 (Markdown)",
+
+"dialog.newProject.form.goal.fileDialog.title": "選擇科研目標 (Markdown)",
+
 } satisfies Partial<Record<Keys, string>>

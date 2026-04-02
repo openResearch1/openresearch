@@ -840,4 +840,51 @@ export const dict = {
   "common.time.daysAgo.short": "hace {{count}} d",
   "settings.providers.connected.environmentDescription": "Conectado desde tus variables de entorno",
   "settings.providers.custom.description": "Añade un proveedor compatible con OpenAI por su URL base.",
+
+  "dialog.newProject.title": "Nuevo Proyecto de Investigación",
+  "dialog.newProject.description": "Importa artículos, antecedentes y objetivos opcionales, comienza rápidamente un nuevo tema.",
+  "dialog.newProject.button": "Nuevo",
+
+  "dialog.newProject.form.title": "Nuevo Proyecto de Investigación",
+
+  "dialog.newProject.form.name.label": "Nombre del Proyecto",
+  "dialog.newProject.form.name.placeholder": "Ingrese el nombre del proyecto de investigación",
+
+  "dialog.newProject.form.location.label": "Ubicación",
+  "dialog.newProject.form.location.placeholder": "Ingrese o seleccione la ubicación del proyecto",
+  "dialog.newProject.form.location.tip": "Admite entrada manual o búsqueda y selección de carpeta",
+  "dialog.newProject.form.location.button.select": "Seleccionar Carpeta",
+  "dialog.newProject.form.location.button.clear": "Limpiar",
+
+  "dialog.newProject.form.paper.label": "Artículos (Selección múltiple PDF)",
+  "dialog.newProject.form.paper.placeholder": "Seleccione la ruta de los artículos",
+  "dialog.newProject.form.paper.tip": "Admite la selección de varios artículos PDF a la vez",
+  "dialog.newProject.form.paper.button.select": "Seleccionar Archivos",
+  "dialog.newProject.form.paper.button.clear": "Limpiar",
+
+  "dialog.newProject.form.background.label": "Antecedentes (Opcional, Markdown)",
+  "dialog.newProject.form.background.placeholder": "Generado automáticamente por IA si no se sube",
+  "dialog.newProject.form.background.tip": "Generado automáticamente por IA si no se sube",
+  "dialog.newProject.form.background.button.select": "Seleccionar Archivo",
+  "dialog.newProject.form.background.button.clear": "Limpiar",
+
+  "dialog.newProject.form.goal.label": "Objetivos (Opcional, Markdown)",
+  "dialog.newProject.form.goal.placeholder": "Generado automáticamente por IA si no se sube",
+  "dialog.newProject.form.goal.tip": "Generado automáticamente por IA si no se sube",
+  "dialog.newProject.form.goal.button.select": "Seleccionar Archivo",
+  "dialog.newProject.form.goal.button.clear": "Limpiar",
+
+  "dialog.newProject.form.submit": "Crear",
+  "dialog.newProject.form.cancel": "Cancelar",
+
+  "dialog.newProject.form.location.folderDialog.title": "Seleccionar Ubicación de Creación",
+  "dialog.newProject.form.folderDialog.search.label": "Buscar",
+  "dialog.newProject.form.folderDialog.search.placeholder": "Ingrese el nombre del archivo para buscar",
+  "dialog.newProject.form.location.folderDialog.button.cancel": "Cancelar",
+  "dialog.newProject.form.location.folderDialog.button.confirm": "Seleccionar esta Carpeta",
+  "dialog.newProject.form.paper.fileDialog.title": "Seleccionar Artículos (PDF, Selección múltiple)",
+  "dialog.newProject.form.paper.fileDialog.button.cancel": "Cancelar",
+  "dialog.newProject.form.paper.fileDialog.button.confirm": "Confirmar Selección ({count})",
+  "dialog.newProject.form.background.fileDialog.title": "Seleccionar Antecedentes de Investigación (Markdown)",
+  "dialog.newProject.form.goal.fileDialog.title": "Seleccionar Objetivos de Investigación (Markdown)",
 }
