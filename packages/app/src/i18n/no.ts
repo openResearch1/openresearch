@@ -836,4 +836,51 @@ export const dict = {
   "common.time.daysAgo.short": "{{count}} d siden",
   "settings.providers.connected.environmentDescription": "Koblet til fra miljøvariablene dine",
   "settings.providers.custom.description": "Legg til en OpenAI-kompatibel leverandør via basis-URL.",
+
+  "dialog.newProject.title": "Nytt Forskningsprosjekt",
+  "dialog.newProject.description": "Importer artikler, valgfri bakgrunn og mål, start raskt et nytt tema.",
+  "dialog.newProject.button": "Ny",
+
+  "dialog.newProject.form.title": "Nytt Forskningsprosjekt",
+
+  "dialog.newProject.form.name.label": "Prosjektnavn",
+  "dialog.newProject.form.name.placeholder": "Skriv inn forskningsprosjektnavn",
+
+  "dialog.newProject.form.location.label": "Plassering",
+  "dialog.newProject.form.location.placeholder": "Skriv inn eller velg prosjektplassering",
+  "dialog.newProject.form.location.tip": "Støtter manuell inntasting eller søk og valg av mappe",
+  "dialog.newProject.form.location.button.select": "Velg Mappe",
+  "dialog.newProject.form.location.button.clear": "Tøm",
+
+  "dialog.newProject.form.paper.label": "Artikler (Flervalg PDF)",
+  "dialog.newProject.form.paper.placeholder": "Velg artikkelsti",
+  "dialog.newProject.form.paper.tip": "Støtter valg av flere PDF-artikler på en gang",
+  "dialog.newProject.form.paper.button.select": "Velg Filer",
+  "dialog.newProject.form.paper.button.clear": "Tøm",
+
+  "dialog.newProject.form.background.label": "Bakgrunn (Valgfri, Markdown)",
+  "dialog.newProject.form.background.placeholder": "Autogenerert av AI hvis ikke lastet opp",
+  "dialog.newProject.form.background.tip": "Autogenerert av AI hvis ikke lastet opp",
+  "dialog.newProject.form.background.button.select": "Velg Fil",
+  "dialog.newProject.form.background.button.clear": "Tøm",
+
+  "dialog.newProject.form.goal.label": "Mål (Valgfri, Markdown)",
+  "dialog.newProject.form.goal.placeholder": "Autogenerert av AI hvis ikke lastet opp",
+  "dialog.newProject.form.goal.tip": "Autogenerert av AI hvis ikke lastet opp",
+  "dialog.newProject.form.goal.button.select": "Velg Fil",
+  "dialog.newProject.form.goal.button.clear": "Tøm",
+
+  "dialog.newProject.form.submit": "Opprett",
+  "dialog.newProject.form.cancel": "Avbryt",
+
+  "dialog.newProject.form.location.folderDialog.title": "Velg Opprettelsesplassering",
+  "dialog.newProject.form.folderDialog.search.label": "Søk",
+  "dialog.newProject.form.folderDialog.search.placeholder": "Skriv inn filnavn for å søke",
+  "dialog.newProject.form.location.folderDialog.button.cancel": "Avbryt",
+  "dialog.newProject.form.location.folderDialog.button.confirm": "Velg denne Mappen",
+  "dialog.newProject.form.paper.fileDialog.title": "Velg Artikler (PDF, Flervalg)",
+  "dialog.newProject.form.paper.fileDialog.button.cancel": "Avbryt",
+  "dialog.newProject.form.paper.fileDialog.button.confirm": "Bekreft Valg ({count})",
+  "dialog.newProject.form.background.fileDialog.title": "Velg Forskningsbakgrunn (Markdown)",
+  "dialog.newProject.form.goal.fileDialog.title": "Velg Forskningsmål (Markdown)",
 } satisfies Partial<Record<Keys, string>>

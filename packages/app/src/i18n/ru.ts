@@ -836,4 +836,51 @@ export const dict = {
   "common.time.daysAgo.short": "{{count}} д назад",
   "settings.providers.connected.environmentDescription": "Подключено из ваших переменных окружения",
   "settings.providers.custom.description": "Добавить провайдера, совместимого с OpenAI, по базовому URL.",
+
+  "dialog.newProject.title": "Новый исследовательский проект",
+  "dialog.newProject.description": "Импортируйте статьи, опциональные фон и цели, быстро начните новую тему.",
+  "dialog.newProject.button": "Создать",
+
+  "dialog.newProject.form.title": "Новый исследовательский проект",
+
+  "dialog.newProject.form.name.label": "Название проекта",
+  "dialog.newProject.form.name.placeholder": "Введите название исследовательского проекта",
+
+  "dialog.newProject.form.location.label": "Расположение",
+  "dialog.newProject.form.location.placeholder": "Введите или выберите расположение проекта",
+  "dialog.newProject.form.location.tip": "Поддерживает ручной ввод или поиск и выбор папки",
+  "dialog.newProject.form.location.button.select": "Выбрать папку",
+  "dialog.newProject.form.location.button.clear": "Очистить",
+
+  "dialog.newProject.form.paper.label": "Статьи (Множественный выбор PDF)",
+  "dialog.newProject.form.paper.placeholder": "Выберите путь к статье",
+  "dialog.newProject.form.paper.tip": "Поддерживает выбор нескольких PDF-статей одновременно",
+  "dialog.newProject.form.paper.button.select": "Выбрать файлы",
+  "dialog.newProject.form.paper.button.clear": "Очистить",
+
+  "dialog.newProject.form.background.label": "Фон (Опционально, Markdown)",
+  "dialog.newProject.form.background.placeholder": "Автоматически генерируется ИИ, если не загружено",
+  "dialog.newProject.form.background.tip": "Автоматически генерируется ИИ, если не загружено",
+  "dialog.newProject.form.background.button.select": "Выбрать файл",
+  "dialog.newProject.form.background.button.clear": "Очистить",
+
+  "dialog.newProject.form.goal.label": "Цели (Опционально, Markdown)",
+  "dialog.newProject.form.goal.placeholder": "Автоматически генерируется ИИ, если не загружено",
+  "dialog.newProject.form.goal.tip": "Автоматически генерируется ИИ, если не загружено",
+  "dialog.newProject.form.goal.button.select": "Выбрать файл",
+  "dialog.newProject.form.goal.button.clear": "Очистить",
+
+  "dialog.newProject.form.submit": "Создать",
+  "dialog.newProject.form.cancel": "Отмена",
+
+  "dialog.newProject.form.location.folderDialog.title": "Выбрать расположение для создания",
+  "dialog.newProject.form.folderDialog.search.label": "Поиск",
+  "dialog.newProject.form.folderDialog.search.placeholder": "Введите имя файла для поиска",
+  "dialog.newProject.form.location.folderDialog.button.cancel": "Отмена",
+  "dialog.newProject.form.location.folderDialog.button.confirm": "Выбрать эту папку",
+  "dialog.newProject.form.paper.fileDialog.title": "Выбрать статьи (PDF, множественный выбор)",
+  "dialog.newProject.form.paper.fileDialog.button.cancel": "Отмена",
+  "dialog.newProject.form.paper.fileDialog.button.confirm": "Подтвердить выбор ({count})",
+  "dialog.newProject.form.background.fileDialog.title": "Выбрать фон исследования (Markdown)",
+  "dialog.newProject.form.goal.fileDialog.title": "Выбрать цели исследования (Markdown)",
 }

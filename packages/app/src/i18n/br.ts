@@ -757,4 +757,51 @@ export const dict = {
   "common.time.daysAgo.short": "{{count}}d atrás",
   "settings.providers.connected.environmentDescription": "Conectado a partir de suas variáveis de ambiente",
   "settings.providers.custom.description": "Adicionar um provedor compatível com a OpenAI através do URL base.",
+
+  "dialog.newProject.title": "Projet Research Nevez",
+  "dialog.newProject.description": "Enporzhiañ paperioù, tammoù-dreist ha palioù da c'houde, kregiñ gant un danvez nevez buan.",
+  "dialog.newProject.button": "Nevez",
+
+  "dialog.newProject.form.title": "Projet Research Nevez",
+
+  "dialog.newProject.form.name.label": "Anv ar Projet",
+  "dialog.newProject.form.name.placeholder": "Lakait anv ar projet research",
+
+  "dialog.newProject.form.location.label": "Lec'h",
+  "dialog.newProject.form.location.placeholder": "Lakait pe dibab lec'h ar projet",
+  "dialog.newProject.form.location.tip": "Dalc'het gant enporzhiañ dorn pe klask ha dibab an teuliad",
+  "dialog.newProject.form.location.button.select": "Dibab an Teuliad",
+  "dialog.newProject.form.location.button.clear": "Diverkañ",
+
+  "dialog.newProject.form.paper.label": "Paperioù (Dibab meur a PDF)",
+  "dialog.newProject.form.paper.placeholder": "Dibab hent ar paperioù",
+  "dialog.newProject.form.paper.tip": "Dalc'het gant dibab meur a baper PDF en un taol",
+  "dialog.newProject.form.paper.button.select": "Dibab an Fichierioù",
+  "dialog.newProject.form.paper.button.clear": "Diverkañ",
+
+  "dialog.newProject.form.background.label": "Tammoù-dreist (Dibarzhius, Markdown)",
+  "dialog.newProject.form.background.placeholder": "Krouet gant AI ma ne vez ket enporzhiet",
+  "dialog.newProject.form.background.tip": "Krouet gant AI ma ne vez ket enporzhiet",
+  "dialog.newProject.form.background.button.select": "Dibab an Fichier",
+  "dialog.newProject.form.background.button.clear": "Diverkañ",
+
+  "dialog.newProject.form.goal.label": "Palioù (Dibarzhius, Markdown)",
+  "dialog.newProject.form.goal.placeholder": "Krouet gant AI ma ne vez ket enporzhiet",
+  "dialog.newProject.form.goal.tip": "Krouet gant AI ma ne vez ket enporzhiet",
+  "dialog.newProject.form.goal.button.select": "Dibab an Fichier",
+  "dialog.newProject.form.goal.button.clear": "Diverkañ",
+
+  "dialog.newProject.form.submit": "Krouiñ",
+  "dialog.newProject.form.cancel": "Nullañ",
+
+  "dialog.newProject.form.location.folderDialog.title": "Dibab Lec'h Krouiñ",
+  "dialog.newProject.form.folderDialog.search.label": "Klask",
+  "dialog.newProject.form.folderDialog.search.placeholder": "Lakait anv ar restr evit klask",
+  "dialog.newProject.form.location.folderDialog.button.cancel": "Nullañ",
+  "dialog.newProject.form.location.folderDialog.button.confirm": "Dibab an Teuliad-mañ",
+  "dialog.newProject.form.paper.fileDialog.title": "Dibab Paperioù (PDF, Meur a zibab)",
+  "dialog.newProject.form.paper.fileDialog.button.cancel": "Nullañ",
+  "dialog.newProject.form.paper.fileDialog.button.confirm": "Kadarnaat an Dibaboù ({count})",
+  "dialog.newProject.form.background.fileDialog.title": "Dibab Tammoù-dreist (Markdown)",
+  "dialog.newProject.form.goal.fileDialog.title": "Dibab Palioù (Markdown)",
 }

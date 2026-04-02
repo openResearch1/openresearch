@@ -850,4 +850,55 @@ export const dict = {
   "common.time.daysAgo.short": "{{count}}天前",
   "settings.providers.connected.environmentDescription": "已通过环境变量连接",
   "settings.providers.custom.description": "通过基础 URL 添加与 OpenAI 兼容的提供商。",
+
+  "dialog.newProject.title": "新建科研项目",
+  "dialog.newProject.description": "导入论文、可选背景与目标，快速开始新课题。",
+  "dialog.newProject.button": "新建",
+
+  "dialog.newProject.form.title": "新建科研项目",
+
+  "dialog.newProject.form.name.label": "科研项目名称",
+  "dialog.newProject.form.name.placeholder": "请输入科研项目名称",
+
+  "dialog.newProject.form.location.label": "创建位置",
+  "dialog.newProject.form.location.placeholder": "请输入或选择创建位置",
+  "dialog.newProject.form.location.tip": "支持手动输入，也可搜索并选择文件夹",
+  "dialog.newProject.form.location.button.select": "选择文件夹",
+  "dialog.newProject.form.location.button.clear": "清除",
+
+  "dialog.newProject.form.paper.label": "论文（可多选 PDF）",
+  "dialog.newProject.form.paper.placeholder": "请选择论文路径",
+  "dialog.newProject.form.paper.tip": "支持一次性选择多篇 PDF 论文",
+  "dialog.newProject.form.paper.button.select": "选择文件",
+  "dialog.newProject.form.paper.button.clear": "清除",
+
+  "dialog.newProject.form.background.label": "科研背景（可选，Markdown）",
+  "dialog.newProject.form.background.placeholder": "未上传则由 AI 自动生成",
+  "dialog.newProject.form.background.tip": "未上传则由 AI 自动生成",
+  "dialog.newProject.form.background.button.select": "选择文件",
+  "dialog.newProject.form.background.button.clear": "清除",
+
+  "dialog.newProject.form.goal.label": "科研目标（可选，Markdown）",
+  "dialog.newProject.form.goal.placeholder": "未上传则由 AI 自动生成",
+  "dialog.newProject.form.goal.tip": "未上传则由 AI 自动生成",
+  "dialog.newProject.form.goal.button.select": "选择文件",
+  "dialog.newProject.form.goal.button.clear": "清除",
+
+  "dialog.newProject.form.submit": "创建",
+  "dialog.newProject.form.cancel": "取消",
+
+  "dialog.newProject.form.location.folderDialog.title": "选择创建位置",
+  "dialog.newProject.form.folderDialog.search.label": "搜索",
+  "dialog.newProject.form.folderDialog.search.placeholder": "输入文件名搜索",
+  "dialog.newProject.form.location.folderDialog.button.cancel": "取消",
+  "dialog.newProject.form.location.folderDialog.button.confirm": "选择此文件夹",
+
+  "dialog.newProject.form.paper.fileDialog.title": "选择论文（PDF，可多选）",
+  "dialog.newProject.form.paper.fileDialog.button.cancel": "取消",
+  "dialog.newProject.form.paper.fileDialog.button.confirm": "确认选择（{count}）",
+
+  "dialog.newProject.form.background.fileDialog.title": "选择科研背景 (Markdown)",
+
+  "dialog.newProject.form.goal.fileDialog.title": "选择科研目标 (Markdown)",
+
 } satisfies Partial<Record<Keys, string>>

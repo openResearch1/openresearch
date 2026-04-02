@@ -753,4 +753,51 @@ export const dict = {
   "common.time.daysAgo.short": "{{count}}일 전",
   "settings.providers.connected.environmentDescription": "환경 변수에서 연결됨",
   "settings.providers.custom.description": "기본 URL로 OpenAI 호환 공급자를 추가합니다.",
+
+  "dialog.newProject.title": "새 연구 프로젝트",
+  "dialog.newProject.description": "논문 가져오기, 배경 및 목표 설정으로 빠르게 새 주제를 시작하세요.",
+  "dialog.newProject.button": "새로 만들기",
+
+  "dialog.newProject.form.title": "새 연구 프로젝트",
+
+  "dialog.newProject.form.name.label": "프로젝트 이름",
+  "dialog.newProject.form.name.placeholder": "연구 프로젝트 이름을 입력하세요",
+
+  "dialog.newProject.form.location.label": "저장 위치",
+  "dialog.newProject.form.location.placeholder": "위치를 입력하거나 선택하세요",
+  "dialog.newProject.form.location.tip": "직접 입력하거나 폴더를 검색하여 선택할 수 있습니다",
+  "dialog.newProject.form.location.button.select": "폴더 선택",
+  "dialog.newProject.form.location.button.clear": "지우기",
+
+  "dialog.newProject.form.paper.label": "논문 (여러 PDF 선택)",
+  "dialog.newProject.form.paper.placeholder": "논문 경로를 선택하세요",
+  "dialog.newProject.form.paper.tip": "한 번에 여러 개의 PDF 논문을 선택할 수 있습니다",
+  "dialog.newProject.form.paper.button.select": "파일 선택",
+  "dialog.newProject.form.paper.button.clear": "지우기",
+
+  "dialog.newProject.form.background.label": "연구 배경 (선택 사항, Markdown)",
+  "dialog.newProject.form.background.placeholder": "업로드하지 않으면 AI가 자동 생성합니다",
+  "dialog.newProject.form.background.tip": "업로드하지 않으면 AI가 자동 생성합니다",
+  "dialog.newProject.form.background.button.select": "파일 선택",
+  "dialog.newProject.form.background.button.clear": "지우기",
+
+  "dialog.newProject.form.goal.label": "연구 목표 (선택 사항, Markdown)",
+  "dialog.newProject.form.goal.placeholder": "업로드하지 않으면 AI가 자동 생성합니다",
+  "dialog.newProject.form.goal.tip": "업로드하지 않으면 AI가 자동 생성합니다",
+  "dialog.newProject.form.goal.button.select": "파일 선택",
+  "dialog.newProject.form.goal.button.clear": "지우기",
+
+  "dialog.newProject.form.submit": "생성",
+  "dialog.newProject.form.cancel": "취소",
+
+  "dialog.newProject.form.location.folderDialog.title": "생성 위치 선택",
+  "dialog.newProject.form.folderDialog.search.label": "검색",
+  "dialog.newProject.form.folderDialog.search.placeholder": "파일명 입력 후 검색",
+  "dialog.newProject.form.location.folderDialog.button.cancel": "취소",
+  "dialog.newProject.form.location.folderDialog.button.confirm": "이 폴더 선택",
+  "dialog.newProject.form.paper.fileDialog.title": "논문 선택 (PDF, 다중 선택)",
+  "dialog.newProject.form.paper.fileDialog.button.cancel": "취소",
+  "dialog.newProject.form.paper.fileDialog.button.confirm": "선택 확인 ({count})",
+  "dialog.newProject.form.background.fileDialog.title": "연구 배경 선택 (Markdown)",
+  "dialog.newProject.form.goal.fileDialog.title": "연구 목표 선택 (Markdown)",
 }

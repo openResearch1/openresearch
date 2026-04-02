@@ -753,4 +753,51 @@ export const dict = {
   "common.time.daysAgo.short": "{{count}} 日前",
   "settings.providers.connected.environmentDescription": "環境変数から接続されました",
   "settings.providers.custom.description": "ベース URL を指定して OpenAI 互換のプロバイダーを追加します。",
+
+  "dialog.newProject.title": "新規研究プロジェクト",
+  "dialog.newProject.description": "論文をインポート、背景と目標を任意で設定、新しい課題をすぐに開始できます。",
+  "dialog.newProject.button": "新規作成",
+
+  "dialog.newProject.form.title": "新規研究プロジェクト",
+
+  "dialog.newProject.form.name.label": "プロジェクト名",
+  "dialog.newProject.form.name.placeholder": "研究プロジェクト名を入力してください",
+
+  "dialog.newProject.form.location.label": "保存場所",
+  "dialog.newProject.form.location.placeholder": "プロジェクトの保存場所を入力または選択してください",
+  "dialog.newProject.form.location.tip": "手動入力、またはフォルダを検索して選択可能です",
+  "dialog.newProject.form.location.button.select": "フォルダを選択",
+  "dialog.newProject.form.location.button.clear": "クリア",
+
+  "dialog.newProject.form.paper.label": "論文（複数PDF選択可）",
+  "dialog.newProject.form.paper.placeholder": "論文のパスを選択してください",
+  "dialog.newProject.form.paper.tip": "複数のPDF論文を一度に選択可能です",
+  "dialog.newProject.form.paper.button.select": "ファイルを選択",
+  "dialog.newProject.form.paper.button.clear": "クリア",
+
+  "dialog.newProject.form.background.label": "研究背景（任意、Markdown）",
+  "dialog.newProject.form.background.placeholder": "未アップロードの場合はAIが自動生成します",
+  "dialog.newProject.form.background.tip": "未アップロードの場合はAIが自動生成します",
+  "dialog.newProject.form.background.button.select": "ファイルを選択",
+  "dialog.newProject.form.background.button.clear": "クリア",
+
+  "dialog.newProject.form.goal.label": "研究目標（任意、Markdown）",
+  "dialog.newProject.form.goal.placeholder": "未アップロードの場合はAIが自動生成します",
+  "dialog.newProject.form.goal.tip": "未アップロードの場合はAIが自動生成します",
+  "dialog.newProject.form.goal.button.select": "ファイルを選択",
+  "dialog.newProject.form.goal.button.clear": "クリア",
+
+  "dialog.newProject.form.submit": "作成",
+  "dialog.newProject.form.cancel": "キャンセル",
+
+  "dialog.newProject.form.location.folderDialog.title": "作成場所を選択",
+  "dialog.newProject.form.folderDialog.search.label": "検索",
+  "dialog.newProject.form.folderDialog.search.placeholder": "ファイル名を入力して検索",
+  "dialog.newProject.form.location.folderDialog.button.cancel": "キャンセル",
+  "dialog.newProject.form.location.folderDialog.button.confirm": "このフォルダを選択",
+  "dialog.newProject.form.paper.fileDialog.title": "論文を選択（PDF、複数選択可）",
+  "dialog.newProject.form.paper.fileDialog.button.cancel": "キャンセル",
+  "dialog.newProject.form.paper.fileDialog.button.confirm": "選択を確認（{count}）",
+  "dialog.newProject.form.background.fileDialog.title": "研究背景を選択（Markdown）",
+  "dialog.newProject.form.goal.fileDialog.title": "研究目標を選択（Markdown）",
 }

@@ -328,8 +328,8 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
       <div class="flex flex-col gap-3 px-4 pt-4 pb-4 border-b border-border-weak-base ">
         <div class="flex items-start justify-between gap-3">
           <div class="flex flex-col gap-1">
-            <div class="text-14-medium text-text-strong">新建科研项目</div>
-            <div class="text-12-regular text-text-weak">导入论文、可选背景与目标，快速开始新课题</div>
+            <div class="text-14-medium text-text-strong">{language.t("dialog.newProject.title")}</div>
+            <div class="text-12-regular text-text-weak">{language.t("dialog.newProject.description")}</div>
           </div>
           <Button
             variant="primary"
@@ -337,7 +337,7 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
             class="shrink-0"
             onClick={() => dialog.show(() => <DialogNewResearchProject onSelect={resolve} />)}
           >
-            新建
+            {language.t("dialog.newProject.button")}
           </Button>
         </div>
       </div>

@@ -11,6 +11,7 @@ import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLayout } from "@/context/layout"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { useLanguage } from "@/context/language"
 
 function cleanInput(value: string) {
   const first = (value ?? "").split(/\r?\n/)[0] ?? ""
@@ -48,6 +49,7 @@ type PathPickerProps = {
 function DialogPathPicker(props: PathPickerProps) {
   const sdk = useGlobalSDK()
   const sync = useGlobalSync()
+  const language = useLanguage()
   const [filter, setFilter] = createSignal("")
   const [selected, setSelected] = createSignal<Set<string>>(new Set())
 
@@ -158,7 +160,7 @@ function DialogPathPicker(props: PathPickerProps) {
         </div>
 
         <div class="shrink-0">
-          <TextField label="搜索" placeholder="输入文件名搜索" value={filter()} onChange={setFilter} autoFocus />
+          <TextField label={language.t("dialog.newProject.form.folderDialog.search.label")} placeholder={language.t("dialog.newProject.form.folderDialog.search.placeholder")} value={filter()} onChange={setFilter} autoFocus />
         </div>
 
         <List
@@ -190,10 +192,10 @@ function DialogPathPicker(props: PathPickerProps) {
         <Show when={props.multiple}>
           <div class="flex justify-end gap-2 pt-2">
             <Button variant="ghost" onClick={cancel}>
-              取消
+              {language.t("dialog.newProject.form.paper.fileDialog.button.cancel")}
             </Button>
             <Button onClick={confirm} disabled={selected().size === 0}>
-              确认选择 ({selected().size})
+              {language.t("dialog.newProject.form.paper.fileDialog.button.confirm", { count: selected().size })}
             </Button>
           </div>
         </Show>
@@ -201,7 +203,7 @@ function DialogPathPicker(props: PathPickerProps) {
         <Show when={props.mode === "directories" && !props.multiple}>
           <div class="flex justify-end gap-2 pt-2">
             <Button variant="ghost" onClick={props.onClose}>
-              取消
+              {language.t("dialog.newProject.form.location.folderDialog.button.cancel")}
             </Button>
             <Button
               onClick={() => {
@@ -209,7 +211,7 @@ function DialogPathPicker(props: PathPickerProps) {
                 props.onClose()
               }}
             >
-              选择此文件夹
+              {language.t("dialog.newProject.form.location.folderDialog.button.confirm")}
             </Button>
           </div>
         </Show>
@@ -225,6 +227,7 @@ interface DialogNewResearchProjectProps {
 export function DialogNewResearchProject(props: DialogNewResearchProjectProps) {
   const dialog = useDialog()
   const sdk = useGlobalSDK()
+  const language = useLanguage()
 
   const [name, setName] = createSignal("")
   const [targetDir, setTargetDir] = createSignal("")
@@ -301,69 +304,69 @@ export function DialogNewResearchProject(props: DialogNewResearchProjectProps) {
 
   return (
     <>
-      <Dialog title="新建科研项目" class="w-full max-w-[600px] mx-auto">
+      <Dialog title={language.t("dialog.newProject.form.title")} class="w-full max-w-[600px] mx-auto">
         <div class="flex flex-col gap-5 p-6 pt-0 max-h-[70vh] overflow-y-auto pr-1">
-          <TextField label="科研项目名" placeholder="请输入科研项目名称" value={name()} onChange={setName} />
+          <TextField label={language.t("dialog.newProject.form.name.label")} placeholder={language.t("dialog.newProject.form.name.placeholder")} value={name()} onChange={setName} />
 
           <div class="flex flex-col gap-2">
-            <label class="text-12-medium text-text-strong">创建位置</label>
+            <label class="text-12-medium text-text-strong">{language.t("dialog.newProject.form.location.label")}</label>
             <div class="flex items-center gap-2">
               <TextField
                 value={targetDir()}
-                placeholder="请输入或选择项目创建位置"
+                placeholder={language.t("dialog.newProject.form.location.placeholder")}
                 onChange={setTargetDir}
                 class="flex-1"
               />
               <Button variant="ghost" onClick={() => setTargetDir("")}>
-                清除
+                {language.t("dialog.newProject.form.location.button.clear")}
               </Button>
               <Button variant="secondary" onClick={() => setPicker("target")}>
-                选择文件夹
+                {language.t("dialog.newProject.form.location.button.select")}
               </Button>
             </div>
-            <div class="text-12-regular text-text-weak">支持手动输入，也支持搜索文件夹后选择创建位置</div>
+            <div class="text-12-regular text-text-weak">{language.t("dialog.newProject.form.location.tip")}</div>
           </div>
 
           <div class="flex flex-col gap-2">
-            <label class="text-12-medium text-text-strong">论文（可多选 PDF）</label>
+            <label class="text-12-medium text-text-strong">{language.t("dialog.newProject.form.paper.label")}</label>
             <div class="flex items-center gap-2">
-              <TextField value={paperPaths().join(", ") || ""} placeholder="请选择论文路径" readOnly class="flex-1" />
+              <TextField value={paperPaths().join(", ") || ""} placeholder={language.t("dialog.newProject.form.paper.placeholder")} readOnly class="flex-1" />
               <Button variant="ghost" onClick={() => setPaperPaths([])}>
-                清除
+                {language.t("dialog.newProject.form.paper.button.clear")}
               </Button>
               <Button variant="secondary" onClick={() => setPicker("papers")}>
-                选择文件
+                {language.t("dialog.newProject.form.paper.button.select")}
               </Button>
             </div>
-            <div class="text-12-regular text-text-weak">支持一次选择多篇 PDF 论文</div>
+            <div class="text-12-regular text-text-weak">{language.t("dialog.newProject.form.paper.tip")}</div>
           </div>
 
           <div class="flex flex-col gap-2">
-            <label class="text-12-medium text-text-strong">科研背景（可选，Markdown）</label>
+            <label class="text-12-medium text-text-strong">{language.t("dialog.newProject.form.background.label")}</label>
             <div class="flex items-center gap-2">
-              <TextField value={backgroundPath() ?? ""} placeholder="不上传则由 AI 自动生成" readOnly class="flex-1" />
+              <TextField value={backgroundPath() ?? ""} placeholder={language.t("dialog.newProject.form.background.placeholder")} readOnly class="flex-1" />
               <Button variant="ghost" onClick={() => setBackgroundPath(undefined)}>
-                清除
+                {language.t("dialog.newProject.form.background.button.clear")}
               </Button>
               <Button variant="secondary" onClick={() => setPicker("background")}>
-                选择文件
+                {language.t("dialog.newProject.form.background.button.select")}
               </Button>
             </div>
-            <div class="text-12-regular text-text-weak">不上传则由 AI 自动生成背景</div>
+            <div class="text-12-regular text-text-weak">{language.t("dialog.newProject.form.background.tip")}</div>
           </div>
 
           <div class="flex flex-col gap-2">
-            <label class="text-12-medium text-text-strong">科研目标（可选，Markdown）</label>
+            <label class="text-12-medium text-text-strong">{language.t("dialog.newProject.form.goal.label")}</label>
             <div class="flex items-center gap-2">
-              <TextField value={goalPath() ?? ""} placeholder="不上传则由 AI 自动生成" readOnly class="flex-1" />
+              <TextField value={goalPath() ?? ""} placeholder={language.t("dialog.newProject.form.goal.placeholder")} readOnly class="flex-1" />
               <Button variant="ghost" onClick={() => setGoalPath(undefined)}>
-                清除
+                {language.t("dialog.newProject.form.goal.button.clear")}
               </Button>
               <Button variant="secondary" onClick={() => setPicker("goal")}>
-                选择文件
+                {language.t("dialog.newProject.form.goal.button.select")}
               </Button>
             </div>
-            <div class="text-12-regular text-text-weak">不上传则由 AI 自动生成目标</div>
+            <div class="text-12-regular text-text-weak">{language.t("dialog.newProject.form.goal.tip")}</div>
           </div>
 
           <Show when={error()} keyed>
@@ -372,10 +375,10 @@ export function DialogNewResearchProject(props: DialogNewResearchProjectProps) {
 
           <div class="flex justify-end gap-2 pt-2">
             <Button variant="ghost" onClick={() => dialog.close()}>
-              取消
+              {language.t("dialog.newProject.form.cancel")}
             </Button>
             <Button onClick={handleCreate} disabled={!canSubmit() || submitting()} loading={submitting()}>
-              创建
+              {language.t("dialog.newProject.form.submit")}
             </Button>
           </div>
         </div>
@@ -383,7 +386,7 @@ export function DialogNewResearchProject(props: DialogNewResearchProjectProps) {
 
       <Show when={picker() === "target"}>
         <DialogPathPicker
-          title="选择创建位置"
+          title={language.t("dialog.newProject.form.location.folderDialog.title")}
           mode="directories"
           startDir={() => targetDir() || undefined}
           onSelect={(v) => setTargetDir(Array.isArray(v) ? v[0] : v)}
@@ -393,7 +396,7 @@ export function DialogNewResearchProject(props: DialogNewResearchProjectProps) {
 
       <Show when={picker() === "papers"}>
         <DialogPathPicker
-          title="选择论文 (PDF，可多选)"
+          title={language.t("dialog.newProject.form.paper.fileDialog.title")}
           mode="files"
           multiple
           acceptExt={[".pdf"]}
@@ -404,7 +407,7 @@ export function DialogNewResearchProject(props: DialogNewResearchProjectProps) {
 
       <Show when={picker() === "background"}>
         <DialogPathPicker
-          title="选择科研背景 (Markdown)"
+          title={language.t("dialog.newProject.form.background.fileDialog.title")}
           mode="files"
           acceptExt={[".md"]}
           onSelect={(v) => setBackgroundPath(Array.isArray(v) ? v[0] : v)}
@@ -414,7 +417,7 @@ export function DialogNewResearchProject(props: DialogNewResearchProjectProps) {
 
       <Show when={picker() === "goal"}>
         <DialogPathPicker
-          title="选择科研目标 (Markdown)"
+          title={language.t("dialog.newProject.form.goal.fileDialog.title")}
           mode="files"
           acceptExt={[".md"]}
           onSelect={(v) => setGoalPath(Array.isArray(v) ? v[0] : v)}

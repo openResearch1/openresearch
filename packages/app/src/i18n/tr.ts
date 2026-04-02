@@ -847,4 +847,51 @@ export const dict = {
   "common.time.daysAgo.short": "{{count}}g önce",
   "settings.providers.connected.environmentDescription": "Ortam değişkenlerinizden bağlandı",
   "settings.providers.custom.description": "Temel URL üzerinden OpenAI uyumlu bir sağlayıcı ekleyin.",
+
+  "dialog.newProject.title": "Yeni Araştırma Projesi",
+  "dialog.newProject.description": "Makaleleri içe aktarın, isteğe bağlı arka plan ve hedeflerle hızlıca yeni bir konuya başlayın.",
+  "dialog.newProject.button": "Yeni",
+
+  "dialog.newProject.form.title": "Yeni Araştırma Projesi",
+
+  "dialog.newProject.form.name.label": "Proje Adı",
+  "dialog.newProject.form.name.placeholder": "Lütfen araştırma projesi adını girin",
+
+  "dialog.newProject.form.location.label": "Konum",
+  "dialog.newProject.form.location.placeholder": "Lütfen proje konumunu girin veya seçin",
+  "dialog.newProject.form.location.tip": "Manuel giriş veya klasör arama ve seçme desteği",
+  "dialog.newProject.form.location.button.select": "Klasör Seç",
+  "dialog.newProject.form.location.button.clear": "Temizle",
+
+  "dialog.newProject.form.paper.label": "Makaleler (Çoklu PDF Seçimi)",
+  "dialog.newProject.form.paper.placeholder": "Lütfen makale yolunu seçin",
+  "dialog.newProject.form.paper.tip": "Birden fazla PDF makaleyi aynı anda seçme desteği",
+  "dialog.newProject.form.paper.button.select": "Dosyaları Seç",
+  "dialog.newProject.form.paper.button.clear": "Temizle",
+
+  "dialog.newProject.form.background.label": "Arka Plan (İsteğe Bağlı, Markdown)",
+  "dialog.newProject.form.background.placeholder": "Yüklenmezse AI tarafından otomatik oluşturulur",
+  "dialog.newProject.form.background.tip": "Yüklenmezse AI tarafından otomatik oluşturulur",
+  "dialog.newProject.form.background.button.select": "Dosya Seç",
+  "dialog.newProject.form.background.button.clear": "Temizle",
+
+  "dialog.newProject.form.goal.label": "Hedefler (İsteğe Bağlı, Markdown)",
+  "dialog.newProject.form.goal.placeholder": "Yüklenmezse AI tarafından otomatik oluşturulur",
+  "dialog.newProject.form.goal.tip": "Yüklenmezse AI tarafından otomatik oluşturulur",
+  "dialog.newProject.form.goal.button.select": "Dosya Seç",
+  "dialog.newProject.form.goal.button.clear": "Temizle",
+
+  "dialog.newProject.form.submit": "Oluştur",
+  "dialog.newProject.form.cancel": "İptal",
+
+  "dialog.newProject.form.location.folderDialog.title": "Oluşturma Konumunu Seç",
+  "dialog.newProject.form.folderDialog.search.label": "Ara",
+  "dialog.newProject.form.folderDialog.search.placeholder": "Aramak için dosya adı girin",
+  "dialog.newProject.form.location.folderDialog.button.cancel": "İptal",
+  "dialog.newProject.form.location.folderDialog.button.confirm": "Bu Klasörü Seç",
+  "dialog.newProject.form.paper.fileDialog.title": "Makale Seç (PDF, Çoklu Seçim)",
+  "dialog.newProject.form.paper.fileDialog.button.cancel": "İptal",
+  "dialog.newProject.form.paper.fileDialog.button.confirm": "Seçimi Onayla ({count})",
+  "dialog.newProject.form.background.fileDialog.title": "Araştırma Arka Planını Seç (Markdown)",
+  "dialog.newProject.form.goal.fileDialog.title": "Araştırma Hedefini Seç (Markdown)",
 } satisfies Partial<Record<Keys, string>>

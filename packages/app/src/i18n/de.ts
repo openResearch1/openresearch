@@ -766,4 +766,51 @@ export const dict = {
   "common.time.daysAgo.short": "vor {{count}} Tg",
   "settings.providers.connected.environmentDescription": "Verbunden aus Ihren Umgebungsvariablen",
   "settings.providers.custom.description": "Fügen Sie einen OpenAI-kompatiblen Anbieter per Basis-URL hinzu.",
+
+  "dialog.newProject.title": "Neues Forschungsprojekt",
+  "dialog.newProject.description": "Importieren Sie Papers, optionale Hintergründe und Ziele, starten Sie schnell ein neues Thema.",
+  "dialog.newProject.button": "Neu",
+
+  "dialog.newProject.form.title": "Neues Forschungsprojekt",
+
+  "dialog.newProject.form.name.label": "Projektname",
+  "dialog.newProject.form.name.placeholder": "Bitte geben Sie den Forschungsprojektnamen ein",
+
+  "dialog.newProject.form.location.label": "Speicherort",
+  "dialog.newProject.form.location.placeholder": "Bitte geben Sie den Projektspeicherort ein oder wählen Sie ihn aus",
+  "dialog.newProject.form.location.tip": "Unterstützt manuelle Eingabe oder Suche und Auswahl eines Ordners",
+  "dialog.newProject.form.location.button.select": "Ordner auswählen",
+  "dialog.newProject.form.location.button.clear": "Löschen",
+
+  "dialog.newProject.form.paper.label": "Papiere (Mehrfachauswahl PDF)",
+  "dialog.newProject.form.paper.placeholder": "Bitte wählen Sie den Papierpfad aus",
+  "dialog.newProject.form.paper.tip": "Unterstützt die Auswahl mehrerer PDF-Papiere gleichzeitig",
+  "dialog.newProject.form.paper.button.select": "Dateien auswählen",
+  "dialog.newProject.form.paper.button.clear": "Löschen",
+
+  "dialog.newProject.form.background.label": "Hintergrund (Optional, Markdown)",
+  "dialog.newProject.form.background.placeholder": "Automatisch generiert von KI, wenn nicht hochgeladen",
+  "dialog.newProject.form.background.tip": "Automatisch generiert von KI, wenn nicht hochgeladen",
+  "dialog.newProject.form.background.button.select": "Datei auswählen",
+  "dialog.newProject.form.background.button.clear": "Löschen",
+
+  "dialog.newProject.form.goal.label": "Ziele (Optional, Markdown)",
+  "dialog.newProject.form.goal.placeholder": "Automatisch generiert von KI, wenn nicht hochgeladen",
+  "dialog.newProject.form.goal.tip": "Automatisch generiert von KI, wenn nicht hochgeladen",
+  "dialog.newProject.form.goal.button.select": "Datei auswählen",
+  "dialog.newProject.form.goal.button.clear": "Löschen",
+
+  "dialog.newProject.form.submit": "Erstellen",
+  "dialog.newProject.form.cancel": "Abbrechen",
+
+  "dialog.newProject.form.location.folderDialog.title": "Speicherort auswählen",
+  "dialog.newProject.form.folderDialog.search.label": "Suchen",
+  "dialog.newProject.form.folderDialog.search.placeholder": "Geben Sie den Dateinamen zur Suche ein",
+  "dialog.newProject.form.location.folderDialog.button.cancel": "Abbrechen",
+  "dialog.newProject.form.location.folderDialog.button.confirm": "Diesen Ordner auswählen",
+  "dialog.newProject.form.paper.fileDialog.title": "Papiere auswählen (PDF, Mehrfachauswahl)",
+  "dialog.newProject.form.paper.fileDialog.button.cancel": "Abbrechen",
+  "dialog.newProject.form.paper.fileDialog.button.confirm": "Auswahl bestätigen ({count})",
+  "dialog.newProject.form.background.fileDialog.title": "Forschungshintergrund auswählen (Markdown)",
+  "dialog.newProject.form.goal.fileDialog.title": "Forschungsziel auswählen (Markdown)"
 } satisfies Partial<Record<Keys, string>>

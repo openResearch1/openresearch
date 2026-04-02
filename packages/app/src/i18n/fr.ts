@@ -764,4 +764,51 @@ export const dict = {
   "common.time.daysAgo.short": "il y a {{count}}j",
   "settings.providers.connected.environmentDescription": "Connecté à partir de vos variables d'environnement",
   "settings.providers.custom.description": "Ajouter un fournisseur compatible avec OpenAI via l'URL de base.",
+
+  "dialog.newProject.title": "Nouveau Projet de Recherche",
+  "dialog.newProject.description": "Importez des articles, des contextes et des objectifs optionnels, démarrez rapidement un nouveau sujet.",
+  "dialog.newProject.button": "Nouveau",
+
+  "dialog.newProject.form.title": "Nouveau Projet de Recherche",
+
+  "dialog.newProject.form.name.label": "Nom du Projet",
+  "dialog.newProject.form.name.placeholder": "Veuillez saisir le nom du projet de recherche",
+
+  "dialog.newProject.form.location.label": "Emplacement",
+  "dialog.newProject.form.location.placeholder": "Veuillez saisir ou sélectionner l'emplacement du projet",
+  "dialog.newProject.form.location.tip": "Prend en charge la saisie manuelle ou la recherche et la sélection de dossier",
+  "dialog.newProject.form.location.button.select": "Sélectionner Dossier",
+  "dialog.newProject.form.location.button.clear": "Effacer",
+
+  "dialog.newProject.form.paper.label": "Articles (Sélection multiple PDF)",
+  "dialog.newProject.form.paper.placeholder": "Veuillez sélectionner le chemin des articles",
+  "dialog.newProject.form.paper.tip": "Prend en charge la sélection de plusieurs articles PDF à la fois",
+  "dialog.newProject.form.paper.button.select": "Sélectionner Fichiers",
+  "dialog.newProject.form.paper.button.clear": "Effacer",
+
+  "dialog.newProject.form.background.label": "Contexte (Optionnel, Markdown)",
+  "dialog.newProject.form.background.placeholder": "Généré automatiquement par l'IA si non téléchargé",
+  "dialog.newProject.form.background.tip": "Généré automatiquement par l'IA si non téléchargé",
+  "dialog.newProject.form.background.button.select": "Sélectionner Fichier",
+  "dialog.newProject.form.background.button.clear": "Effacer",
+
+  "dialog.newProject.form.goal.label": "Objectifs (Optionnel, Markdown)",
+  "dialog.newProject.form.goal.placeholder": "Généré automatiquement par l'IA si non téléchargé",
+  "dialog.newProject.form.goal.tip": "Généré automatiquement par l'IA si non téléchargé",
+  "dialog.newProject.form.goal.button.select": "Sélectionner Fichier",
+  "dialog.newProject.form.goal.button.clear": "Effacer",
+
+  "dialog.newProject.form.submit": "Créer",
+  "dialog.newProject.form.cancel": "Annuler",
+
+  "dialog.newProject.form.location.folderDialog.title": "Sélectionner l'emplacement de création",
+  "dialog.newProject.form.folderDialog.search.label": "Rechercher",
+  "dialog.newProject.form.folderDialog.search.placeholder": "Saisissez le nom de fichier pour rechercher",
+  "dialog.newProject.form.location.folderDialog.button.cancel": "Annuler",
+  "dialog.newProject.form.location.folderDialog.button.confirm": "Sélectionner ce dossier",
+  "dialog.newProject.form.paper.fileDialog.title": "Sélectionner des articles (PDF, Sélection multiple)",
+  "dialog.newProject.form.paper.fileDialog.button.cancel": "Annuler",
+  "dialog.newProject.form.paper.fileDialog.button.confirm": "Confirmer la sélection ({count})",
+  "dialog.newProject.form.background.fileDialog.title": "Sélectionner le contexte de recherche (Markdown)",
+  "dialog.newProject.form.goal.fileDialog.title": "Sélectionner les objectifs de recherche (Markdown)",
 }
