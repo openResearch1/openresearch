@@ -35,7 +35,7 @@ function joinPath(base: string, rel: string) {
 
 type PickerMode = "files" | "directories"
 
-type PathPickerProps = {
+export type PathPickerProps = {
   title: string
   mode: PickerMode
   multiple?: boolean
@@ -45,7 +45,7 @@ type PathPickerProps = {
   onClose: () => void
 }
 
-function DialogPathPicker(props: PathPickerProps) {
+export function DialogPathPicker(props: PathPickerProps) {
   const sdk = useGlobalSDK()
   const sync = useGlobalSync()
   const [filter, setFilter] = createSignal("")

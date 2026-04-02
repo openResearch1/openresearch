@@ -5,6 +5,7 @@ import path from "path"
 import { Filesystem } from "@/util/filesystem"
 import { Database } from "@/storage/db"
 import { Project } from "@/project/project"
+import { ProjectTable } from "@/project/project.sql"
 import {
   ResearchProjectTable,
   ArticleTable,
@@ -830,6 +831,103 @@ export const ResearchRoutes = new Hono()
       })
 
       return c.json(result)
+    },
+  )
+  .post(
+    "/project/:researchProjectId/article",
+    describeRoute({
+      summary: "Add article to research project",
+      description: "Add a single article (paper/PDF) to an existing research project.",
+      operationId: "research.article.create",
+      responses: {
+        200: {
+          description: "Created article",
+          content: {
+            "application/json": {
+              schema: resolver(
+                z.object({
+                  article_id: z.string(),
+                  path: z.string(),
+                  title: z.string().nullable(),
+                  source_url: z.string().nullable(),
+                }),
+              ),
+            },
+          },
+        },
+        ...errors(400, 404),
+      },
+    }),
+    validator(
+      "json",
+      z.object({
+        sourcePath: z.string().min(1, "sourcePath required"),
+        title: z.string().optional(),
+        sourceUrl: z.string().optional(),
+      }),
+    ),
+    async (c) => {
+      const researchProjectId = c.req.param("researchProjectId")
+      const body = c.req.valid("json")
+
+      const project = Database.use((db) =>
+        db
+          .select()
+          .from(ResearchProjectTable)
+          .where(eq(ResearchProjectTable.research_project_id, researchProjectId))
+          .get(),
+      )
+      if (!project) {
+        return c.json({ success: false, message: "research project not found" }, 404)
+      }
+
+      const sourcePath = Filesystem.resolve(body.sourcePath)
+      if (!(await Filesystem.exists(sourcePath))) {
+        return c.json({ success: false, message: `source file not found: ${body.sourcePath}` }, 400)
+      }
+
+      const projectInfo = Database.use((db) =>
+        db.select().from(ProjectTable).where(eq(ProjectTable.id, project.project_id)).get(),
+      )
+      if (!projectInfo) {
+        return c.json({ success: false, message: "project not found" }, 404)
+      }
+      const articlesDir = path.join(projectInfo.worktree, "articles")
+      await Filesystem.write(path.join(articlesDir, ".keep"), "")
+
+      const destPath = path.join(articlesDir, path.basename(sourcePath))
+      if (await Filesystem.exists(destPath)) {
+        return c.json({ success: false, message: `article already exists: ${path.basename(sourcePath)}` }, 400)
+      }
+
+      await copyFile(sourcePath, destPath)
+
+      const now = Date.now()
+      const articleId = uniqueID()
+
+      Database.use((db) =>
+        db
+          .insert(ArticleTable)
+          .values({
+            article_id: articleId,
+            research_project_id: researchProjectId,
+            path: destPath,
+            code_path: null,
+            title: body.title ?? null,
+            source_url: body.sourceUrl ?? null,
+            status: "pending",
+            time_created: now,
+            time_updated: now,
+          })
+          .run(),
+      )
+
+      return c.json({
+        article_id: articleId,
+        path: destPath,
+        title: body.title ?? null,
+        source_url: body.sourceUrl ?? null,
+      })
     },
   )
   .post(

@@ -107,6 +107,8 @@ import type {
   QuestionRejectResponses,
   QuestionReplyErrors,
   QuestionReplyResponses,
+  ResearchArticleCreateErrors,
+  ResearchArticleCreateResponses,
   ResearchAtomDeleteErrors,
   ResearchAtomDeleteResponses,
   ResearchAtomSessionCreateErrors,
@@ -2881,6 +2883,55 @@ export class Atom extends HeyApiClient {
   }
 }
 
+export class Article extends HeyApiClient {
+  /**
+   * Add article to research project
+   *
+   * Add a single article (paper/PDF) to an existing research project.
+   */
+  public create<ThrowOnError extends boolean = false>(
+    parameters: {
+      researchProjectId: string
+      directory?: string
+      workspace?: string
+      sourcePath?: string
+      title?: string
+      sourceUrl?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "researchProjectId" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "sourcePath" },
+            { in: "body", key: "title" },
+            { in: "body", key: "sourceUrl" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      ResearchArticleCreateResponses,
+      ResearchArticleCreateErrors,
+      ThrowOnError
+    >({
+      url: "/research/project/{researchProjectId}/article",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
 export class Atom2 extends HeyApiClient {
   /**
    * Get atom by session ID
@@ -3415,6 +3466,11 @@ export class Research extends HeyApiClient {
   private _atom?: Atom
   get atom(): Atom {
     return (this._atom ??= new Atom({ client: this.client }))
+  }
+
+  private _article?: Article
+  get article(): Article {
+    return (this._article ??= new Article({ client: this.client }))
   }
 
   private _session?: Session4

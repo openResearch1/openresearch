@@ -16,7 +16,9 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import FileTree from "@/components/file-tree"
 import { SessionContextUsage } from "@/components/session-context-usage"
 import { DialogSelectFile } from "@/components/dialog-select-file"
+import { DialogPathPicker } from "@/components/dialog-new-research-project"
 import { SessionContextTab, SortableTab, FileVisual } from "@/components/session"
+import { showToast } from "@opencode-ai/ui/toast"
 import { useCommand } from "@/context/command"
 import { useFile, type SelectedLineRange } from "@/context/file"
 import { useLanguage } from "@/context/language"
@@ -718,6 +720,61 @@ export function SessionSidePanel(props: {
                   <Switch>
                     <Match when={nofiles()}>{empty(language.t("session.files.empty"))}</Match>
                     <Match when={true}>
+                      <Show when={isResearchProject()}>
+                        <div class="pt-3 pb-2 flex items-center justify-between">
+                          <span class="text-11-regular text-text-weak uppercase tracking-wider">Files</span>
+                          <IconButton
+                            icon="plus-small"
+                            variant="ghost"
+                            class="size-5 rounded-md"
+                            aria-label="Add Article"
+                            onClick={() => {
+                              dialog.show(() => (
+                                <DialogPathPicker
+                                  title="Select Article"
+                                  mode="files"
+                                  acceptExt={[".pdf"]}
+                                  onSelect={async (path: string | string[]) => {
+                                    const selectedPath = Array.isArray(path) ? path[0] : path
+                                    if (!selectedPath) return
+                                    try {
+                                      const rpId = researchProject()?.research_project_id
+                                      if (!rpId) return
+                                      await sdk.client.research.article.create({
+                                        researchProjectId: rpId,
+                                        sourcePath: selectedPath,
+                                      })
+                                      // Refresh file tree to show new article
+                                      await file.tree.refresh("")
+                                    } catch (error: any) {
+                                      console.error("Failed to add article:", error)
+                                      // Check if it's a duplicate file error
+                                      const errorMsg = error?.message || error?.toString() || ""
+                                      if (errorMsg.includes("already exists")) {
+                                        showToast({
+                                          title: "File Already Exists",
+                                          description:
+                                            "This article has already been added to the project. Please select a different file.",
+                                          variant: "error",
+                                        })
+                                      } else {
+                                        showToast({
+                                          title: "Failed to Add Article",
+                                          description: errorMsg || "An error occurred while adding the article.",
+                                          variant: "error",
+                                        })
+                                      }
+                                    }
+                                  }}
+                                  onClose={() => {
+                                    dialog.close()
+                                  }}
+                                />
+                              ))
+                            }}
+                          />
+                        </div>
+                      </Show>
                       <FileTree
                         path=""
                         class="pt-3"

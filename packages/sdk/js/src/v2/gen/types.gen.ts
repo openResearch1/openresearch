@@ -4165,6 +4165,49 @@ export type ResearchProjectCreateResponses = {
 
 export type ResearchProjectCreateResponse = ResearchProjectCreateResponses[keyof ResearchProjectCreateResponses]
 
+export type ResearchArticleCreateData = {
+  body?: {
+    sourcePath: string
+    title?: string
+    sourceUrl?: string
+  }
+  path: {
+    researchProjectId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/research/project/{researchProjectId}/article"
+}
+
+export type ResearchArticleCreateErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ResearchArticleCreateError = ResearchArticleCreateErrors[keyof ResearchArticleCreateErrors]
+
+export type ResearchArticleCreateResponses = {
+  /**
+   * Created article
+   */
+  200: {
+    article_id: string
+    path: string
+    title: string | null
+    source_url: string | null
+  }
+}
+
+export type ResearchArticleCreateResponse = ResearchArticleCreateResponses[keyof ResearchArticleCreateResponses]
+
 export type ResearchAtomSessionCreateData = {
   body?: never
   path: {
