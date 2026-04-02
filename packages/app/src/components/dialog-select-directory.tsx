@@ -373,19 +373,39 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
     setCreating(true)
     setCreateError(undefined)
     try {
-      // 用第一个文件名（去掉扩展名）作为项目名
-      const firstName = getFilename(papers[0].name).replace(/\.[^.]+$/, "") || "research-project"
-      const targetPath = `${home()}/${firstName}`
+      // 用第一个文件名（去掉扩展名）作为项目名，冲突时追加 -2, -3 ...
+      const baseName = getFilename(papers[0].name).replace(/\.[^.]+$/, "") || "research-project"
+      const homeDir = home()
 
-      const res = await sdk.client.research.project.create({
-        name: firstName,
+      let targetPath = `${homeDir}/${baseName}`
+      let projectName = baseName
+      let res = await sdk.client.research.project.create({
+        name: projectName,
         targetPath,
         papers: papers.map((p) => p.path),
         backgroundPath: undefined,
         goalPath: undefined,
       })
+
+      // If the path already has a research project, retry with suffix
+      if (!res?.data?.project_id) {
+        let suffix = 2
+        while (!res?.data?.project_id && suffix <= 99) {
+          projectName = `${baseName}-${suffix}`
+          targetPath = `${homeDir}/${projectName}`
+          res = await sdk.client.research.project.create({
+            name: projectName,
+            targetPath,
+            papers: papers.map((p) => p.path),
+            backgroundPath: undefined,
+            goalPath: undefined,
+          })
+          suffix++
+        }
+      }
+
       const projectID = res?.data?.project_id
-      if (!projectID) throw new Error("创建项目失败")
+      if (!projectID) throw new Error("创建项目失败，请检查文件是否有效")
       clearPapers()
       resolve(targetPath)
     } catch (err: unknown) {
