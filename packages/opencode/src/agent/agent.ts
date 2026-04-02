@@ -25,6 +25,7 @@ import PROMPT_EXPERIMENT_SETUP_ENV from "./prompt/experiment_setup_env.txt"
 import PROMPT_EXPERIMENT_RUN from "./prompt/experiment_run.txt"
 import PROMPT_EXPERIMENT_SUMMARY from "./prompt/experiment_summary.txt"
 import PROMPT_EVIDENCE_ASSESSMENT from "./prompt/evidence_assessment.txt"
+import PROMPT_ATOM_FORMULA_CLEANUP from "./prompt/atom_formula_cleanup.txt"
 import { PermissionNext } from "@/permission/next"
 import { mergeDeep, pipe, sortBy, values } from "remeda"
 import { Global } from "@/global"
@@ -329,6 +330,7 @@ export namespace Agent {
             "*": "deny",
             research_info: "allow",
             article_query: "allow",
+            article_macro_edit: "allow",
             research_background_edit: "allow",
             research_goal_edit: "allow",
             atom_create: "allow",
@@ -339,7 +341,15 @@ export namespace Agent {
             atom_relation_create: "allow",
             atom_relation_delete: "allow",
             question: "allow",
+            task: {
+              atom_formula_cleanup: "allow",
+            },
+            skill: {
+              research_tex_macro_table: "allow",
+            },
             read: "allow",
+            glob: "allow",
+            grep: "allow",
             edit: "allow",
             write: "allow",
             apply_patch: "allow",
@@ -427,6 +437,27 @@ export namespace Agent {
             "*": "deny",
             atom_query: "allow",
             atom_status_update: "allow",
+            read: "allow",
+            write: "allow",
+            edit: "allow",
+            apply_patch: "allow",
+            question: "allow",
+          }),
+          user,
+        ),
+        options: {},
+        mode: "subagent",
+        native: true,
+      },
+      atom_formula_cleanup: {
+        name: "atom_formula_cleanup",
+        description:
+          "Inspect one atom's claim.md and evidence.md, identify garbled or unresolved formulas, and repair only those atom-local markdown files.",
+        prompt: PROMPT_ATOM_FORMULA_CLEANUP,
+        permission: PermissionNext.merge(
+          defaults,
+          PermissionNext.fromConfig({
+            "*": "deny",
             read: "allow",
             write: "allow",
             edit: "allow",

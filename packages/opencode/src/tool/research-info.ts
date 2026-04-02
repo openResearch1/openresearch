@@ -44,7 +44,10 @@ export const ResearchInfoTool = Tool.define("research_info", {
       `time_updated: ${project.time_updated}`,
       "",
       `--- Articles (${articles.length}) ---`,
-      ...articles.map((a) => `  [${a.article_id}] ${a.title ?? "(untitled)"} | status: ${a.status} | path: ${a.path}`),
+      ...articles.map(
+        (a) =>
+          `  [${a.article_id}] ${a.title ?? "(untitled)"} | status: ${a.status} | path: ${a.path}${a.macro_table_path ? ` | macro_table_path: ${a.macro_table_path}` : ""}`,
+      ),
       "",
       `--- Atoms (${atoms.length}) ---`,
       ...atoms.map(

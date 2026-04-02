@@ -15,6 +15,31 @@ type AtomRow = typeof AtomTable.$inferSelect
 
 const atomKinds = ["fact", "method", "theorem", "verification"] as const
 
+function hasSection(input: string, name: "Claim" | "Evidence") {
+  return new RegExp(String.raw`^\s{0,3}(?:#{1,6}\s*)?${name}\s*:?\s*$`, "im").test(input)
+}
+
+function validateFields(input: { name: string; claim: string; evidence?: string }, label: string) {
+  if (hasSection(input.claim, "Evidence")) {
+    throw new Error(
+      `${label} "${input.name}" is invalid: claim contains an Evidence section. Keep claim and evidence in separate fields.`,
+    )
+  }
+  if (!hasSection(input.claim, "Claim")) {
+    throw new Error(`${label} "${input.name}" is invalid: claim must include a Claim heading.`)
+  }
+
+  const evidence = input.evidence ?? ""
+  if (hasSection(evidence, "Claim")) {
+    throw new Error(
+      `${label} "${input.name}" is invalid: evidence contains a Claim section. Keep claim and evidence in separate fields.`,
+    )
+  }
+  if (evidence.trim() && !hasSection(evidence, "Evidence")) {
+    throw new Error(`${label} "${input.name}" is invalid: evidence must include an Evidence heading.`)
+  }
+}
+
 export const AtomCreateTool = Tool.define("atom_create", {
   description:
     "Create a new atom (the smallest verifiable unit of knowledge). " +
@@ -46,6 +71,8 @@ export const AtomCreateTool = Tool.define("atom_create", {
       ),
   }),
   async execute(params, ctx) {
+    validateFields(params, "Atom")
+
     const researchProjectId = await Research.getResearchProjectId(ctx.sessionID)
     if (!researchProjectId) {
       return {
@@ -310,6 +337,8 @@ export const AtomBatchCreateTool = Tool.define("atom_batch_create", {
       .describe("Relations between atoms, using indexes from the atoms list"),
   }),
   async execute(params, ctx) {
+    params.atoms.forEach((atom, i) => validateFields(atom, `Atom[${i}]`))
+
     const researchProjectId = await Research.getResearchProjectId(ctx.sessionID)
     if (!researchProjectId) {
       return {

@@ -141,6 +141,7 @@ export const ArticleTable = sqliteTable(
       .references(() => ResearchProjectTable.research_project_id, { onDelete: "cascade" }),
     path: text().notNull(),
     code_path: text(),
+    macro_table_path: text(),
     title: text(),
     source_url: text(),
     status: text().$type<"pending" | "parsed" | "failed">().notNull().default("pending"),

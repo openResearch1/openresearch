@@ -7,12 +7,13 @@ Given the current research project and its articles, you must:
 1. Retrieve project information.
 2. If needed, ask whether to auto-fill missing background / goal.
 3. Read all project articles.
-4. Generate missing background / goal documents.
-5. Parse the articles into a fine-grained atom network.
-6. Infer logical relations between atoms.
-7. Save atoms and relations in batch.
+4. For each LaTeX article bundle, explicitly generate or read a macro table before downstream synthesis.
+5. Generate missing background / goal documents.
+6. Parse the articles into a fine-grained atom network.
+7. Infer logical relations between atoms.
+8. Save atoms and relations in batch.
 
-Your output must be grounded strictly in the provided project data and article contents. Do not hallucinate facts, equations, results, citations, or relations that are not supported by the articles.
+Your output must be grounded strictly in the provided project data, article contents, and macro tables. Do not hallucinate facts, equations, results, citations, or relations that are not supported by the available sources.
 
 ---
 
@@ -22,6 +23,8 @@ Your output must be grounded strictly in the provided project data and article c
 Use only:
 - project information returned by `research_info`
 - article list/metadata returned by `article_query`
+- article content read from the article path
+- macro table content read from `macro_table_path` when present
 - existing background/goal content if present
 
 Do not invent article details, equations, results, assumptions, or literature beyond the provided articles.
@@ -73,7 +76,10 @@ When the article uses formulas, preserve the original mathematical meaning as fa
 - Use formulas when they are the clearest representation of the claim or evidence.
 - Final output must use standard markdown math that KaTeX can render: `$...$` for inline and `$$...$$` for display math.
 - Do not copy article-local TeX macros or custom commands directly into the final markdown.
-- If a TeX article defines symbols through `\newcommand`, `\def`, shorthand macros, or custom operator names, first resolve their meaning from the article, then rewrite them using standard LaTeX / KaTeX-compatible syntax.
+- If an article is a `latex_directory`, treat its macro table as the source of truth for custom notation.
+- For a `latex_directory`, do not rely on ad-hoc prompt-only macro expansion.
+- If `macro_table_path` is missing, first load the `research_tex_macro_table` skill and create the macro table with `article_macro_edit`, then continue.
+- If a TeX article defines symbols through `\newcommand`, `\def`, shorthand macros, or custom operator names, use the macro table's normalized interpretation and rewrite them using standard LaTeX / KaTeX-compatible syntax.
 - If a custom macro cannot be rewritten reliably, replace it with a clear natural-language explanation or an explicit standard symbol definition instead of preserving the raw macro.
 
 ### 5. Conservative relations
@@ -115,15 +121,21 @@ Call `article_query` without `articleId` to get the list of articles with their 
 
 Then for each article in the list:
 - If `kind` is `pdf`, use the returned `path` with the `read` tool to read the article content.
-- If `kind` is `latex_directory`, first use `read` on the directory path to inspect the file list, then read the relevant `.tex` files one by one.
+- If `kind` is `latex_directory`, first ensure a macro table exists, then use `read` on the directory path to inspect the file list, and then read the relevant `.tex` files one by one.
 
 For LaTeX directories:
+- First inspect the article metadata for `macro_table_path`.
+- If `macro_table_path` is missing:
+  - call `skill` with `research_tex_macro_table`
+  - follow the skill exactly to create the article macro table with `article_macro_edit`
+  - call `article_query` again for that article so you get the updated `macro_table_path`
+- Read the macro table with the `read` tool before drafting background, goal, atoms, or relations for that article.
 - Prefer `main.tex` first.
 - If `main.tex` is absent, prefer `<directory_name>.tex`.
 - Otherwise choose a `.tex` file that appears to be the entrypoint, especially one containing `\documentclass` or `\begin{document}`.
 - After reading the entrypoint file, continue reading any additional `.tex` files referenced via `\input{...}` or `\include{...}` when they are needed to understand the article.
 - Do not waste context on images, build artifacts, bibliography outputs, or unrelated files.
-- If the article defines custom math commands in the preamble, use them only to understand the notation. Do not emit those raw custom commands in the final atom markdown.
+- Use the macro table as the authoritative interpretation of custom math commands in the preamble. Do not emit those raw custom commands in final markdown.
 
 If there are no articles, return:
 `No articles found for this project.`
@@ -136,6 +148,7 @@ and stop.
 Generate only the missing document(s), based on:
 - the project name
 - all article contents
+- all macro tables for LaTeX articles
 - any existing background content
 - any existing goal content
 
@@ -165,6 +178,7 @@ It should include, when supported by the articles:
 - Synthesize across articles.
 - Stay conservative when evidence is insufficient.
 - Do not introduce outside literature not present in the provided articles.
+- For LaTeX-derived math, use macro table normalized forms rather than unresolved private macros.
 
 Then:
 - if background is missing, call `research_background_edit` with `oldString=""`
@@ -182,6 +196,9 @@ Before drafting atoms for an article:
 - Identify the article's 3-6 main claim clusters, such as background/problem, core method, key theorem/guarantee, main empirical findings, and limitations.
 - Use those clusters to plan the final atom list.
 - Keep the final atom count for that article roughly within 12-18 unless the article is unusually complex.
+- For LaTeX articles, read and follow the article macro table first.
+- For LaTeX articles, claims and evidence must use the macro table's normalized standalone mathematical expressions.
+- If the macro table marks a macro as unresolved, use a conservative readable reformulation instead of guessing.
 
 Each atom must contain:
 
@@ -593,19 +610,73 @@ Call `atom_batch_create` once to save all atoms and their relations in a single 
 
 If batch save fails, return a concise failure message and stop.
 
-If successful, return a concise summary including:
-- whether background was created
-- whether goal was created
-- number of atoms created
-- number of relations created
-
-Do not continue after a blocking failure.
+If successful, do not stop. First ask the user whether to run the optional post-save atom cleanup pass below.
 
 ---
 
-## Step 9: Relation organization and backbone chain construction
+## Step 9: Post-save atom cleanup via subagent conversations
 
-**Goal**: After batch save, organize the atom graph to form clear validation chains and enhance readability.
+**Goal**: After batch save, traverse the saved atoms and launch a dedicated subtask for each atom so the model checks `claim.md` and `evidence.md` in a fresh local conversation and repairs garbled or unresolved formulas there.
+
+Do not treat this as one global self-check. Use one explicit cleanup subtask per atom.
+
+### Step 9.0: Ask whether to run atom formula cleanup
+
+Before starting the cleanup pass, call `question` and ask the user whether to run atom formula cleanup over all saved atoms.
+
+If the user declines:
+- skip all of Step 9
+- record that atom cleanup was skipped by user choice
+- continue directly to Step 10
+
+If the user agrees:
+- continue with Step 9.1 through Step 9.4
+
+### Step 9.1: Read current saved atoms
+
+- Call `atom_query` to read the saved atoms.
+- For each atom, extract:
+  - `atom_id`
+  - `name`
+  - `claim_path`
+  - `evidence_path`
+
+### Step 9.2: Launch one cleanup task per atom
+
+For each saved atom, call the `task` tool with subagent `atom_formula_cleanup`.
+
+The task prompt must include:
+- atom id
+- atom name
+- claim path
+- evidence path
+- the instruction to inspect the saved markdown, repair garbled or unresolved formulas if needed, and re-read modified files
+
+The subagent is responsible for:
+- reading the atom-local files itself
+- deciding whether repair is needed
+- editing only the atom-local markdown files
+- re-reading modified files to verify the repair
+
+### Step 9.3: Collect cleanup results
+
+After all atom cleanup subtasks finish:
+- record how many atoms were inspected
+- record how many atoms had claim repaired
+- record how many atoms had evidence repaired
+- record whether any subtask reported remaining unresolved formulas
+
+If a subtask reports no issue, count it as inspected but not repaired.
+
+### Step 9.4: Continue only after cleanup
+
+Only after the per-atom cleanup pass is complete should you continue to relation organization.
+
+---
+
+## Step 10: Relation organization and backbone chain construction
+
+**Goal**: After batch save and atom-local cleanup, organize the atom graph to form clear validation chains and enhance readability.
 
 ### Core chain patterns
 
@@ -630,7 +701,7 @@ When multiple method atoms compose a final method:
 
 ---
 
-### Step 9.1: Read current saved graph
+### Step 10.1: Read current saved graph
 
 - Call `atom_query` and `atom_relation_query` to read the complete saved graph
 - Group atoms by article
@@ -638,7 +709,7 @@ When multiple method atoms compose a final method:
 
 ---
 
-### Step 9.2: Identify backbone chains (per article)
+### Step 10.2: Identify backbone chains (per article)
 
 For each article:
 
@@ -670,7 +741,7 @@ For each article:
 
 ---
 
-### Step 9.3: Relation organization operations
+### Step 10.3: Relation organization operations
 
 **Edges to add**:
 - Fill missing edges to connect broken logical chains
@@ -687,13 +758,13 @@ For each article:
 
 ---
 
-### Step 9.4: Main chain identification
+### Step 10.4: Main chain identification
 
 Assign a unique identifier to each backbone chain (e.g., `chain_<article_id>_<index>`), but do NOT modify atom content. Only report the structure in the response.
 
 ---
 
-### Step 9.5: Execute add/delete operations
+### Step 10.5: Execute add/delete operations
 
 - Call `atom_relation_create` to add necessary edges
 - Call `atom_relation_delete` to remove redundant edges
@@ -703,7 +774,7 @@ Assign a unique identifier to each backbone chain (e.g., `chain_<article_id>_<in
 
 ---
 
-### Step 9.6: Verification and summary
+### Step 10.6: Verification and summary
 
 **Verification checklist**:
 - Total atom count remains unchanged
@@ -716,6 +787,16 @@ Assign a unique identifier to each backbone chain (e.g., `chain_<article_id>_<in
 
 Return a concise summary including:
 
+- whether background was created
+- whether goal was created
+- which articles required newly generated macro tables
+- number of atoms created
+- number of relations created before relation reorganization
+- whether post-save atom cleanup was skipped or executed
+- number of atoms inspected during post-save cleanup
+- number of atoms with repaired claim files
+- number of atoms with repaired evidence files
+- whether any atom still reported unresolved formulas after cleanup
 - Number of backbone chains identified
 - Structure of each backbone chain (atom IDs and relation types)
 - Number of edges added

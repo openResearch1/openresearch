@@ -100,6 +100,7 @@ const articleSchema = z.object({
   research_project_id: z.string(),
   path: z.string(),
   code_path: z.string().nullable(),
+  macro_table_path: z.string().nullable(),
   title: z.string().nullable(),
   source_url: z.string().nullable(),
   status: z.enum(["pending", "parsed", "failed"]),
