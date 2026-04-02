@@ -1001,8 +1001,6 @@ export const ResearchRoutes = new Hono()
         }
       })
 
-      return c.json(result)
-
       // Clean up upload temp dirs (fire-and-forget)
       for (const src of paperSources) {
         const dir = path.dirname(src)
@@ -1010,6 +1008,8 @@ export const ResearchRoutes = new Hono()
           rm(dir, { recursive: true, force: true }).catch(() => {})
         }
       }
+
+      return c.json(result)
     },
   )
   .post(

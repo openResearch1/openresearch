@@ -257,7 +257,6 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
   const [filter, setFilter] = createSignal("")
   let list: ListRef | undefined
 
-  // Drag-drop state
   const [dragOver, setDragOver] = createSignal(false)
   const [droppedPapers, setDroppedPapers] = createSignal<Array<{ name: string; path: string }>>([])
   const [creating, setCreating] = createSignal(false)
