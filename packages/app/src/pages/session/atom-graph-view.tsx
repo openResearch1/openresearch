@@ -363,6 +363,7 @@ export function AtomGraphView(props: {
       },
       state: {
         hover: {
+          size: 56,
           stroke: "#f8fafc",
           lineWidth: 4,
           shadowColor: "rgba(248,250,252,0.32)",
@@ -381,11 +382,15 @@ export function AtomGraphView(props: {
           shadowBlur: 18,
         },
         "connect-target": {
+          size: 52,
           stroke: "#f8fafc",
           lineWidth: 4,
           shadowColor: "rgba(248,250,252,0.45)",
           shadowBlur: 20,
         },
+      },
+      animation: {
+        update: [{ fields: ["size", "lineWidth", "shadowBlur"], duration: 200, easing: "ease-out" }],
       },
     },
     edge: {
@@ -403,17 +408,21 @@ export function AtomGraphView(props: {
       },
     },
     layout: {
-      type: "dagre" as const,
-      rankdir: "TB",
-      nodesep: 25,
-      ranksep: 40,
+      type: "force" as const,
+      linkDistance: 150,
+      nodeStrength: 30,
+      edgeStrength: 200,
+      preventOverlap: true,
+      nodeSize: 40,
+      nodeSpacing: 30,
+      coulombDisScale: 0.003,
     },
     behaviors: [
       { type: "drag-canvas", key: "drag-canvas" },
       { type: "zoom-canvas", key: "zoom-canvas" },
       { type: "drag-element", key: "drag-element", enable: true },
     ],
-    animation: false,
+    animation: { duration: 400, easing: "ease-in-out" },
   }
 
   onMount(() => {
@@ -774,7 +783,6 @@ export function AtomGraphView(props: {
     await frame()
     await graph.layout()
     await fit()
-    await graph.render()
     saveCurrentState()
   }
 
