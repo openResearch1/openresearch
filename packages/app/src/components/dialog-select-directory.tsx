@@ -262,6 +262,7 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
   const [droppedPapers, setDroppedPapers] = createSignal<Array<{ name: string; path: string }>>([])
   const [creating, setCreating] = createSignal(false)
   const [createError, setCreateError] = createSignal<string>()
+  const [uploadProgress, setUploadProgress] = createSignal<number | undefined>(undefined)
 
   const missingBase = createMemo(() => !(sync.data.path.home || sync.data.path.directory))
   const [fallbackPath] = createResource(
@@ -338,23 +339,44 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
     )
     if (pdfs.length === 0) return
 
-    // Upload files to server, get back server-side paths
     const formData = new FormData()
     for (const f of pdfs) formData.append("files", f)
 
     setCreating(true)
     setCreateError(undefined)
-    fetch(`${sdk.url}/research/upload`, { method: "POST", body: formData })
-      .then((r) => r.json() as Promise<{ paths: Array<{ name: string; path: string }> }>)
-      .then((res) => {
+    setUploadProgress(0)
+
+    const xhr = new XMLHttpRequest()
+    xhr.open("POST", `${sdk.url}/research/upload`)
+    xhr.upload.onprogress = (ev) => {
+      if (ev.lengthComputable) setUploadProgress(Math.round((ev.loaded / ev.total) * 100))
+    }
+    xhr.onload = () => {
+      setUploadProgress(undefined)
+      setCreating(false)
+      if (xhr.status >= 200 && xhr.status < 300) {
+        const res = JSON.parse(xhr.responseText) as { paths: Array<{ name: string; path: string }> }
         const uploaded = res.paths ?? []
         setDroppedPapers((prev) => {
           const existing = new Set(prev.map((p) => p.path))
           return [...prev, ...uploaded.filter((p) => !existing.has(p.path))]
         })
-      })
-      .catch(() => setCreateError("上传文件失败，请重试"))
-      .finally(() => setCreating(false))
+      } else {
+        setCreateError("上传文件失败，请重试")
+      }
+    }
+    xhr.onerror = () => {
+      setUploadProgress(undefined)
+      setCreating(false)
+      setCreateError("上传文件失败，请重试")
+    }
+    xhr.ontimeout = () => {
+      setUploadProgress(undefined)
+      setCreating(false)
+      setCreateError("上传超时，请重试")
+    }
+    xhr.timeout = 120_000 // 2 分钟
+    xhr.send(formData)
   }
 
   function removePaper(index: number) {
@@ -437,8 +459,20 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
         >
           <Icon name="cloud-upload" class="size-6 shrink-0" />
           <div class="text-13-regular">
-            {creating() ? "上传中…" : "拖入 PDF 论文到此处（可多次拖入）"}
+            {uploadProgress() !== undefined
+              ? `上传中… ${uploadProgress()}%`
+              : creating()
+                ? "处理中…"
+                : "拖入 PDF 论文到此处（可多次拖入）"}
           </div>
+          <Show when={uploadProgress() !== undefined}>
+            <div class="w-full bg-surface-strong rounded-full h-1.5 mt-1">
+              <div
+                class="bg-brand-base h-1.5 rounded-full transition-all"
+                style={{ width: `${uploadProgress()}%` }}
+              />
+            </div>
+          </Show>
         </div>
 
         <Show when={droppedPapers().length > 0}>
