@@ -7,7 +7,7 @@ import { List } from "@opencode-ai/ui/list"
 import type { ListRef } from "@opencode-ai/ui/list"
 import { getDirectory, getFilename } from "@opencode-ai/util/path"
 import fuzzysort from "fuzzysort"
-import { For, Show, createMemo, createResource, createSignal } from "solid-js"
+import { For, Show, createMemo, createResource, createSignal, onCleanup } from "solid-js"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLayout } from "@/context/layout"
@@ -262,6 +262,8 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
   const [creating, setCreating] = createSignal(false)
   const [createError, setCreateError] = createSignal<string>()
   const [uploadProgress, setUploadProgress] = createSignal<number | undefined>(undefined)
+  let activeXhr: XMLHttpRequest | undefined
+  onCleanup(() => activeXhr?.abort())
 
   const missingBase = createMemo(() => !(sync.data.path.home || sync.data.path.directory))
   const [fallbackPath] = createResource(
@@ -332,6 +334,7 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
   function handlePaperDrop(e: DragEvent) {
     e.preventDefault()
     setDragOver(false)
+    if (creating()) return
     const files = Array.from(e.dataTransfer?.files ?? [])
     const pdfs = files.filter(
       (f) => f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf"),
@@ -346,11 +349,13 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
     setUploadProgress(0)
 
     const xhr = new XMLHttpRequest()
+    activeXhr = xhr
     xhr.open("POST", `${sdk.url}/research/upload`)
     xhr.upload.onprogress = (ev) => {
       if (ev.lengthComputable) setUploadProgress(Math.round((ev.loaded / ev.total) * 100))
     }
     xhr.onload = () => {
+      activeXhr = undefined
       setUploadProgress(undefined)
       setCreating(false)
       if (xhr.status >= 200 && xhr.status < 300) {
@@ -373,11 +378,13 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
       }
     }
     xhr.onerror = () => {
+      activeXhr = undefined
       setUploadProgress(undefined)
       setCreating(false)
       setCreateError("网络错误，上传失败")
     }
     xhr.ontimeout = () => {
+      activeXhr = undefined
       setUploadProgress(undefined)
       setCreating(false)
       setCreateError("上传超时，请重试")

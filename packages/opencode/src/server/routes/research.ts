@@ -21,6 +21,7 @@ import { and, eq } from "drizzle-orm"
 import { Session } from "@/session"
 import { linkKinds } from "@/research/research.sql"
 import { Bus } from "@/bus"
+import { Global } from "@/global"
 import { errors } from "../error"
 import fs from "fs"
 import { rm } from "fs/promises"
@@ -33,7 +34,6 @@ import { checkExperimentReadyByExpId } from "@/session/experiment-guard"
 import { forceRefreshWatch } from "@/research/experiment-watcher"
 import { forceRefreshLocalDownload } from "@/research/experiment-local-download-watcher"
 import { ExperimentExecutionWatch } from "@/research/experiment-execution-watch"
-import { Global } from "@/global"
 
 const createSchema = z.object({
   name: z.string().min(1, "name required"),

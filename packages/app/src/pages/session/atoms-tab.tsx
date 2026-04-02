@@ -1,8 +1,8 @@
 import { createEffect, createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js"
 import { useNavigate } from "@solidjs/router"
+import { Icon } from "@opencode-ai/ui/icon"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { getFilename } from "@opencode-ai/util/path"
-import { Icon } from "@opencode-ai/ui/icon"
 import { useSDK } from "@/context/sdk"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
@@ -319,7 +319,7 @@ export function AtomsTab(props: { researchProjectId: string; currentSessionId?: 
               onInput={(e) => setNameInput(e.currentTarget.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") commitRename()
-                if (e.key === "Escape") setEditing(false)
+                if (e.key === "Escape") { setEditing(false); setNameInput(projectName()) }
               }}
               onBlur={commitRename}
             />
