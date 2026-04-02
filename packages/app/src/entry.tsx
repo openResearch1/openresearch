@@ -121,6 +121,31 @@ const defaultUrl = iife(() => {
 
 if (root instanceof HTMLElement) {
   const server: ServerConnection.Http = { type: "http", http: { url: defaultUrl } }
+
+  // Global error reporter — sends uncaught errors to backend log (best-effort)
+  const reportToServer = (level: "error" | "warn", message: string, stack?: string, extra?: Record<string, unknown>) => {
+    fetch(`${defaultUrl}/global/log-client`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ level, message, stack, url: location.href, extra }),
+    }).catch(() => {})
+  }
+
+  window.addEventListener("error", (e) => {
+    reportToServer("error", e.message || "Unknown error", e.error?.stack, {
+      filename: e.filename,
+      lineno: e.lineno,
+      colno: e.colno,
+    })
+  })
+
+  window.addEventListener("unhandledrejection", (e) => {
+    const reason = e.reason
+    const message = reason instanceof Error ? reason.message : String(reason ?? "Unhandled rejection")
+    const stack = reason instanceof Error ? reason.stack : undefined
+    reportToServer("error", message, stack)
+  })
+
   render(
     () => (
       <PlatformProvider value={platform}>

@@ -181,5 +181,43 @@ export const GlobalRoutes = lazy(() =>
         })
         return c.json(true)
       },
+    )
+    .post(
+      "/log-client",
+      describeRoute({
+        summary: "Log client-side error",
+        description: "Receive a frontend error report and write it to the server log file.",
+        operationId: "global.log.client",
+        responses: {
+          200: {
+            description: "Logged",
+            content: { "application/json": { schema: resolver(z.boolean()) } },
+          },
+        },
+      }),
+      validator(
+        "json",
+        z.object({
+          level: z.enum(["debug", "info", "warn", "error"]).default("error"),
+          message: z.string(),
+          stack: z.string().optional(),
+          url: z.string().optional(),
+          extra: z.record(z.string(), z.unknown()).optional(),
+        }),
+      ),
+      async (c) => {
+        const body = c.req.valid("json")
+        const entry = {
+          service: "client",
+          message: body.message,
+          ...(body.stack ? { stack: body.stack } : {}),
+          ...(body.url ? { url: body.url } : {}),
+          ...(body.extra ?? {}),
+        }
+        if (body.level === "error") log.error("client error", entry)
+        else if (body.level === "warn") log.warn("client warn", entry)
+        else log.info("client log", entry)
+        return c.json(true)
+      },
     ),
 )
