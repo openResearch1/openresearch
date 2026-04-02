@@ -92,9 +92,12 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         const stack = err instanceof Error ? err.stack : undefined
+        const authHeader = currentServer.http.password
+          ? { Authorization: `Basic ${btoa(`${currentServer.http.username ?? "opencode"}:${currentServer.http.password}`)}` }
+          : undefined
         fetch(`${currentServer.http.url}/global/log-client`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...(authHeader ?? {}) } as HeadersInit,
           body: JSON.stringify({ level: "error", message, stack, url: location.href, extra: { source: "global-sdk:flush" } }),
         }).catch(() => {})
       }

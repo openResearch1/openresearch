@@ -124,9 +124,12 @@ if (root instanceof HTMLElement) {
 
   // Global error reporter — sends uncaught errors to backend log (best-effort)
   const reportToServer = (level: "error" | "warn", message: string, stack?: string, extra?: Record<string, unknown>) => {
+    const authHeader = server.http.password
+      ? { Authorization: `Basic ${btoa(`${server.http.username ?? "opencode"}:${server.http.password}`)}` }
+      : undefined
     fetch(`${defaultUrl}/global/log-client`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...(authHeader ?? {}) } as HeadersInit,
       body: JSON.stringify({ level, message, stack, url: location.href, extra }),
     }).catch(() => {})
   }
