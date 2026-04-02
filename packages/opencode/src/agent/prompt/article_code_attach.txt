@@ -26,7 +26,11 @@ Examine the user's message for:
 
 ### Step 3: Search within the article
 
-Use the `read` tool to read the article PDF at the path returned by `article_query`.
+Use the `read` tool to inspect the article path returned by `article_query`.
+
+- If the article `kind` is `pdf`, read it directly.
+- If the article `kind` is `latex_directory`, first read the directory listing, then read the most relevant `.tex` files, prioritizing `main.tex`, `<directory_name>.tex`, or files containing `\documentclass` / `\begin{document}`.
+- For LaTeX directories, follow `\input{...}` and `\include{...}` references as needed when searching for repository links.
 
 Look for:
 - GitHub links (e.g., `github.com/...`)

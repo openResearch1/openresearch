@@ -12,7 +12,9 @@ import {
   AtomRelationTable,
   ExperimentTable,
   RemoteServerTable,
+  ExperimentExecutionWatchTable,
   ExperimentWatchTable,
+  LocalDownloadWatchTable,
 } from "@/research/research.sql"
 import { and, eq } from "drizzle-orm"
 import { Session } from "@/session"
@@ -27,6 +29,9 @@ import { Instance } from "@/project/instance"
 import { Snapshot } from "@/snapshot"
 import { computeExperimentDiff } from "@/util/git-diff"
 import { checkExperimentReadyByExpId } from "@/session/experiment-guard"
+import { forceRefreshWatch } from "@/research/experiment-watcher"
+import { forceRefreshLocalDownload } from "@/research/experiment-local-download-watcher"
+import { ExperimentExecutionWatch } from "@/research/experiment-execution-watch"
 
 const createSchema = z.object({
   name: z.string().min(1, "name required"),
@@ -37,9 +42,8 @@ const createSchema = z.object({
 })
 
 async function copyFile(src: string, dest: string) {
-  const file = Bun.file(src)
-  if (!(await file.exists())) throw new Error(`file not found: ${src}`)
-  await fs.promises.cp(src, dest, { force: false })
+  if (!(await Filesystem.exists(src))) throw new Error(`file not found: ${src}`)
+  await fs.promises.cp(src, dest, { force: false, recursive: await Filesystem.isDir(src) })
 }
 
 const uniqueID = () => crypto.randomUUID()
@@ -70,6 +74,7 @@ const remoteServerConfigSchema = z.object({
   port: z.number(),
   user: z.string(),
   password: z.string(),
+  resource_root: z.string().optional(),
   wandb_api_key: z.string().optional(),
   wandb_project_name: z.string().optional(),
 })
@@ -92,6 +97,41 @@ const experimentSchema = z.object({
   finished_at: z.number().nullable(),
   time_created: z.number(),
   time_updated: z.number(),
+})
+
+const watchListItemSchema = z.object({
+  watch_id: z.string(),
+  kind: z.literal("experiment"),
+  exp_id: z.string(),
+  exp_session_id: z.string().nullable(),
+  exp_result_path: z.string().nullable(),
+  title: z.string(),
+  status: z.enum(["pending", "running", "finished", "failed", "canceled"]),
+  stage: z.enum([
+    "planning",
+    "coding",
+    "deploying_code",
+    "setting_up_env",
+    "local_downloading",
+    "syncing_resources",
+    "remote_downloading",
+    "verifying_resources",
+    "running_experiment",
+    "watching_wandb",
+  ]),
+  message: z.string().nullable(),
+  error_message: z.string().nullable(),
+  started_at: z.number().nullable(),
+  finished_at: z.number().nullable(),
+  time_created: z.number(),
+  time_updated: z.number(),
+  wandb_entity: z.string().nullable(),
+  wandb_project: z.string().nullable(),
+  wandb_run_id: z.string().nullable(),
+  local_download_resource_name: z.string().nullable(),
+  local_download_local_path: z.string().nullable(),
+  local_download_log_path: z.string().nullable(),
+  local_download_status_path: z.string().nullable(),
 })
 
 const articleSchema = z.object({
@@ -703,6 +743,9 @@ export const ResearchRoutes = new Hono()
       for (const src of paperSources) {
         if (!(await Filesystem.exists(src))) {
           return c.json({ success: false, message: `paper not found: ${src}` }, 400)
+        }
+        if (!(await Filesystem.isDir(src)) && path.extname(src).toLowerCase() !== ".pdf") {
+          return c.json({ success: false, message: `unsupported article source: ${src}` }, 400)
         }
       }
       if (body.backgroundPath && !(await Filesystem.exists(body.backgroundPath))) {
@@ -1492,32 +1535,14 @@ export const ResearchRoutes = new Hono()
   .get(
     "/experiment-watch",
     describeRoute({
-      summary: "List all experiment watch records",
+      summary: "List all watch records",
       operationId: "research.experimentWatch.list",
       responses: {
         200: {
-          description: "Experiment watch list",
+          description: "Watch list",
           content: {
             "application/json": {
-              schema: resolver(
-                z.array(
-                  z.object({
-                    watch_id: z.string(),
-                    exp_id: z.string(),
-                    exp_session_id: z.string().nullable(),
-                    exp_result_path: z.string().nullable(),
-                    wandb_entity: z.string(),
-                    wandb_project: z.string(),
-                    wandb_run_id: z.string(),
-                    status: z.string(),
-                    wandb_state: z.string().nullable(),
-                    last_polled_at: z.number().nullable(),
-                    error_message: z.string().nullable(),
-                    time_created: z.number(),
-                    time_updated: z.number(),
-                  }),
-                ),
-              ),
+              schema: resolver(z.array(watchListItemSchema)),
             },
           },
         },
@@ -1543,29 +1568,46 @@ export const ResearchRoutes = new Hono()
       const expMap = new Map(experiments.map((e) => [e.exp_id, e]))
       const expIds = new Set(experiments.map((e) => e.exp_id))
 
-      // Get watches only for this project's experiments
-      const allWatches = Database.use((db) => db.select().from(ExperimentWatchTable).all())
-      const watches = allWatches.filter((w) => expIds.has(w.exp_id))
+      const executionWatches = Database.use((db) => db.select().from(ExperimentExecutionWatchTable).all()).filter((w) =>
+        expIds.has(w.exp_id),
+      )
+      const localWatches = Database.use((db) => db.select().from(LocalDownloadWatchTable).all()).filter((w) =>
+        expIds.has(w.exp_id),
+      )
+      const localMap = new Map(
+        [...localWatches].sort((a, b) => b.time_updated - a.time_updated).map((w) => [w.exp_id, w] as const),
+      )
 
       return c.json(
-        watches.map((w) => {
-          const exp = expMap.get(w.exp_id)
-          return {
-            watch_id: w.watch_id,
-            exp_id: w.exp_id,
-            exp_session_id: exp?.exp_session_id ?? null,
-            exp_result_path: exp?.exp_result_path ?? null,
-            wandb_entity: w.wandb_entity,
-            wandb_project: w.wandb_project,
-            wandb_run_id: w.wandb_run_id,
-            status: w.status,
-            wandb_state: w.wandb_state,
-            last_polled_at: w.last_polled_at,
-            error_message: w.error_message,
-            time_created: w.time_created,
-            time_updated: w.time_updated,
-          }
-        }),
+        executionWatches
+          .map((w) => {
+            const exp = expMap.get(w.exp_id)
+            const local = localMap.get(w.exp_id)
+            return {
+              watch_id: w.watch_id,
+              kind: "experiment" as const,
+              exp_id: w.exp_id,
+              exp_session_id: exp?.exp_session_id ?? null,
+              exp_result_path: exp?.exp_result_path ?? null,
+              title: w.title,
+              status: w.status,
+              stage: w.stage,
+              message: w.message,
+              error_message: w.error_message,
+              started_at: w.started_at,
+              finished_at: w.finished_at,
+              time_created: w.time_created,
+              time_updated: w.time_updated,
+              wandb_entity: w.wandb_entity,
+              wandb_project: w.wandb_project,
+              wandb_run_id: w.wandb_run_id,
+              local_download_resource_name: local?.resource_name ?? null,
+              local_download_local_path: local?.local_path ?? null,
+              local_download_log_path: local?.log_path ?? null,
+              local_download_status_path: local?.status_path ?? null,
+            }
+          })
+          .sort((a, b) => b.time_updated - a.time_updated),
       )
     },
   )
@@ -1625,7 +1667,7 @@ export const ResearchRoutes = new Hono()
   .delete(
     "/experiment-watch/:watchId",
     describeRoute({
-      summary: "Delete an experiment watch record",
+      summary: "Delete a watch record",
       operationId: "research.experimentWatch.delete",
       responses: {
         200: {
@@ -1642,13 +1684,68 @@ export const ResearchRoutes = new Hono()
     async (c) => {
       const watchId = c.req.param("watchId")
       const watch = Database.use((db) =>
-        db.select().from(ExperimentWatchTable).where(eq(ExperimentWatchTable.watch_id, watchId)).get(),
+        db
+          .select()
+          .from(ExperimentExecutionWatchTable)
+          .where(eq(ExperimentExecutionWatchTable.watch_id, watchId))
+          .get(),
       )
       if (!watch) {
         return c.json({ success: false, message: `watch not found: ${watchId}` }, 404)
       }
-      Database.use((db) => db.delete(ExperimentWatchTable).where(eq(ExperimentWatchTable.watch_id, watchId)).run())
+      Database.use((db) =>
+        db.delete(ExperimentExecutionWatchTable).where(eq(ExperimentExecutionWatchTable.watch_id, watchId)).run(),
+      )
+      Database.use((db) => db.delete(ExperimentWatchTable).where(eq(ExperimentWatchTable.exp_id, watch.exp_id)).run())
+      Database.use((db) =>
+        db.delete(LocalDownloadWatchTable).where(eq(LocalDownloadWatchTable.exp_id, watch.exp_id)).run(),
+      )
       return c.json({ success: true })
+    },
+  )
+  // ── Experiment watch force refresh ──
+  .post(
+    "/experiment-watch/:watchId/refresh",
+    describeRoute({
+      summary: "Force refresh a watch",
+      operationId: "research.experimentWatch.refresh",
+      responses: {
+        200: {
+          description: "Refresh result",
+          content: {
+            "application/json": {
+              schema: resolver(z.object({ success: z.boolean(), message: z.string() })),
+            },
+          },
+        },
+        ...errors(404),
+      },
+    }),
+    async (c) => {
+      const watchId = c.req.param("watchId")
+      const watch = Database.use((db) =>
+        db
+          .select()
+          .from(ExperimentExecutionWatchTable)
+          .where(eq(ExperimentExecutionWatchTable.watch_id, watchId))
+          .get(),
+      )
+      if (!watch) {
+        return c.json({ success: false, message: `watch not found: ${watchId}` }, 404)
+      }
+      const internal = watch.wandb_run_id
+        ? ExperimentExecutionWatch.findInternal(watch.exp_id, watch.wandb_run_id)
+        : undefined
+      const result =
+        watch.stage === "local_downloading"
+          ? await forceRefreshLocalDownload(watch.exp_id)
+          : internal
+            ? await forceRefreshWatch(internal.watch_id)
+            : { success: true, message: "execution watch refreshed" }
+      if (!result.success && result.message.includes("not found")) {
+        return c.json(result, 404)
+      }
+      return c.json(result)
     },
   )
   // ── Experiment delete & update ──
@@ -1679,6 +1776,10 @@ export const ResearchRoutes = new Hono()
       }
       // Delete experiment watchers
       Database.use((db) => db.delete(ExperimentWatchTable).where(eq(ExperimentWatchTable.exp_id, expId)).run())
+      Database.use((db) => db.delete(LocalDownloadWatchTable).where(eq(LocalDownloadWatchTable.exp_id, expId)).run())
+      Database.use((db) =>
+        db.delete(ExperimentExecutionWatchTable).where(eq(ExperimentExecutionWatchTable.exp_id, expId)).run(),
+      )
       Database.use((db) => db.delete(ExperimentTable).where(eq(ExperimentTable.exp_id, expId)).run())
       if (experiment.exp_session_id) {
         await Session.remove(experiment.exp_session_id).catch(() => {})

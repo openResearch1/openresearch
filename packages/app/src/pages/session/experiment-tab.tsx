@@ -16,6 +16,7 @@ interface ServerConfig {
   port: number
   user: string
   password: string
+  resource_root?: string
   wandb_api_key?: string
   wandb_project_name?: string
 }
@@ -672,8 +673,15 @@ export function ExpProgressTab(props: ExperimentTabProps & { onUpdated?: () => v
                 <div class="flex items-center gap-2">
                   <Show when={currentServerConfig()} fallback={<div class="text-14-regular text-text-weak">None</div>}>
                     {(cfg) => (
-                      <div class="text-14-regular font-mono">
-                        {cfg().user}@{cfg().address}:{cfg().port}
+                      <div class="flex flex-col gap-1">
+                        <div class="text-14-regular font-mono">
+                          {cfg().user}@{cfg().address}:{cfg().port}
+                        </div>
+                        <Show when={cfg().resource_root}>
+                          <div class="text-12-regular text-text-weak font-mono">
+                            resource_root: {cfg().resource_root}
+                          </div>
+                        </Show>
                       </div>
                     )}
                   </Show>

@@ -21,6 +21,8 @@ import { WebFetchTool } from "../../tool/webfetch"
 import { EditTool } from "../../tool/edit"
 import { WriteTool } from "../../tool/write"
 import { CodeSearchTool } from "../../tool/codesearch"
+import { HuggingFaceSearchTool } from "../../tool/huggingface_search"
+import { ModelScopeSearchTool } from "../../tool/modelscope_search"
 import { WebSearchTool } from "../../tool/websearch"
 import { TaskTool } from "../../tool/task"
 import { SkillTool } from "../../tool/skill"
@@ -164,6 +166,20 @@ function websearch(info: ToolProps<typeof WebSearchTool>) {
   inline({
     icon: "◈",
     title: `Exa Web Search "${info.input.query}"`,
+  })
+}
+
+function huggingfaceSearch(info: ToolProps<typeof HuggingFaceSearchTool>) {
+  inline({
+    icon: "◈",
+    title: `Hugging Face Search "${info.input.query}"`,
+  })
+}
+
+function modelscopeSearch(info: ToolProps<typeof ModelScopeSearchTool>) {
+  inline({
+    icon: "◈",
+    title: `ModelScope Search "${info.input.query}"`,
   })
 }
 
@@ -416,6 +432,8 @@ export const RunCommand = cmd({
           if (part.tool === "edit") return edit(props<typeof EditTool>(part))
           if (part.tool === "codesearch") return codesearch(props<typeof CodeSearchTool>(part))
           if (part.tool === "websearch") return websearch(props<typeof WebSearchTool>(part))
+          if (part.tool === "huggingface_search") return huggingfaceSearch(props<typeof HuggingFaceSearchTool>(part))
+          if (part.tool === "modelscope_search") return modelscopeSearch(props<typeof ModelScopeSearchTool>(part))
           if (part.tool === "task") return task(props<typeof TaskTool>(part))
           if (part.tool === "todowrite") return todo(props<typeof TodoWriteTool>(part))
           if (part.tool === "skill") return skill(props<typeof SkillTool>(part))

@@ -1187,13 +1187,9 @@ export function AtomGraphView(props: {
           <div class="pointer-events-auto w-[360px] rounded-xl border border-border-weak-base bg-surface-float-base shadow-2xl p-4">
             <div class="text-sm font-medium text-text-strong">Edit Relation</div>
             <div class="mt-3 text-sm text-text-base">
-              <span class="text-text-strong">
-                {relationSource()?.atom_name ?? state.relationSourceId.slice(0, 8)}
-              </span>{" "}
+              <span class="text-text-strong">{relationSource()?.atom_name ?? state.relationSourceId.slice(0, 8)}</span>{" "}
               →{" "}
-              <span class="text-text-strong">
-                {relationTarget()?.atom_name ?? state.relationTargetId.slice(0, 8)}
-              </span>
+              <span class="text-text-strong">{relationTarget()?.atom_name ?? state.relationTargetId.slice(0, 8)}</span>
             </div>
             <div class="mt-4">
               <div class="mb-2 text-xs text-text-weaker">Relation type</div>

@@ -485,6 +485,81 @@
             "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.project.update({\n  ...\n})"
           }
         ]
+      },
+      "delete": {
+        "operationId": "project.delete",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "projectID",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "in": "query",
+            "name": "removeLocal",
+            "schema": {
+              "type": "string",
+              "enum": ["true", "false"]
+            }
+          }
+        ],
+        "summary": "Delete project",
+        "description": "Delete a project and permanently remove all associated local session data.",
+        "responses": {
+          "200": {
+            "description": "Deleted project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.project.delete({\n  ...\n})"
+          }
+        ]
       }
     },
     "/pty": {
@@ -4449,6 +4524,234 @@
             "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.research.relation.create({\n  ...\n})"
           }
         ]
+      },
+      "patch": {
+        "operationId": "research.relation.update",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "researchProjectId",
+            "required": true
+          }
+        ],
+        "summary": "Update atom relation",
+        "description": "Update the type of an existing directed relation between two atoms in the same research project.",
+        "responses": {
+          "200": {
+            "description": "Updated relation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "atom_id_source": {
+                      "type": "string"
+                    },
+                    "atom_id_target": {
+                      "type": "string"
+                    },
+                    "relation_type": {
+                      "type": "string"
+                    },
+                    "note": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "time_created": {
+                      "type": "number"
+                    },
+                    "time_updated": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "atom_id_source",
+                    "atom_id_target",
+                    "relation_type",
+                    "note",
+                    "time_created",
+                    "time_updated"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "source_atom_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "target_atom_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "relation_type": {
+                    "type": "string",
+                    "enum": ["motivates", "formalizes", "derives", "analyzes", "validates", "contradicts", "other"]
+                  },
+                  "next_relation_type": {
+                    "type": "string",
+                    "enum": ["motivates", "formalizes", "derives", "analyzes", "validates", "contradicts", "other"]
+                  }
+                },
+                "required": ["source_atom_id", "target_atom_id", "relation_type", "next_relation_type"]
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.research.relation.update({\n  ...\n})"
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "research.relation.delete",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "researchProjectId",
+            "required": true
+          }
+        ],
+        "summary": "Delete atom relation",
+        "description": "Delete a directed relation between two atoms in the same research project.",
+        "responses": {
+          "200": {
+            "description": "Deleted relation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "source_atom_id": {
+                      "type": "string"
+                    },
+                    "target_atom_id": {
+                      "type": "string"
+                    },
+                    "relation_type": {
+                      "type": "string",
+                      "enum": ["motivates", "formalizes", "derives", "analyzes", "validates", "contradicts", "other"]
+                    },
+                    "deleted": {
+                      "type": "boolean",
+                      "const": true
+                    }
+                  },
+                  "required": ["source_atom_id", "target_atom_id", "relation_type", "deleted"]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "source_atom_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "target_atom_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "relation_type": {
+                    "type": "string",
+                    "enum": ["motivates", "formalizes", "derives", "analyzes", "validates", "contradicts", "other"]
+                  }
+                },
+                "required": ["source_atom_id", "target_atom_id", "relation_type"]
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.research.relation.delete({\n  ...\n})"
+          }
+        ]
       }
     },
     "/research/project/{researchProjectId}/atom/{atomId}": {
@@ -5135,6 +5438,9 @@
                                           "password": {
                                             "type": "string"
                                           },
+                                          "resource_root": {
+                                            "type": "string"
+                                          },
                                           "wandb_api_key": {
                                             "type": "string"
                                           },
@@ -5719,6 +6025,9 @@
                                 "password": {
                                   "type": "string"
                                 },
+                                "resource_root": {
+                                  "type": "string"
+                                },
                                 "wandb_api_key": {
                                   "type": "string"
                                 },
@@ -6284,6 +6593,9 @@
                           "password": {
                             "type": "string"
                           },
+                          "resource_root": {
+                            "type": "string"
+                          },
                           "wandb_api_key": {
                             "type": "string"
                           },
@@ -6359,6 +6671,9 @@
                         "password": {
                           "type": "string"
                         },
+                        "resource_root": {
+                          "type": "string"
+                        },
                         "wandb_api_key": {
                           "type": "string"
                         },
@@ -6394,6 +6709,9 @@
                         "type": "string"
                       },
                       "password": {
+                        "type": "string"
+                      },
+                      "resource_root": {
                         "type": "string"
                       },
                       "wandb_api_key": {
@@ -6502,10 +6820,10 @@
             }
           }
         ],
-        "summary": "List all experiment watch records",
+        "summary": "List all watch records",
         "responses": {
           "200": {
-            "description": "Experiment watch list",
+            "description": "Watch list",
             "content": {
               "application/json": {
                 "schema": {
@@ -6515,6 +6833,10 @@
                     "properties": {
                       "watch_id": {
                         "type": "string"
+                      },
+                      "kind": {
+                        "type": "string",
+                        "const": "experiment"
                       },
                       "exp_id": {
                         "type": "string"
@@ -6539,32 +6861,32 @@
                           }
                         ]
                       },
-                      "wandb_entity": {
-                        "type": "string"
-                      },
-                      "wandb_project": {
-                        "type": "string"
-                      },
-                      "wandb_run_id": {
+                      "title": {
                         "type": "string"
                       },
                       "status": {
-                        "type": "string"
+                        "type": "string",
+                        "enum": ["pending", "running", "finished", "failed", "canceled"]
                       },
-                      "wandb_state": {
+                      "stage": {
+                        "type": "string",
+                        "enum": [
+                          "planning",
+                          "coding",
+                          "deploying_code",
+                          "setting_up_env",
+                          "local_downloading",
+                          "syncing_resources",
+                          "remote_downloading",
+                          "verifying_resources",
+                          "running_experiment",
+                          "watching_wandb"
+                        ]
+                      },
+                      "message": {
                         "anyOf": [
                           {
                             "type": "string"
-                          },
-                          {
-                            "type": "null"
-                          }
-                        ]
-                      },
-                      "last_polled_at": {
-                        "anyOf": [
-                          {
-                            "type": "number"
                           },
                           {
                             "type": "null"
@@ -6581,27 +6903,125 @@
                           }
                         ]
                       },
+                      "started_at": {
+                        "anyOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "finished_at": {
+                        "anyOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
                       "time_created": {
                         "type": "number"
                       },
                       "time_updated": {
                         "type": "number"
+                      },
+                      "wandb_entity": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "wandb_project": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "wandb_run_id": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "local_download_resource_name": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "local_download_local_path": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "local_download_log_path": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "local_download_status_path": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
                       }
                     },
                     "required": [
                       "watch_id",
+                      "kind",
                       "exp_id",
                       "exp_session_id",
                       "exp_result_path",
+                      "title",
+                      "status",
+                      "stage",
+                      "message",
+                      "error_message",
+                      "started_at",
+                      "finished_at",
+                      "time_created",
+                      "time_updated",
                       "wandb_entity",
                       "wandb_project",
                       "wandb_run_id",
-                      "status",
-                      "wandb_state",
-                      "last_polled_at",
-                      "error_message",
-                      "time_created",
-                      "time_updated"
+                      "local_download_resource_name",
+                      "local_download_local_path",
+                      "local_download_log_path",
+                      "local_download_status_path"
                     ]
                   }
                 }
@@ -6720,7 +7140,7 @@
             "required": true
           }
         ],
-        "summary": "Delete an experiment watch record",
+        "summary": "Delete a watch record",
         "responses": {
           "200": {
             "description": "Deleted",
@@ -6753,6 +7173,73 @@
           {
             "lang": "js",
             "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.research.experimentWatch.delete({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/research/experiment-watch/{watchId}/refresh": {
+      "post": {
+        "operationId": "research.experimentWatch.refresh",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "watchId",
+            "required": true
+          }
+        ],
+        "summary": "Force refresh a watch",
+        "responses": {
+          "200": {
+            "description": "Refresh result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["success", "message"]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.research.experimentWatch.refresh({\n  ...\n})"
           }
         ]
       }
@@ -6956,6 +7443,9 @@
                               "type": "string"
                             },
                             "password": {
+                              "type": "string"
+                            },
+                            "resource_root": {
                               "type": "string"
                             },
                             "wandb_api_key": {
@@ -10127,6 +10617,19 @@
         },
         "required": ["type", "properties"]
       },
+      "Event.project.deleted": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "project.deleted"
+          },
+          "properties": {
+            "$ref": "#/components/schemas/Project"
+          }
+        },
+        "required": ["type", "properties"]
+      },
       "Event.server.instance.disposed": {
         "type": "object",
         "properties": {
@@ -12646,6 +13149,9 @@
             "$ref": "#/components/schemas/Event.project.updated"
           },
           {
+            "$ref": "#/components/schemas/Event.project.deleted"
+          },
+          {
             "$ref": "#/components/schemas/Event.server.instance.disposed"
           },
           {
@@ -12899,6 +13405,24 @@
                 "$ref": "#/components/schemas/PermissionActionConfig"
               },
               "codesearch": {
+                "$ref": "#/components/schemas/PermissionActionConfig"
+              },
+              "huggingface_search": {
+                "$ref": "#/components/schemas/PermissionActionConfig"
+              },
+              "modelscope_search": {
+                "$ref": "#/components/schemas/PermissionActionConfig"
+              },
+              "experiment_resource_job_start": {
+                "$ref": "#/components/schemas/PermissionActionConfig"
+              },
+              "experiment_local_download_watch_init": {
+                "$ref": "#/components/schemas/PermissionActionConfig"
+              },
+              "experiment_local_download_watch_update": {
+                "$ref": "#/components/schemas/PermissionActionConfig"
+              },
+              "experiment_local_download_watch_refresh": {
                 "$ref": "#/components/schemas/PermissionActionConfig"
               },
               "lsp": {

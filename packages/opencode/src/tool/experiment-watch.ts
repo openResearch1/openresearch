@@ -3,6 +3,7 @@ import { Tool } from "./tool"
 import { Database, eq, and } from "../storage/db"
 import { ExperimentTable, ExperimentWatchTable } from "../research/research.sql"
 import { Log } from "../util/log"
+import { ExperimentExecutionWatch } from "../research/experiment-execution-watch"
 
 const log = Log.create({ service: "experiment-watch" })
 
@@ -96,6 +97,16 @@ export const ExperimentWatchTool = Tool.define("experiment_watch", {
         .get(),
     )
     if (existing) {
+      ExperimentExecutionWatch.createOrGet(params.expId, ExperimentExecutionWatch.title(params.expId))
+      ExperimentExecutionWatch.update({
+        expId: params.expId,
+        status: existing.status === "running" ? "running" : "pending",
+        stage: "watching_wandb",
+        wandbEntity: existing.wandb_entity,
+        wandbProject: existing.wandb_project,
+        wandbRunId: existing.wandb_run_id,
+        message: "Monitoring W&B run",
+      })
       return {
         title: "Already watching",
         output: `W&B run ${params.wandbRunId} is already being monitored (status: ${existing.status}).`,
@@ -143,6 +154,18 @@ export const ExperimentWatchTool = Tool.define("experiment_watch", {
         })
         .run(),
     )
+
+    ExperimentExecutionWatch.createOrGet(params.expId, ExperimentExecutionWatch.title(params.expId))
+    ExperimentExecutionWatch.update({
+      expId: params.expId,
+      status: check.state === "running" ? "running" : "pending",
+      stage: "watching_wandb",
+      wandbEntity: viewer.entity,
+      wandbProject: params.wandbProject,
+      wandbRunId: params.wandbRunId,
+      message: "Monitoring W&B run",
+      errorMessage: null,
+    })
 
     // Update experiment status to running
     Database.use((db) =>

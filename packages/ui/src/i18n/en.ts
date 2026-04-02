@@ -97,6 +97,8 @@ export const dict: Record<string, string> = {
   "ui.tool.webfetch": "Webfetch",
   "ui.tool.websearch": "Web Search",
   "ui.tool.codesearch": "Code Search",
+  "ui.tool.huggingface_search": "Hugging Face Search",
+  "ui.tool.modelscope_search": "ModelScope Search",
   "ui.tool.shell": "Shell",
   "ui.tool.patch": "Patch",
   "ui.tool.todos": "To-dos",

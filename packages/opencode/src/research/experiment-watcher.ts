@@ -4,6 +4,7 @@ import { ExperimentTable, ExperimentWatchTable } from "./research.sql"
 import { Log } from "../util/log"
 import { Filesystem } from "../util/filesystem"
 import path from "path"
+import { ExperimentExecutionWatch } from "./experiment-execution-watch"
 
 const log = Log.create({ service: "experiment-watcher" })
 
@@ -114,6 +115,14 @@ async function pollAll() {
         .run(),
     )
 
+    ExperimentExecutionWatch.syncWatch(watch.exp_id, {
+      ...watch,
+      status: newStatus,
+      wandb_state: run.state,
+      last_polled_at: now,
+      time_updated: now,
+    })
+
     // If terminal, pull results and update experiment
     if (isTerminal) {
       log.info("experiment finished", { watchId: watch.watch_id, expId: watch.exp_id, state: run.state })
@@ -162,6 +171,91 @@ async function pollAll() {
       )
     }
   }
+}
+
+export async function forceRefreshWatch(watchId: string): Promise<{ success: boolean; message: string }> {
+  const watch = Database.use((db) =>
+    db.select().from(ExperimentWatchTable).where(eq(ExperimentWatchTable.watch_id, watchId)).get(),
+  )
+  if (!watch) {
+    return { success: false, message: `watch not found: ${watchId}` }
+  }
+
+  const run = await fetchWandbRun(watch.wandb_api_key, watch.wandb_entity, watch.wandb_project, watch.wandb_run_id)
+  if (!run) {
+    return { success: false, message: "failed to fetch wandb run data" }
+  }
+
+  const now = Date.now()
+  const isTerminal = TERMINAL_STATES.includes(run.state)
+  const newStatus = isTerminal ? (run.state as "finished" | "failed" | "crashed") : "running"
+
+  // Update watch record
+  Database.use((db) =>
+    db
+      .update(ExperimentWatchTable)
+      .set({
+        status: newStatus,
+        wandb_state: run.state,
+        last_polled_at: now,
+        time_updated: now,
+      })
+      .where(eq(ExperimentWatchTable.watch_id, watch.watch_id))
+      .run(),
+  )
+
+  ExperimentExecutionWatch.syncWatch(watch.exp_id, {
+    ...watch,
+    status: newStatus,
+    wandb_state: run.state,
+    last_polled_at: now,
+    time_updated: now,
+  })
+
+  // Always overwrite summary and config if available
+  const experiment = Database.use((db) =>
+    db.select().from(ExperimentTable).where(eq(ExperimentTable.exp_id, watch.exp_id)).get(),
+  )
+
+  if (experiment?.exp_result_path) {
+    const resultDir = path.join(experiment.exp_result_path, watch.wandb_run_id)
+
+    if (run.summaryMetrics) {
+      try {
+        const parsed = JSON.parse(run.summaryMetrics)
+        await Filesystem.write(path.join(resultDir, "summary.json"), JSON.stringify(parsed, null, 2))
+      } catch {
+        await Filesystem.write(path.join(resultDir, "summary.json"), run.summaryMetrics)
+      }
+    }
+
+    if (run.config) {
+      try {
+        const parsed = JSON.parse(run.config)
+        await Filesystem.write(path.join(resultDir, "config.json"), JSON.stringify(parsed, null, 2))
+      } catch {
+        await Filesystem.write(path.join(resultDir, "config.json"), run.config)
+      }
+    }
+  }
+
+  // If terminal, also update experiment status
+  if (isTerminal) {
+    const expStatus = run.state === "finished" ? "done" : "failed"
+    Database.use((db) =>
+      db
+        .update(ExperimentTable)
+        .set({
+          status: expStatus as any,
+          finished_at: now,
+          time_updated: now,
+        })
+        .where(eq(ExperimentTable.exp_id, watch.exp_id))
+        .run(),
+    )
+  }
+
+  return { success: true, message: `refreshed, wandb state: ${run.state}` }
 }
 
 export namespace ExperimentWatcher {

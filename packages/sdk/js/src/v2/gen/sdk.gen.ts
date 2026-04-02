@@ -134,6 +134,8 @@ import type {
   ResearchExperimentWatchDeleteErrors,
   ResearchExperimentWatchDeleteResponses,
   ResearchExperimentWatchListResponses,
+  ResearchExperimentWatchRefreshErrors,
+  ResearchExperimentWatchRefreshResponses,
   ResearchProjectCreateErrors,
   ResearchProjectCreateResponses,
   ResearchProjectGetErrors,
@@ -3237,6 +3239,7 @@ export class Server extends HeyApiClient {
         port: number
         user: string
         password: string
+        resource_root?: string
         wandb_api_key?: string
         wandb_project_name?: string
       }
@@ -3304,7 +3307,7 @@ export class Server extends HeyApiClient {
 
 export class ExperimentWatch extends HeyApiClient {
   /**
-   * List all experiment watch records
+   * List all watch records
    */
   public list<ThrowOnError extends boolean = false>(
     parameters?: {
@@ -3332,7 +3335,7 @@ export class ExperimentWatch extends HeyApiClient {
   }
 
   /**
-   * Delete an experiment watch record
+   * Delete a watch record
    */
   public delete<ThrowOnError extends boolean = false>(
     parameters: {
@@ -3360,6 +3363,40 @@ export class ExperimentWatch extends HeyApiClient {
       ThrowOnError
     >({
       url: "/research/experiment-watch/{watchId}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Force refresh a watch
+   */
+  public refresh<ThrowOnError extends boolean = false>(
+    parameters: {
+      watchId: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "watchId" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      ResearchExperimentWatchRefreshResponses,
+      ResearchExperimentWatchRefreshErrors,
+      ThrowOnError
+    >({
+      url: "/research/experiment-watch/{watchId}/refresh",
       ...options,
       ...params,
     })

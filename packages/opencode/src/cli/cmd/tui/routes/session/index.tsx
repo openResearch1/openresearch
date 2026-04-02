@@ -1531,6 +1531,12 @@ function ToolPart(props: { last: boolean; part: ToolPart; message: AssistantMess
         <Match when={props.part.tool === "websearch"}>
           <WebSearch {...toolprops} />
         </Match>
+        <Match when={props.part.tool === "huggingface_search"}>
+          <HuggingFaceSearch {...toolprops} />
+        </Match>
+        <Match when={props.part.tool === "modelscope_search"}>
+          <ModelScopeSearch {...toolprops} />
+        </Match>
         <Match when={props.part.tool === "write"}>
           <Write {...toolprops} />
         </Match>
@@ -1948,6 +1954,24 @@ function WebSearch(props: ToolProps<any>) {
   return (
     <InlineTool icon="◈" pending="Searching web..." complete={input.query} part={props.part}>
       Exa Web Search "{input.query}" <Show when={metadata.numResults}>({metadata.numResults} results)</Show>
+    </InlineTool>
+  )
+}
+
+function HuggingFaceSearch(props: ToolProps<any>) {
+  const input = props.input as any
+  return (
+    <InlineTool icon="◈" pending="Searching Hugging Face..." complete={input.query} part={props.part}>
+      Hugging Face Search "{input.query}"
+    </InlineTool>
+  )
+}
+
+function ModelScopeSearch(props: ToolProps<any>) {
+  const input = props.input as any
+  return (
+    <InlineTool icon="◈" pending="Searching ModelScope..." complete={input.query} part={props.part}>
+      ModelScope Search "{input.query}"
     </InlineTool>
   )
 }

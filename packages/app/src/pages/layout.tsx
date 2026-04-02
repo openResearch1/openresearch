@@ -1341,7 +1341,8 @@ export default function Layout(props: ParentProps) {
   }
 
   const showEditProjectDialog = (project: LocalProject) => dialog.show(() => <DialogEditProject project={project} />)
-  const showDeleteProjectDialog = (project: LocalProject) => dialog.show(() => <DialogDeleteProject project={project} />)
+  const showDeleteProjectDialog = (project: LocalProject) =>
+    dialog.show(() => <DialogDeleteProject project={project} />)
 
   const SESSION_STATE_KEYS = [
     { key: "prompt", legacy: "prompt", version: "v2" },
@@ -1397,7 +1398,12 @@ export default function Layout(props: ParentProps) {
       keys.has(workspaceKey(item.worktree)) ||
       item.sandboxes?.some((directory) => keys.has(workspaceKey(directory))) === true
     const index = list.findIndex((item) => item.worktree === project.worktree)
-    const next = list.slice(index + 1).find((item) => !match(item)) ?? list.slice(0, index).reverse().find((item) => !match(item))
+    const next =
+      list.slice(index + 1).find((item) => !match(item)) ??
+      list
+        .slice(0, index)
+        .reverse()
+        .find((item) => !match(item))
     const current = workspaceKey(currentDir())
     const active = currentProject()?.id === project.id || currentProject()?.worktree === root
     const leaving = active || dirs.some((directory) => workspaceKey(directory) === current)
@@ -1405,7 +1411,9 @@ export default function Layout(props: ParentProps) {
       [next?.worktree, globalSync.data.path.home, "/"].find((directory) => {
         if (!directory) return false
         return !keys.has(workspaceKey(directory))
-      }) ?? globalSync.data.path.home ?? "/"
+      }) ??
+      globalSync.data.path.home ??
+      "/"
     const api = globalSDK.createClient({
       directory: safe,
       throwOnError: true,

@@ -1079,6 +1079,12 @@ export type PermissionConfig =
       webfetch?: PermissionActionConfig
       websearch?: PermissionActionConfig
       codesearch?: PermissionActionConfig
+      huggingface_search?: PermissionActionConfig
+      modelscope_search?: PermissionActionConfig
+      experiment_resource_job_start?: PermissionActionConfig
+      experiment_local_download_watch_init?: PermissionActionConfig
+      experiment_local_download_watch_update?: PermissionActionConfig
+      experiment_local_download_watch_refresh?: PermissionActionConfig
       lsp?: PermissionRuleConfig
       doom_loop?: PermissionActionConfig
       skill?: PermissionRuleConfig
@@ -4255,6 +4261,7 @@ export type ResearchSessionAtomGetResponses = {
           port: number
           user: string
           password: string
+          resource_root?: string
           wandb_api_key?: string
           wandb_project_name?: string
         } | null
@@ -4448,6 +4455,7 @@ export type ResearchExperimentBySessionResponses = {
       port: number
       user: string
       password: string
+      resource_root?: string
       wandb_api_key?: string
       wandb_project_name?: string
     } | null
@@ -4598,6 +4606,7 @@ export type ResearchServerListResponses = {
       port: number
       user: string
       password: string
+      resource_root?: string
       wandb_api_key?: string
       wandb_project_name?: string
     }
@@ -4615,6 +4624,7 @@ export type ResearchServerCreateData = {
       port: number
       user: string
       password: string
+      resource_root?: string
       wandb_api_key?: string
       wandb_project_name?: string
     }
@@ -4638,6 +4648,7 @@ export type ResearchServerCreateResponses = {
       port: number
       user: string
       password: string
+      resource_root?: string
       wandb_api_key?: string
       wandb_project_name?: string
     }
@@ -4690,22 +4701,40 @@ export type ResearchExperimentWatchListData = {
 
 export type ResearchExperimentWatchListResponses = {
   /**
-   * Experiment watch list
+   * Watch list
    */
   200: Array<{
     watch_id: string
+    kind: "experiment"
     exp_id: string
     exp_session_id: string | null
     exp_result_path: string | null
-    wandb_entity: string
-    wandb_project: string
-    wandb_run_id: string
-    status: string
-    wandb_state: string | null
-    last_polled_at: number | null
+    title: string
+    status: "pending" | "running" | "finished" | "failed" | "canceled"
+    stage:
+      | "planning"
+      | "coding"
+      | "deploying_code"
+      | "setting_up_env"
+      | "local_downloading"
+      | "syncing_resources"
+      | "remote_downloading"
+      | "verifying_resources"
+      | "running_experiment"
+      | "watching_wandb"
+    message: string | null
     error_message: string | null
+    started_at: number | null
+    finished_at: number | null
     time_created: number
     time_updated: number
+    wandb_entity: string | null
+    wandb_project: string | null
+    wandb_run_id: string | null
+    local_download_resource_name: string | null
+    local_download_local_path: string | null
+    local_download_log_path: string | null
+    local_download_status_path: string | null
   }>
 }
 
@@ -4779,6 +4808,41 @@ export type ResearchExperimentWatchDeleteResponses = {
 
 export type ResearchExperimentWatchDeleteResponse =
   ResearchExperimentWatchDeleteResponses[keyof ResearchExperimentWatchDeleteResponses]
+
+export type ResearchExperimentWatchRefreshData = {
+  body?: never
+  path: {
+    watchId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/research/experiment-watch/{watchId}/refresh"
+}
+
+export type ResearchExperimentWatchRefreshErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ResearchExperimentWatchRefreshError =
+  ResearchExperimentWatchRefreshErrors[keyof ResearchExperimentWatchRefreshErrors]
+
+export type ResearchExperimentWatchRefreshResponses = {
+  /**
+   * Refresh result
+   */
+  200: {
+    success: boolean
+    message: string
+  }
+}
+
+export type ResearchExperimentWatchRefreshResponse =
+  ResearchExperimentWatchRefreshResponses[keyof ResearchExperimentWatchRefreshResponses]
 
 export type ResearchExperimentDeleteData = {
   body?: never
@@ -4858,6 +4922,7 @@ export type ResearchExperimentUpdateResponses = {
       port: number
       user: string
       password: string
+      resource_root?: string
       wandb_api_key?: string
       wandb_project_name?: string
     } | null
