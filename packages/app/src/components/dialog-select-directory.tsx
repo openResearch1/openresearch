@@ -402,39 +402,32 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
     setCreating(true)
     setCreateError(undefined)
     try {
-      // 用第一个文件名（去掉扩展名）作为项目名，冲突时追加 -2, -3 ...
       const baseName = getFilename(papers[0].name).replace(/\.[^.]+$/, "") || "research-project"
       const homeDir = home()
+      const paperPaths = papers.map((p) => p.path)
 
-      let targetPath = `${homeDir}/${baseName}`
-      let projectName = baseName
-      let res = await sdk.client.research.project.create({
-        name: projectName,
-        targetPath,
-        papers: papers.map((p) => p.path),
-        backgroundPath: undefined,
-        goalPath: undefined,
-      })
-
-      // If the path already has a research project, retry with suffix
-      if (!res?.data?.project_id) {
-        let suffix = 2
-        while (!res?.data?.project_id && suffix <= 99) {
-          projectName = `${baseName}-${suffix}`
-          targetPath = `${homeDir}/${projectName}`
-          res = await sdk.client.research.project.create({
-            name: projectName,
-            targetPath,
-            papers: papers.map((p) => p.path),
-            backgroundPath: undefined,
-            goalPath: undefined,
+      const tryCreate = async (name: string, target: string) => {
+        try {
+          const res = await sdk.client.research.project.create({
+            name,
+            targetPath: target,
+            papers: paperPaths,
           })
-          suffix++
+          return res.data?.project_id ? target : null
+        } catch {
+          return null
         }
       }
 
-      const projectID = res?.data?.project_id
-      if (!projectID) throw new Error("创建项目失败，请检查文件是否有效")
+      let targetPath = `${homeDir}/${baseName}`
+      let resolved = await tryCreate(baseName, targetPath)
+      for (let suffix = 2; !resolved && suffix <= 99; suffix++) {
+        const name = `${baseName}-${suffix}`
+        targetPath = `${homeDir}/${name}`
+        resolved = await tryCreate(name, targetPath)
+      }
+
+      if (!resolved) throw new Error("创建项目失败，请检查文件是否有效")
       clearPapers()
       resolve(targetPath)
     } catch (err: unknown) {
