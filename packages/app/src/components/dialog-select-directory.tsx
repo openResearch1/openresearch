@@ -2,16 +2,17 @@ import { Button } from "@opencode-ai/ui/button"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { FileIcon } from "@opencode-ai/ui/file-icon"
+import { Icon } from "@opencode-ai/ui/icon"
 import { List } from "@opencode-ai/ui/list"
 import type { ListRef } from "@opencode-ai/ui/list"
+import { TextField } from "@opencode-ai/ui/text-field"
 import { getDirectory, getFilename } from "@opencode-ai/util/path"
 import fuzzysort from "fuzzysort"
-import { createMemo, createResource, createSignal } from "solid-js"
+import { For, Show, createMemo, createResource, createSignal } from "solid-js"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLayout } from "@/context/layout"
 import { useLanguage } from "@/context/language"
-import { DialogNewResearchProject } from "./dialog-new-research-project"
 
 interface DialogSelectDirectoryProps {
   title?: string
@@ -257,6 +258,14 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
   const [filter, setFilter] = createSignal("")
   let list: ListRef | undefined
 
+  // Drag-drop state
+  const [dragOver, setDragOver] = createSignal(false)
+  const [droppedPapers, setDroppedPapers] = createSignal<Array<{ name: string; path: string }>>([])
+  const [newProjectName, setNewProjectName] = createSignal("")
+  const [newProjectDir, setNewProjectDir] = createSignal("")
+  const [creating, setCreating] = createSignal(false)
+  const [createError, setCreateError] = createSignal<string>()
+
   const missingBase = createMemo(() => !(sync.data.path.home || sync.data.path.directory))
   const [fallbackPath] = createResource(
     () => (missingBase() ? true : undefined),
@@ -323,23 +332,140 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
     dialog.close()
   }
 
+  function handlePaperDrop(e: DragEvent) {
+    e.preventDefault()
+    setDragOver(false)
+    const files = Array.from(e.dataTransfer?.files ?? [])
+    const pdfs = files.filter(
+      (f) => f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf"),
+    )
+    if (pdfs.length === 0) return
+    const newPapers = pdfs.map((f) => ({
+      name: f.name,
+      // Tauri exposes the absolute OS path on the File object
+      path: (f as unknown as { path?: string }).path || f.name,
+    }))
+    setDroppedPapers((prev) => {
+      const existingPaths = new Set(prev.map((p) => p.path))
+      const unique = newPapers.filter((p) => !existingPaths.has(p.path))
+      return [...prev, ...unique]
+    })
+  }
+
+  function removePaper(index: number) {
+    setDroppedPapers((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  function clearPapers() {
+    setDroppedPapers([])
+    setNewProjectName("")
+    setNewProjectDir("")
+    setCreateError(undefined)
+  }
+
+  async function handleCreateProject() {
+    const projectName = newProjectName().trim()
+    if (!projectName) return
+    const papers = droppedPapers()
+    if (papers.length === 0) return
+
+    const baseDir = newProjectDir().trim() || home()
+    const targetPath = `${baseDir}/${projectName}`
+
+    setCreating(true)
+    setCreateError(undefined)
+    try {
+      const res = await sdk.client.research.project.create({
+        name: projectName,
+        targetPath,
+        papers: papers.map((p) => p.path),
+        backgroundPath: undefined,
+        goalPath: undefined,
+      })
+      const projectID = res?.data?.project_id
+      if (!projectID) throw new Error("创建项目失败")
+      clearPapers()
+      resolve(targetPath)
+    } catch (err: unknown) {
+      setCreateError(err instanceof Error ? err.message : "创建失败")
+    } finally {
+      setCreating(false)
+    }
+  }
+
   return (
     <Dialog title={props.title ?? language.t("command.project.open")}>
-      <div class="flex flex-col gap-3 px-4 pt-4 pb-4 border-b border-border-weak-base ">
-        <div class="flex items-start justify-between gap-3">
-          <div class="flex flex-col gap-1">
-            <div class="text-14-medium text-text-strong">新建科研项目</div>
-            <div class="text-12-regular text-text-weak">导入论文、可选背景与目标，快速开始新课题</div>
-          </div>
-          <Button
-            variant="primary"
-            icon="plus-small"
-            class="shrink-0"
-            onClick={() => dialog.show(() => <DialogNewResearchProject onSelect={resolve} />)}
-          >
-            新建
-          </Button>
+      {/* Drag-drop papers zone */}
+      <div class="flex flex-col gap-3 px-4 pt-4 pb-4 border-b border-border-weak-base">
+        <div
+          class={`border-2 border-dashed rounded-lg p-5 flex flex-col items-center gap-2 text-center transition-colors select-none ${
+            dragOver()
+              ? "border-brand-base bg-brand-faint text-brand-base"
+              : "border-border-weak-base hover:border-border-base text-text-weak"
+          }`}
+          onDragOver={(e) => {
+            e.preventDefault()
+            setDragOver(true)
+          }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={handlePaperDrop}
+        >
+          <Icon name="cloud-upload" class="size-6 shrink-0" />
+          <div class="text-13-regular">拖入 PDF 论文到此处（可多次拖入）</div>
         </div>
+
+        <Show when={droppedPapers().length > 0}>
+          <div class="flex flex-col gap-2">
+            <div class="text-12-medium text-text-strong">已选论文（{droppedPapers().length} 篇）</div>
+            <div class="flex flex-col gap-1 max-h-28 overflow-y-auto">
+              <For each={droppedPapers()}>
+                {(paper, index) => (
+                  <div class="flex items-center justify-between gap-2 px-2 py-1 rounded bg-surface-strong/30">
+                    <span class="text-12-regular text-text-strong truncate min-w-0">{paper.name}</span>
+                    <button
+                      type="button"
+                      class="shrink-0 text-text-weak hover:text-text-strong text-14-regular leading-none"
+                      onClick={() => removePaper(index())}
+                    >
+                      ×
+                    </button>
+                  </div>
+                )}
+              </For>
+            </div>
+
+            <TextField
+              label="项目名"
+              placeholder="输入新项目名称"
+              value={newProjectName()}
+              onChange={setNewProjectName}
+            />
+            <TextField
+              label="保存位置"
+              placeholder={home() || "输入保存路径（默认为主目录）"}
+              value={newProjectDir()}
+              onChange={setNewProjectDir}
+            />
+
+            <Show when={createError()}>
+              <div class="text-12-regular text-icon-critical-strong">{createError()}</div>
+            </Show>
+
+            <div class="flex justify-end gap-2">
+              <Button variant="ghost" onClick={clearPapers}>
+                清除全部
+              </Button>
+              <Button
+                variant="primary"
+                onClick={handleCreateProject}
+                disabled={!newProjectName().trim() || creating()}
+                loading={creating()}
+              >
+                创建目录
+              </Button>
+            </div>
+          </div>
+        </Show>
       </div>
 
       <List
