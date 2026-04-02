@@ -100,6 +100,8 @@ export const dict = {
   "ui.tool.webfetch": "Webfetch",
   "ui.tool.websearch": "网络搜索",
   "ui.tool.codesearch": "代码搜索",
+  "ui.tool.huggingface_search": "Hugging Face 搜索",
+  "ui.tool.modelscope_search": "ModelScope 搜索",
   "ui.tool.shell": "Shell",
   "ui.tool.patch": "补丁",
   "ui.tool.todos": "待办",

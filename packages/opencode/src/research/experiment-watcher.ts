@@ -4,6 +4,7 @@ import { ExperimentTable, ExperimentWatchTable } from "./research.sql"
 import { Log } from "../util/log"
 import { Filesystem } from "../util/filesystem"
 import path from "path"
+import { ExperimentExecutionWatch } from "./experiment-execution-watch"
 
 const log = Log.create({ service: "experiment-watcher" })
 
@@ -114,6 +115,14 @@ async function pollAll() {
         .run(),
     )
 
+    ExperimentExecutionWatch.syncWatch(watch.exp_id, {
+      ...watch,
+      status: newStatus,
+      wandb_state: run.state,
+      last_polled_at: now,
+      time_updated: now,
+    })
+
     // If terminal, pull results and update experiment
     if (isTerminal) {
       log.info("experiment finished", { watchId: watch.watch_id, expId: watch.exp_id, state: run.state })
@@ -194,6 +203,14 @@ export async function forceRefreshWatch(watchId: string): Promise<{ success: boo
       .where(eq(ExperimentWatchTable.watch_id, watch.watch_id))
       .run(),
   )
+
+  ExperimentExecutionWatch.syncWatch(watch.exp_id, {
+    ...watch,
+    status: newStatus,
+    wandb_state: run.state,
+    last_polled_at: now,
+    time_updated: now,
+  })
 
   // Always overwrite summary and config if available
   const experiment = Database.use((db) =>

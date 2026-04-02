@@ -2,7 +2,14 @@ import z from "zod"
 import path from "path"
 import { Tool } from "./tool"
 import { Database, eq, and } from "../storage/db"
-import { AtomTable, AtomRelationTable, ExperimentTable, ExperimentWatchTable } from "../research/research.sql"
+import {
+  AtomTable,
+  AtomRelationTable,
+  ExperimentTable,
+  ExperimentExecutionWatchTable,
+  ExperimentWatchTable,
+  LocalDownloadWatchTable,
+} from "../research/research.sql"
 import { Research } from "../research/research"
 import { Bus } from "@/bus"
 import { Instance } from "../project/instance"
@@ -479,6 +486,12 @@ export const AtomDeleteTool = Tool.define("atom_delete", {
       for (const exp of experiments) {
         // Delete experiment watchers
         Database.use((db) => db.delete(ExperimentWatchTable).where(eq(ExperimentWatchTable.exp_id, exp.exp_id)).run())
+        Database.use((db) =>
+          db.delete(LocalDownloadWatchTable).where(eq(LocalDownloadWatchTable.exp_id, exp.exp_id)).run(),
+        )
+        Database.use((db) =>
+          db.delete(ExperimentExecutionWatchTable).where(eq(ExperimentExecutionWatchTable.exp_id, exp.exp_id)).run(),
+        )
         // Delete experiment record
         Database.use((db) => db.delete(ExperimentTable).where(eq(ExperimentTable.exp_id, exp.exp_id)).run())
         // Clean up experiment session

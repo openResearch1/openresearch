@@ -856,6 +856,8 @@ export const GithubRunCommand = cmd({
           read: ["Read", UI.Style.TEXT_HIGHLIGHT_BOLD],
           write: ["Write", UI.Style.TEXT_SUCCESS_BOLD],
           websearch: ["Search", UI.Style.TEXT_DIM_BOLD],
+          huggingface_search: ["Search", UI.Style.TEXT_DIM_BOLD],
+          modelscope_search: ["Search", UI.Style.TEXT_DIM_BOLD],
         }
 
         function printEvent(color: string, type: string, title: string) {

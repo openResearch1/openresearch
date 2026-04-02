@@ -45,7 +45,8 @@ Based on all the context gathered, design an experiment that would provide evide
 - What specific hypothesis is being tested
 - What metrics will demonstrate success or failure
 - What is the minimal but sufficient experiment to validate the claim
-- What remote resources are needed, where they should live on the server, and which CLI args the code must expose to consume them
+- What resources are needed, whether each should be prepared locally then uploaded or downloaded directly on the server, where they should live on the server, and which CLI args the code must expose to consume them
+- Whether each resource will require a local preparation step, a remote sync step, both, or neither because it can be reused
 
 ## Step 3: Write the Plan
 
@@ -112,19 +113,41 @@ The code MUST be adapted for W&B integration:
 - How to transfer data and code to the server
 - Which download tools are required on the server to fetch planned resources (e.g. `wget`, `curl`, `git`, `huggingface-cli`)
 
+**Structured Environment Definition (MANDATORY)**
+
+In addition to the description above, also include this structured block at the end of this section:
+
+```
+## Environment
+- conda_env_name: <name>
+- python_version: <version>
+- pip_packages:
+  - <package1>
+  - <package2>
+  - <...>
+```
+
+List every pip package required, including `wandb` and any packages from `requirements.txt`. This block is required for `experiment_setup_env` to work.
+
 ## 8. Dataset Preparation
-- Step-by-step instructions for preparing the dataset on the remote server
+- Step-by-step instructions for preparing the dataset, clearly separated into local preparation versus remote sync or remote download
 - Download commands or data transfer steps
 - Preprocessing scripts to run
 
 ## 9. Resource Download Plan
 - The `resource_root` to use on the remote server
+- The `local_resource_root` to use for large local caches or staging before upload, when needed
 - Every model, dataset, checkpoint, or artifact the experiment requires
 - For each resource:
   - `name`
   - `type`
   - `source`
+  - `strategy` as either `remote_download` or `local_prepare_upload`
+  - `local_path` when `strategy` is `local_prepare_upload`
   - `target_path` as a remote absolute path, typically under `resource_root`
+  - `transfer_mode` when `strategy` is `local_prepare_upload`
+  - whether `experiment_local_download` is required
+  - whether `experiment_sync_resource` is required
   - whether it should be shared across experiments or be experiment-specific
   - verification checks that confirm the download is usable
   - the exact runtime CLI argument that must receive `target_path`
@@ -140,3 +163,4 @@ The code MUST be adapted for W&B integration:
 - The plan must be executable on a remote server via SSH.
 - Resource paths must be planned as remote absolute paths. Do not rely on code-relative paths for large models or datasets.
 - If remote resources are needed, the plan must explicitly require corresponding CLI args in the code changes section.
+- Large datasets should default to `local_prepare_upload` unless there is a specific reason they are practical to fetch directly on the remote server.

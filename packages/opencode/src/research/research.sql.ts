@@ -108,7 +108,19 @@ export const AtomRelationTable = sqliteTable(
 )
 
 const watchStatuses = ["pending", "running", "finished", "failed", "crashed"] as const
-
+const executionStatuses = ["pending", "running", "finished", "failed", "canceled"] as const
+const executionStages = [
+  "planning",
+  "coding",
+  "deploying_code",
+  "setting_up_env",
+  "local_downloading",
+  "syncing_resources",
+  "remote_downloading",
+  "verifying_resources",
+  "running_experiment",
+  "watching_wandb",
+] as const
 export const ExperimentWatchTable = sqliteTable(
   "experiment_watch",
   {
@@ -129,6 +141,60 @@ export const ExperimentWatchTable = sqliteTable(
   (table) => [
     index("experiment_watch_exp_idx").on(table.exp_id),
     index("experiment_watch_status_idx").on(table.status),
+  ],
+)
+
+export const ExperimentExecutionWatchTable = sqliteTable(
+  "experiment_execution_watch",
+  {
+    watch_id: text().primaryKey(),
+    exp_id: text()
+      .notNull()
+      .references(() => ExperimentTable.exp_id, { onDelete: "cascade" }),
+    status: text().$type<(typeof executionStatuses)[number]>().notNull().default("pending"),
+    stage: text().$type<(typeof executionStages)[number]>().notNull().default("planning"),
+    title: text().notNull(),
+    message: text(),
+    wandb_entity: text(),
+    wandb_project: text(),
+    wandb_run_id: text(),
+    error_message: text(),
+    started_at: integer(),
+    finished_at: integer(),
+    ...Timestamps,
+  },
+  (table) => [
+    index("experiment_execution_watch_exp_idx").on(table.exp_id),
+    index("experiment_execution_watch_status_idx").on(table.status),
+  ],
+)
+
+export const LocalDownloadWatchTable = sqliteTable(
+  "local_download_watch",
+  {
+    watch_id: text().primaryKey(),
+    exp_id: text()
+      .notNull()
+      .references(() => ExperimentTable.exp_id, { onDelete: "cascade" }),
+    resource_key: text().notNull(),
+    resource_name: text().notNull(),
+    resource_type: text(),
+    status: text().$type<(typeof watchStatuses)[number]>().notNull().default("pending"),
+    local_resource_root: text(),
+    local_path: text(),
+    pid: integer(),
+    log_path: text(),
+    status_path: text(),
+    source_selection: text(),
+    method: text(),
+    error_message: text(),
+    last_polled_at: integer(),
+    ...Timestamps,
+  },
+  (table) => [
+    index("local_download_watch_exp_idx").on(table.exp_id),
+    index("local_download_watch_status_idx").on(table.status),
+    uniqueIndex("local_download_watch_exp_resource_idx").on(table.exp_id, table.resource_key),
   ],
 )
 

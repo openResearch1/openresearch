@@ -22,6 +22,8 @@ import z from "zod"
 import { Plugin } from "../plugin"
 import { WebSearchTool } from "./websearch"
 import { CodeSearchTool } from "./codesearch"
+import { HuggingFaceSearchTool } from "./huggingface_search"
+import { ModelScopeSearchTool } from "./modelscope_search"
 import { Flag } from "@/flag/flag"
 import { Log } from "@/util/log"
 import { LspTool } from "./lsp"
@@ -46,6 +48,13 @@ import { ResearchBackgroundTool, ResearchGoalTool } from "./research-background"
 import { ResearchInfoTool } from "./research-info"
 import { SshTool } from "./ssh"
 import { ExperimentWatchTool } from "./experiment-watch"
+import { ExperimentExecutionWatchInitTool, ExperimentExecutionWatchUpdateTool } from "./experiment-execution-watch"
+import { ExperimentResourceJobStartTool } from "./experiment-resource-job"
+import {
+  ExperimentLocalDownloadWatchInitTool,
+  ExperimentLocalDownloadWatchRefreshTool,
+  ExperimentLocalDownloadWatchUpdateTool,
+} from "./experiment-local-download-watch"
 import { Glob } from "../util/glob"
 import { pathToFileURL } from "url"
 
@@ -133,6 +142,8 @@ export namespace ToolRegistry {
       // TodoReadTool,
       WebSearchTool,
       CodeSearchTool,
+      HuggingFaceSearchTool,
+      ModelScopeSearchTool,
       SkillTool,
       ApplyPatchTool,
       ArticleQueryTool,
@@ -152,6 +163,12 @@ export namespace ToolRegistry {
       ResearchInfoTool,
       SshTool,
       ExperimentWatchTool,
+      ExperimentExecutionWatchInitTool,
+      ExperimentExecutionWatchUpdateTool,
+      ExperimentResourceJobStartTool,
+      ExperimentLocalDownloadWatchInitTool,
+      ExperimentLocalDownloadWatchUpdateTool,
+      ExperimentLocalDownloadWatchRefreshTool,
       ...(Flag.OPENCODE_EXPERIMENTAL_LSP_TOOL ? [LspTool] : []),
       ...(config.experimental?.batch_tool === true ? [BatchTool] : []),
       ...(Flag.OPENCODE_EXPERIMENTAL_PLAN_MODE && Flag.OPENCODE_CLIENT === "cli" ? [PlanExitTool] : []),

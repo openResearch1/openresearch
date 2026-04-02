@@ -19,7 +19,9 @@ import PROMPT_ARTICLE_CODE_ATTACH from "./prompt/article_code_attach.txt"
 import PROMPT_EXPERIMENT from "./prompt/experiment.txt"
 import PROMPT_EXPERIMENT_COMMIT from "./prompt/experiment_commit.txt"
 import PROMPT_EXPERIMENT_PLAN from "./prompt/experiment_plan.txt"
-import PROMPT_EXPERIMENT_DOWNLOAD from "./prompt/experiment_download.txt"
+import PROMPT_EXPERIMENT_LOCAL_DOWNLOAD from "./prompt/experiment_local_download.txt"
+import PROMPT_EXPERIMENT_REMOTE_DOWNLOAD from "./prompt/experiment_remote_download.txt"
+import PROMPT_EXPERIMENT_SYNC_RESOURCE from "./prompt/experiment_sync_resource.txt"
 import PROMPT_EXPERIMENT_DEPLOY from "./prompt/experiment_deploy.txt"
 import PROMPT_EXPERIMENT_SETUP_ENV from "./prompt/experiment_setup_env.txt"
 import PROMPT_EXPERIMENT_RUN from "./prompt/experiment_run.txt"
@@ -145,10 +147,35 @@ export namespace Agent {
         mode: "subagent",
         native: true,
       },
-      experiment_download: {
-        name: "experiment_download",
+      experiment_local_download: {
+        name: "experiment_local_download",
         description:
-          "Experiment download agent. Downloads remote resources such as models and datasets to planned absolute paths on the experiment server.",
+          "Experiment local download agent. Prepares datasets or artifacts locally in a reusable download-only environment.",
+        options: {},
+        permission: PermissionNext.merge(
+          defaults,
+          PermissionNext.fromConfig({
+            "*": "deny",
+            bash: "allow",
+            read: "allow",
+            question: "allow",
+            huggingface_search: "allow",
+            modelscope_search: "allow",
+            experiment_resource_job_start: "allow",
+            experiment_local_download_watch_init: "allow",
+            experiment_local_download_watch_update: "allow",
+            experiment_local_download_watch_refresh: "allow",
+          }),
+          user,
+        ),
+        prompt: PROMPT_EXPERIMENT_LOCAL_DOWNLOAD,
+        mode: "subagent",
+        native: true,
+      },
+      experiment_remote_download: {
+        name: "experiment_remote_download",
+        description:
+          "Experiment remote download agent. Downloads resources directly on the remote server and verifies the final remote paths.",
         options: {},
         permission: PermissionNext.merge(
           defaults,
@@ -160,7 +187,28 @@ export namespace Agent {
           }),
           user,
         ),
-        prompt: PROMPT_EXPERIMENT_DOWNLOAD,
+        prompt: PROMPT_EXPERIMENT_REMOTE_DOWNLOAD,
+        mode: "subagent",
+        native: true,
+      },
+      experiment_sync_resource: {
+        name: "experiment_sync_resource",
+        description:
+          "Experiment resource sync agent. Syncs locally prepared resources to the remote server and verifies the final paths.",
+        options: {},
+        permission: PermissionNext.merge(
+          defaults,
+          PermissionNext.fromConfig({
+            "*": "deny",
+            bash: "allow",
+            ssh: "allow",
+            read: "allow",
+            question: "allow",
+            experiment_resource_job_start: "allow",
+          }),
+          user,
+        ),
+        prompt: PROMPT_EXPERIMENT_SYNC_RESOURCE,
         mode: "subagent",
         native: true,
       },

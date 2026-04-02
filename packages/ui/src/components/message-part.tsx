@@ -173,6 +173,18 @@ export function getToolInfo(tool: string, input: any = {}): ToolInfo {
         title: i18n.t("ui.tool.codesearch"),
         subtitle: input.query,
       }
+    case "huggingface_search":
+      return {
+        icon: "window-cursor",
+        title: i18n.t("ui.tool.huggingface_search"),
+        subtitle: input.query,
+      }
+    case "modelscope_search":
+      return {
+        icon: "window-cursor",
+        title: i18n.t("ui.tool.modelscope_search"),
+        subtitle: input.query,
+      }
     case "task": {
       const type =
         typeof input.subagent_type === "string" && input.subagent_type
@@ -1451,6 +1463,60 @@ ToolRegistry.register({
         icon="code"
         trigger={{
           title: i18n.t("ui.tool.codesearch"),
+          subtitle: query(),
+          subtitleClass: "exa-tool-query",
+        }}
+      >
+        <ExaOutput output={props.output} />
+      </ToolCall>
+    )
+  },
+})
+
+ToolRegistry.register({
+  name: "huggingface_search",
+  render(props) {
+    const i18n = useI18n()
+    const query = createMemo(() => {
+      const value = props.input.query
+      if (typeof value !== "string") return ""
+      return value
+    })
+
+    return (
+      <ToolCall
+        variant="panel"
+        {...props}
+        icon="window-cursor"
+        trigger={{
+          title: i18n.t("ui.tool.huggingface_search"),
+          subtitle: query(),
+          subtitleClass: "exa-tool-query",
+        }}
+      >
+        <ExaOutput output={props.output} />
+      </ToolCall>
+    )
+  },
+})
+
+ToolRegistry.register({
+  name: "modelscope_search",
+  render(props) {
+    const i18n = useI18n()
+    const query = createMemo(() => {
+      const value = props.input.query
+      if (typeof value !== "string") return ""
+      return value
+    })
+
+    return (
+      <ToolCall
+        variant="panel"
+        {...props}
+        icon="window-cursor"
+        trigger={{
+          title: i18n.t("ui.tool.modelscope_search"),
           subtitle: query(),
           subtitleClass: "exa-tool-query",
         }}

@@ -94,6 +94,16 @@ const ITEMS = [
     description: "settings.permissions.tool.codesearch.description",
   },
   {
+    id: "huggingface_search",
+    title: "settings.permissions.tool.huggingface_search.title",
+    description: "settings.permissions.tool.huggingface_search.description",
+  },
+  {
+    id: "modelscope_search",
+    title: "settings.permissions.tool.modelscope_search.title",
+    description: "settings.permissions.tool.modelscope_search.description",
+  },
+  {
     id: "external_directory",
     title: "settings.permissions.tool.external_directory.title",
     description: "settings.permissions.tool.external_directory.description",

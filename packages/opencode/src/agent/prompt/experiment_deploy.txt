@@ -39,9 +39,5 @@ When done, return a summary:
 **Server**: <address>
 **Remote Path**: <remote_path>
 
-### Steps Completed
-- [ ] Code synced
-
-### Errors (if any)
-<detailed error information>
+The `Remote Path` (e.g., `~/experiments/<exp_id>/`) is required by subsequent steps. Always include it in the result summary.
 ```

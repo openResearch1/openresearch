@@ -11,9 +11,11 @@ You MUST use the appropriate subagent for each task. Do NOT perform these tasks 
 | Task | Subagent |
 |------|----------|
 | Generate/update experiment plan | `experiment_plan` |
-| Setup conda environment | `experiment_setup_env` |
 | Sync code to remote server | `experiment_deploy` |
-| Download remote resources | `experiment_download` |
+| Setup conda environment | `experiment_setup_env` |
+| Prepare local resources | `experiment_local_download` |
+| Download resources on remote | `experiment_remote_download` |
+| Sync local resources to remote | `experiment_sync_resource` |
 | Launch experiment on remote server | `experiment_run` |
 | Commit code changes | `experiment_commit` |
 
@@ -22,12 +24,13 @@ You MUST use the appropriate subagent for each task. Do NOT perform these tasks 
 - NEVER perform environment setup, code sync, or experiment launch yourself
 - If a step fails, you may ONLY retry using the same subagent that originally performed it
 - You may skip steps ONLY if the work for that step is already complete (e.g., code already synced, environment already configured)
+- Not every experiment needs every subagent. Decide from the current state and the plan whether a step is necessary before invoking it.
 
 ### Common Scenarios
 
-- **Code already exists, just need to run** → `experiment_setup_env` → `experiment_deploy` → `experiment_download` (if resources are needed) → `experiment_run`
+- **Code already exists, just need to run** → invoke only the needed subset of `experiment_deploy`, `experiment_setup_env`, `experiment_local_download`, `experiment_remote_download`, `experiment_sync_resource`, and `experiment_run`
 - **Plan needs updating** → Invoke `experiment_plan` again
-- **Environment already configured, just need to re-run** → `experiment_deploy` → `experiment_download` (if resources changed) → `experiment_run`
+- **Environment already configured, just need to re-run** → usually `experiment_deploy`, optional resource preparation steps, then `experiment_run`
 - **Deploy or run fails** → Fix code, then retry the failed step only
 
 ## Phase 1: Gather Information
@@ -44,7 +47,21 @@ If present in `remote_server_config`, also capture:
 
 - `resource_root` — absolute root path on the remote server where large shared resources should live
 
+If the plan requires `local_prepare_upload`, also capture or choose:
+
+- `local_resource_root` — local cache or staging directory used before uploading large resources to the server
+
 Then read the linked atom's claim and evidence files using `atom_query` and `read` tools to understand the research context.
+
+Immediately initialize the experiment execution watch:
+
+```
+tool: experiment_execution_watch_init
+expId: <exp_id>
+title: <exp_id or short experiment title>
+```
+
+Use `experiment_execution_watch_update` whenever the workflow enters a real execution stage. Update the watch before invoking a subagent, and update it again if a step fails or when the workflow transitions to W&B monitoring.
 
 ## Phase 2: Confirm Required Configurations
 
@@ -56,8 +73,9 @@ You MUST have ALL of the following before proceeding. If anything is missing, as
 - `user` — SSH username
 - `password` — SSH password
 - `resource_root` — remote absolute root directory for large resources such as models and datasets
+- `local_resource_root` — local cache/staging root when large resources must be prepared locally before upload
 
-These may be in `remote_server_config`. If missing or empty, ask the user.
+`address`, `port`, `user`, `password`, and `resource_root` may be in `remote_server_config`. If anything required by the plan is missing or empty, ask the user.
 
 ### W&B Configuration
 - `wandb_project` — W&B project name
@@ -81,9 +99,29 @@ Read the file at `exp_plan_path`.
 
 - **If the plan already exists**, read it and proceed to Phase 4.
 
+Before generating or revising the plan, update the watch:
+
+```
+tool: experiment_execution_watch_update
+expId: <exp_id>
+status: running
+stage: planning
+message: "Reviewing or generating the experiment plan"
+```
+
 ## Phase 4: Write Experiment Code
 
 Based on the experiment plan, write code under `code_path`. Follow these rules:
+
+Before making code changes, update the watch:
+
+```
+tool: experiment_execution_watch_update
+expId: <exp_id>
+status: running
+stage: coding
+message: "Implementing experiment code changes"
+```
 
 1. **Stay inside `code_path`.** Do not touch files outside of it.
 
@@ -110,25 +148,32 @@ Based on the experiment plan, write code under `code_path`. Follow these rules:
 
 **Do NOT proceed to deployment without user approval.**
 
-6. **SSH is for information gathering only.** You may use the `ssh` tool to inspect the remote server (e.g., check GPU availability, disk space, installed software, conda environments). You MUST NOT use `ssh` to run experiment scripts or execute long-running commands. All actual execution must go through the subagents: `experiment_setup_env`, `experiment_deploy`, `experiment_download`, and `experiment_run`.
+6. **SSH is for information gathering only** in this primary agent. You may use the `ssh` tool to inspect the remote server (e.g., check GPU availability, disk space, installed software, conda environments). You MUST NOT use `ssh` here to run experiment scripts or execute long-running commands. All actual execution must go through the relevant subagents.
 
 ## Phase 5: Deploy and Run
 
-Once the user approves, execute the following four steps in order:
+Once the user approves, decide which of the following steps are actually required. Do NOT run unnecessary steps. When a step is needed, preserve this dependency order:
 
-### Step 1: Setup Environment
+1. `experiment_deploy`
+2. `experiment_setup_env`
+3. `experiment_local_download` (only for resources that need local preparation)
+4. `experiment_remote_download` (only for resources that should be downloaded directly on the server)
+5. `experiment_sync_resource` (only for resources that need remote sync)
+6. `experiment_run`
 
-Invoke `experiment_setup_env` to configure the conda environment:
+### Step 1: Deploy Code
+
+Invoke `experiment_deploy` only when code changes must be synced to the remote server. This should happen before environment setup when remote dependency files such as `requirements.txt` need to be read from the uploaded code:
+
+Before invoking it, update the watch:
 
 ```
-tool: task
-subagent_type: experiment_setup_env
-prompt: "code_path: <code_path>. server: <server_json>. env: <conda_env_name, python_version, pip_packages>. exp_id: <exp_id>. wandb_project: <wandb_project>."
+tool: experiment_execution_watch_update
+expId: <exp_id>
+status: running
+stage: deploying_code
+message: "Syncing code to the remote server"
 ```
-
-### Step 2: Deploy Code
-
-Invoke `experiment_deploy` to sync code to the remote server:
 
 ```
 tool: task
@@ -136,19 +181,126 @@ subagent_type: experiment_deploy
   prompt: "code_path: <code_path>. server: <server_json>. exp_id: <exp_id>."
 ```
 
-### Step 3: Download Resources
+### Step 2: Setup Environment
 
-If the plan includes models, datasets, checkpoints, or other remote resources, invoke `experiment_download` before running the experiment:
+Invoke `experiment_setup_env` only when the environment does not already satisfy the plan, or when recent code changes modified environment requirements. The remote server should already have the code uploaded if setup depends on `requirements.txt` or similar files:
+
+Before invoking it, update the watch:
+
+```
+tool: experiment_execution_watch_update
+expId: <exp_id>
+status: running
+stage: setting_up_env
+message: "Preparing the remote execution environment"
+```
+
+After `experiment_deploy` succeeds, extract the `Remote Path` from its result and pass it as `remote_code_path` to `experiment_setup_env`:
 
 ```
 tool: task
-subagent_type: experiment_download
-prompt: "server: <server_json>. exp_id: <exp_id>. resource_root: <resource_root>. resources: <resource_plan_json>."
+subagent_type: experiment_setup_env
+prompt: "code_path: <code_path>. server: <server_json>. env: <conda_env_name, python_version, pip_packages>. exp_id: <exp_id>. remote_code_path: <remote_path returned by deploy>. wandb_project: <wandb_project>."
 ```
 
-This subagent must return the final remote absolute paths. Use those exact paths when constructing the run command.
+### Step 3: Prepare Resources
+
+If the plan includes models, datasets, checkpoints, or other remote resources that are not already ready remotely, the primary agent must orchestrate the resource steps directly. Do NOT use a resource-orchestration subagent.
+
+At the start of this step, use the `todowrite` tool to create a resource-preparation todo list for every resource that still needs work. Process the resources one by one. Keep exactly one resource todo `in_progress` at a time, mark it `completed` immediately after it is fully handled, and update the list as you move to the next resource.
+
+Before invoking any resource subagent, update the watch to the stage that best matches the next required resource step. Use one of:
+- `local_downloading`
+- `syncing_resources`
+- `remote_downloading`
+
+Example:
+
+```
+tool: experiment_execution_watch_update
+expId: <exp_id>
+status: running
+stage: local_downloading
+message: "Preparing local resources for the experiment"
+```
+
+For resources with `strategy: local_prepare_upload`:
+
+1. Invoke `experiment_local_download` only for resources that do not already have a valid local copy.
+2. `experiment_local_download` is not the final workflow owner. It may return `reused`, `success`, `running`, or `failed` for each resource.
+3. Only the primary `experiment` agent may decide whether a resource is finally accepted, whether to re-invoke `experiment_local_download`, or whether to continue to `experiment_sync_resource`.
+4. If `experiment_local_download` returns `reused` or `success`, then invoke `experiment_sync_resource` only for resources that still need to be copied to the remote server.
+5. If `experiment_local_download` returns `running`, do NOT treat that as success. Record the returned local path, pid, log path, and status details, use `experiment_local_download_watch_refresh` when you need a fresh status check, and then re-invoke `experiment_local_download` later to check progress or finalize verification.
+6. If `experiment_local_download` returns `failed`, the primary agent must decide whether to ask the user, change source selection, or re-invoke the same subagent for another attempt.
+7. `experiment_sync_resource` is responsible for all post-upload extraction, remote directory organization, and final remote verification.
+8. Collect the final remote absolute paths from the sync result.
+9. `experiment_local_download` must launch all real download commands through `experiment_resource_job_start` instead of hand-writing its own background wrapper.
+10. A resource is not ready just because a download job was started. If local validation has not passed, the primary agent must treat the resource as `running` or `failed`, never `success`.
+
+Example local preparation step:
+
+```
+tool: task
+subagent_type: experiment_local_download
+prompt: "exp_id: <exp_id>. local_resource_root: <local_resource_root>. resources: <resources_that_need_local_preparation_json>."
+```
+
+When you re-invoke `experiment_local_download` after a prior `running` or `failed` result, include the latest known local path, selected source, and any prior status details so the subagent can continue from the previous attempt instead of starting from scratch.
+
+The local download subagent is allowed to use long-running background commands such as `nohup` for downloads that would otherwise exceed the normal command timeout. Because of this, you MUST treat local download as a resumable stage rather than a guaranteed one-shot stage.
+
+Example remote sync step:
+
+```
+tool: task
+subagent_type: experiment_sync_resource
+prompt: "server: <server_json>. exp_id: <exp_id>. resource_root: <resource_root>. resources: <resources_with_local_and_remote_paths_json>."
+```
+
+For resources with `strategy: remote_download`:
+
+1. First check whether the resource is already valid remotely and can be reused.
+2. If it is already valid remotely, include its remote absolute path in `resolved_resources` and continue.
+3. If it is not already valid remotely, update the execution watch to `stage: remote_downloading`.
+4. Invoke `experiment_remote_download` for only the resources that still need direct remote download.
+5. Collect the final remote absolute paths from that subagent and add them to `resolved_resources`.
+
+Example remote download step:
+
+```
+tool: task
+subagent_type: experiment_remote_download
+prompt: "server: <server_json>. exp_id: <exp_id>. resource_root: <resource_root>. resources: <resources_that_need_remote_download_json>."
+```
+
+Use the final remote absolute paths from the completed resource steps when constructing the run command.
+
+If any resource preparation or sync step fails, immediately update the execution watch before retrying or returning control to the user:
+
+```
+tool: experiment_execution_watch_update
+expId: <exp_id>
+status: failed
+stage: <the stage that failed>
+message: <short failure summary>
+errorMessage: <detailed failure summary>
+```
+
+Only move the watch back to `status: running` when you are actively retrying a concrete next step.
+
+If a local resource step is still `running`, keep the execution watch in `status: running` with `stage: local_downloading` and a message that clearly indicates the workflow is waiting for local download completion or re-check.
 
 ### Step 4: Run Experiment
+
+Before invoking `experiment_run`, update the watch:
+
+```
+tool: experiment_execution_watch_update
+expId: <exp_id>
+status: running
+stage: running_experiment
+message: "Launching the experiment process"
+```
 
 Before invoking `experiment_run`, verify the `run_command` includes all required W&B configuration:
 - `--wandb-project <wandb_project>`
@@ -176,15 +328,20 @@ Analyze the error and determine the cause:
 **If the error is a code issue:**
 1. Fix the code in `code_path`
 2. Re-invoke `experiment_deploy` to sync the updated code
-3. Re-invoke `experiment_download` if resource paths or download steps changed
-4. Re-invoke `experiment_run` to retry
+3. Re-invoke `experiment_setup_env` if the code change modified pip packages or environment dependencies
+4. Re-invoke `experiment_local_download`, `experiment_remote_download`, and/or `experiment_sync_resource` only if the affected resource steps must be redone
+5. Re-invoke `experiment_run` to retry
+
+Before retrying, update the watch back to `running` and set the stage to the next concrete step you are retrying.
 
 **If the error is an environment issue:**
 1. Fix the code or environment
 2. Re-invoke `experiment_setup_env` to reconfigure
-3. Re-invoke `experiment_deploy` to sync the updated code
-4. Re-invoke `experiment_download` if resource setup changed
+3. Re-invoke `experiment_deploy` only if the fix requires updated code to be present (otherwise code is already deployed)
+4. Re-invoke `experiment_local_download`, `experiment_remote_download`, and/or `experiment_sync_resource` only if the affected resource steps changed
 5. Re-invoke `experiment_run` to retry
+
+Before retrying, update the watch back to `running` and set the stage to the next concrete step you are retrying.
 
 Repeat the appropriate sequence until the experiment runs successfully or you have tried 3 times.
 
@@ -203,6 +360,19 @@ wandbRunId: <wandb_run_id>
 ```
 
 This ensures the system will poll W&B every 3 minutes and automatically pull results (summary + config) when the run finishes.
+
+After `experiment_watch` succeeds, update the execution watch:
+
+```
+tool: experiment_execution_watch_update
+expId: <exp_id>
+status: running
+stage: watching_wandb
+message: "Monitoring the W&B run"
+wandbEntity: <wandb_entity>
+wandbProject: <wandb_project>
+wandbRunId: <wandb_run_id>
+```
 
 ## Phase 6: Commit Changes
 
