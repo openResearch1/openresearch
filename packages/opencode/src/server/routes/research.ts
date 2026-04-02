@@ -272,7 +272,10 @@ export const ResearchRoutes = new Hono()
       const results: { name: string; path: string }[] = []
       for (const file of fileList) {
         if (!(file instanceof File)) continue
-        const dest = path.join(uploadDir, `${crypto.randomUUID()}-${file.name}`)
+        // Store under a UUID subdirectory so path.basename() returns the original filename
+        const subDir = path.join(uploadDir, crypto.randomUUID())
+        await fs.promises.mkdir(subDir, { recursive: true })
+        const dest = path.join(subDir, file.name)
         await Bun.write(dest, file)
         results.push({ name: file.name, path: dest })
       }
@@ -997,6 +1000,14 @@ export const ResearchRoutes = new Hono()
       })
 
       return c.json(result)
+
+      // Clean up upload temp dirs (fire-and-forget)
+      for (const src of paperSources) {
+        const dir = path.dirname(src)
+        if (dir.startsWith(path.join(Global.Path.cache, "uploads"))) {
+          rm(dir, { recursive: true, force: true }).catch(() => {})
+        }
+      }
     },
   )
   .post(
