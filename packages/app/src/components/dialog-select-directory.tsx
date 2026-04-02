@@ -5,7 +5,6 @@ import { FileIcon } from "@opencode-ai/ui/file-icon"
 import { Icon } from "@opencode-ai/ui/icon"
 import { List } from "@opencode-ai/ui/list"
 import type { ListRef } from "@opencode-ai/ui/list"
-import { TextField } from "@opencode-ai/ui/text-field"
 import { getDirectory, getFilename } from "@opencode-ai/util/path"
 import fuzzysort from "fuzzysort"
 import { For, Show, createMemo, createResource, createSignal } from "solid-js"
@@ -261,8 +260,6 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
   // Drag-drop state
   const [dragOver, setDragOver] = createSignal(false)
   const [droppedPapers, setDroppedPapers] = createSignal<Array<{ name: string; path: string }>>([])
-  const [newProjectName, setNewProjectName] = createSignal("")
-  const [newProjectDir, setNewProjectDir] = createSignal("")
   const [creating, setCreating] = createSignal(false)
   const [createError, setCreateError] = createSignal<string>()
 
@@ -358,23 +355,25 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
 
   function clearPapers() {
     setDroppedPapers([])
-    setNewProjectName("")
-    setNewProjectDir("")
     setCreateError(undefined)
   }
 
   async function handleCreateProject() {
-    const projectName = newProjectName().trim()
-    if (!projectName) return
     const papers = droppedPapers()
     if (papers.length === 0) return
-
-    const baseDir = newProjectDir().trim() || home()
-    const targetPath = `${baseDir}/${projectName}`
 
     setCreating(true)
     setCreateError(undefined)
     try {
+      // 用 AI 生成项目名（直接 fetch，SDK 无此方法）
+      const suggestRes = await fetch(`${sdk.url}/research/project/suggest-name`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ papers: papers.map((p) => p.path) }),
+      }).then((r) => r.json() as Promise<{ name: string }>)
+      const projectName = suggestRes?.name || "research-project"
+      const targetPath = `${home()}/${projectName}`
+
       const res = await sdk.client.research.project.create({
         name: projectName,
         targetPath,
@@ -434,19 +433,6 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
               </For>
             </div>
 
-            <TextField
-              label="项目名"
-              placeholder="输入新项目名称"
-              value={newProjectName()}
-              onChange={setNewProjectName}
-            />
-            <TextField
-              label="保存位置"
-              placeholder={home() || "输入保存路径（默认为主目录）"}
-              value={newProjectDir()}
-              onChange={setNewProjectDir}
-            />
-
             <Show when={createError()}>
               <div class="text-12-regular text-icon-critical-strong">{createError()}</div>
             </Show>
@@ -458,10 +444,10 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
               <Button
                 variant="primary"
                 onClick={handleCreateProject}
-                disabled={!newProjectName().trim() || creating()}
+                disabled={droppedPapers().length === 0 || creating()}
                 loading={creating()}
               >
-                创建目录
+                {creating() ? "AI 生成名称中…" : "创建目录"}
               </Button>
             </div>
           </div>

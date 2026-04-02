@@ -33,6 +33,8 @@ import { checkExperimentReadyByExpId } from "@/session/experiment-guard"
 import { forceRefreshWatch } from "@/research/experiment-watcher"
 import { forceRefreshLocalDownload } from "@/research/experiment-local-download-watcher"
 import { ExperimentExecutionWatch } from "@/research/experiment-execution-watch"
+import { generateText } from "ai"
+import { Provider } from "@/provider/provider"
 
 const createSchema = z.object({
   name: z.string().min(1, "name required"),
@@ -241,6 +243,53 @@ const researchProjectSchema = z.object({
 })
 
 export const ResearchRoutes = new Hono()
+  .post(
+    "/project/suggest-name",
+    describeRoute({
+      summary: "Suggest project name",
+      description: "Use AI to suggest a project name based on paper filenames.",
+      operationId: "research.project.suggestName",
+      responses: {
+        200: {
+          description: "Suggested project name",
+          content: {
+            "application/json": {
+              schema: resolver(z.object({ name: z.string() })),
+            },
+          },
+        },
+        ...errors(400, 500),
+      },
+    }),
+    validator("json", z.object({ papers: z.array(z.string()).min(1) })),
+    async (c) => {
+      const { papers } = c.req.valid("json")
+      try {
+        const model = await Provider.defaultModel()
+        const language = await Provider.getLanguage(model)
+        const filenames = papers.map((p) => path.basename(p, path.extname(p))).join("、")
+        const { text } = await generateText({
+          model: language,
+          messages: [
+            {
+              role: "user",
+              content: `根据以下论文标题，生成一个简短的科研项目名称（10字以内，仅返回名称本身，不要解释）：\n${filenames}`,
+            },
+          ],
+          maxTokens: 50,
+        })
+        // sanitize: strip quotes/punctuation, replace spaces with hyphens
+        const name = text
+          .trim()
+          .replace(/^["'"'「『【\s]+|["'"'」』】\s]+$/g, "")
+          .replace(/\s+/g, "-")
+          .slice(0, 40)
+        return c.json({ name: name || "research-project" })
+      } catch {
+        return c.json({ name: "research-project" })
+      }
+    },
+  )
   .get(
     "/project/by-project/:projectId",
     describeRoute({
