@@ -19,7 +19,6 @@ import { which } from "../util/which"
 import { Storage } from "@/storage/storage"
 import { Global } from "@/global"
 import { ExperimentTable, ResearchProjectTable, AtomTable } from "@/research/research.sql"
-import { $ } from "bun"
 import { Instance } from "./instance"
 
 export namespace Project {
@@ -525,7 +524,7 @@ export namespace Project {
 
         for (const directory of dirs) {
           await Instance.disposeDirectory(directory).catch(() => undefined)
-          await $`git fsmonitor--daemon stop`.quiet().nothrow().cwd(directory).catch(() => undefined)
+          await git(["fsmonitor--daemon", "stop"], { cwd: directory })
           await rm(directory, {
             recursive: true,
             force: true,
