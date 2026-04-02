@@ -2,7 +2,7 @@ import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Graph } from "@antv/g6"
 import type { ResearchAtomsListResponse } from "@opencode-ai/sdk/v2"
-import { GraphState, GraphStateManager } from "./graph-state-manager"
+import { type GraphState, GraphStateManager } from "./graph-state-manager"
 
 type Atom = ResearchAtomsListResponse["atoms"][number]
 type Relation = ResearchAtomsListResponse["relations"][number]
@@ -39,6 +39,20 @@ const EVIDENCE_STATUS_LABELS: Record<string, string> = {
   disproven: "Disproven",
 }
 
+const STATUS_COLORS: Record<string, string> = {
+  pending: "#64748b",
+  in_progress: "#f59e0b",
+  proven: "#22c55e",
+  disproven: "#f87171",
+}
+
+const STATUS_DOT_BG: Record<string, string> = {
+  pending: "rgba(100,116,139,0.15)",
+  in_progress: "rgba(245,158,11,0.15)",
+  proven: "rgba(34,197,94,0.15)",
+  disproven: "rgba(248,113,113,0.15)",
+}
+
 const RELATION_LABELS: Record<string, string> = {
   motivates: "Motivates",
   formalizes: "Formalizes",
@@ -48,6 +62,9 @@ const RELATION_LABELS: Record<string, string> = {
   contradicts: "Contradicts",
   other: "Other",
 }
+
+const NODE_SIZE_MIN = 28
+const NODE_SIZE_MAX = 60
 
 const relationId = (rel: Pick<Relation, "atom_id_source" | "atom_id_target" | "relation_type">) =>
   `${rel.atom_id_source}-${rel.relation_type}-${rel.atom_id_target}`
@@ -85,9 +102,6 @@ export function AtomGraphView(props: {
     anchorVisible: false,
     anchorX: 0,
     anchorY: 0,
-    deleteVisible: false,
-    deleteX: 0,
-    deleteY: 0,
     active: false,
     dragging: false,
     sourceId: "",
@@ -191,11 +205,7 @@ export function AtomGraphView(props: {
   const hideAnchor = () => {
     clearHideAnchor()
     if (anchorPinned || state.dragging || state.active || state.selectedRelationId || state.confirmOpen) return
-    setState({
-      anchorVisible: false,
-      hoverNodeId: "",
-      deleteVisible: false,
-    })
+    setState({ anchorVisible: false, hoverNodeId: "" })
   }
 
   const scheduleAnchorHide = () => {
@@ -215,9 +225,6 @@ export function AtomGraphView(props: {
       anchorVisible: true,
       anchorX: point.x + 24,
       anchorY: point.y,
-      deleteVisible: true,
-      deleteX: point.x + 22,
-      deleteY: point.y - 24,
     })
   }
 
@@ -230,7 +237,6 @@ export function AtomGraphView(props: {
     syncState(sourceId, ["connect-source"])
     setState({
       anchorVisible: false,
-      deleteVisible: false,
       hoverNodeId: "",
       dragging: true,
       sourceId,
@@ -352,7 +358,7 @@ export function AtomGraphView(props: {
     node: {
       type: "circle",
       style: {
-        size: 40,
+        size: (d: any) => d.data?.size ?? 40,
         fill: "#1e293b",
         stroke: (d: any) => TYPE_COLORS[d.data?.type] ?? "#6366f1",
         lineWidth: 2,
@@ -363,7 +369,7 @@ export function AtomGraphView(props: {
       },
       state: {
         hover: {
-          size: 56,
+          size: (d: any) => (d.data?.size ?? 40) + 16,
           stroke: "#f8fafc",
           lineWidth: 4,
           shadowColor: "rgba(248,250,252,0.32)",
@@ -382,7 +388,7 @@ export function AtomGraphView(props: {
           shadowBlur: 18,
         },
         "connect-target": {
-          size: 52,
+          size: (d: any) => (d.data?.size ?? 40) + 12,
           stroke: "#f8fafc",
           lineWidth: 4,
           shadowColor: "rgba(248,250,252,0.45)",
@@ -413,8 +419,8 @@ export function AtomGraphView(props: {
       nodeStrength: 30,
       edgeStrength: 200,
       preventOverlap: true,
-      nodeSize: 40,
-      nodeSpacing: 30,
+      nodeSize: 60,
+      nodeSpacing: 20,
       coulombDisScale: 0.003,
     },
     behaviors: [
@@ -436,12 +442,36 @@ export function AtomGraphView(props: {
   })
 
   const toGraphData = () => {
+    // Compute 2nd-order degree for each node (unique nodes reachable within 2 hops)
+    const adj = new Map<string, Set<string>>()
+    for (const atom of props.atoms) adj.set(atom.atom_id, new Set())
+    for (const rel of props.relations) {
+      adj.get(rel.atom_id_source)?.add(rel.atom_id_target)
+      adj.get(rel.atom_id_target)?.add(rel.atom_id_source)
+    }
+    const degree2 = new Map<string, number>()
+    for (const [id, neighbors] of adj) {
+      const reach = new Set<string>(neighbors)
+      for (const nb of neighbors) {
+        for (const nb2 of adj.get(nb) ?? []) {
+          if (nb2 !== id) reach.add(nb2)
+        }
+      }
+      degree2.set(id, reach.size)
+    }
+    const maxDeg = Math.max(1, ...degree2.values())
+    const nodeSize = (id: string) => {
+      const d = degree2.get(id) ?? 0
+      return Math.round(NODE_SIZE_MIN + (d / maxDeg) * (NODE_SIZE_MAX - NODE_SIZE_MIN))
+    }
+
     const nodes = props.atoms.map((atom) => ({
       id: atom.atom_id,
       data: {
         name: atom.atom_name,
         type: atom.atom_type,
         status: atom.atom_evidence_status,
+        size: nodeSize(atom.atom_id),
       },
     }))
 
@@ -470,49 +500,39 @@ export function AtomGraphView(props: {
         tooltip.id = "atom-tooltip"
         tooltip.style.cssText = `
           position: fixed;
-          padding: 8px 12px;
-          background: #1e293b;
-          border: 1px solid #334155;
-          border-radius: 6px;
-          color: #e2e8f0;
-          font-size: 12px;
-          box-shadow: 0 4px 12px rgba(0,0,0,0.3);
           pointer-events: none;
           z-index: 1000;
-          max-width: 200px;
+          max-width: 260px;
+          opacity: 0;
+          transform: translateY(4px) scale(0.97);
+          transition: opacity 0.15s ease, transform 0.15s ease;
         `
         document.body.appendChild(tooltip)
+        requestAnimationFrame(() => {
+          tooltip!.style.opacity = "1"
+          tooltip!.style.transform = "translateY(0) scale(1)"
+        })
       }
       return tooltip
-    }
-
-    const destroyTooltip = () => {
-      const tooltip = document.getElementById("atom-tooltip")
-      if (!tooltip) return
-      if ((tooltip as any).cleanup) {
-        ;(tooltip as any).cleanup()
-      }
-      tooltip.remove()
     }
 
     const updateTooltipPosition = (tooltip: HTMLElement, e: MouseEvent) => {
       const tooltipRect = tooltip.getBoundingClientRect()
       const viewportWidth = window.innerWidth
       const viewportHeight = window.innerHeight
+      const offset = 16
 
-      let left = e.clientX + 10
-      let top = e.clientY + 10
+      let left = e.clientX + offset
+      let top = e.clientY + offset
 
-      if (left + tooltipRect.width > viewportWidth) {
-        left = e.clientX - tooltipRect.width - 10
+      if (left + tooltipRect.width > viewportWidth - 8) {
+        left = e.clientX - tooltipRect.width - offset
       }
-
-      if (top + tooltipRect.height > viewportHeight) {
-        top = e.clientY - tooltipRect.height - 10
+      if (top + tooltipRect.height > viewportHeight - 8) {
+        top = e.clientY - tooltipRect.height - offset
       }
-
-      if (left < 0) left = 10
-      if (top < 0) top = 10
+      if (left < 8) left = 8
+      if (top < 8) top = 8
 
       tooltip.style.left = `${left}px`
       tooltip.style.top = `${top}px`
@@ -531,14 +551,78 @@ export function AtomGraphView(props: {
         showAnchor(nodeId)
         const atom = props.atoms.find((a) => a.atom_id === nodeId)
         if (atom) {
+          const typeColor = TYPE_COLORS[atom.atom_type] ?? "#6366f1"
           const typeLabel = TYPE_LABELS[atom.atom_type] ?? atom.atom_type
+          const statusColor = STATUS_COLORS[atom.atom_evidence_status] ?? "#64748b"
+          const statusBg = STATUS_DOT_BG[atom.atom_evidence_status] ?? "rgba(100,116,139,0.15)"
           const statusLabel = EVIDENCE_STATUS_LABELS[atom.atom_evidence_status] ?? atom.atom_evidence_status
-          const tooltip = createTooltip()
+          const evTypeLabel = atom.atom_evidence_type === "math" ? "Math" : atom.atom_evidence_type === "experiment" ? "Experiment" : atom.atom_evidence_type
 
+          const tooltip = createTooltip()
           tooltip.innerHTML = `
-            <div style="font-weight: 600; margin-bottom: 4px;">${atom.atom_name}</div>
-            <div style="color: #94a3b8; margin-bottom: 2px;">Type: ${typeLabel}</div>
-            <div style="color: #94a3b8;">Status: ${statusLabel}</div>
+            <div style="
+              background: rgba(15,23,42,0.92);
+              backdrop-filter: blur(12px);
+              -webkit-backdrop-filter: blur(12px);
+              border: 1px solid rgba(255,255,255,0.08);
+              border-left: 3px solid ${typeColor};
+              border-radius: 10px;
+              box-shadow: 0 8px 32px rgba(0,0,0,0.45), 0 1px 0 rgba(255,255,255,0.04) inset;
+              overflow: hidden;
+            ">
+              <div style="padding: 12px 14px 10px;">
+                <div style="
+                  font-size: 13px;
+                  font-weight: 600;
+                  color: #f1f5f9;
+                  line-height: 1.4;
+                  margin-bottom: 10px;
+                  word-break: break-word;
+                ">${atom.atom_name}</div>
+                <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                  <span style="
+                    display: inline-flex; align-items: center; gap: 4px;
+                    padding: 2px 8px;
+                    background: ${typeColor}1a;
+                    border: 1px solid ${typeColor}40;
+                    border-radius: 999px;
+                    font-size: 11px;
+                    font-weight: 500;
+                    color: ${typeColor};
+                    letter-spacing: 0.02em;
+                  ">
+                    <span style="width:6px;height:6px;border-radius:50%;background:${typeColor};flex-shrink:0;"></span>
+                    ${typeLabel}
+                  </span>
+                  <span style="
+                    display: inline-flex; align-items: center; gap: 4px;
+                    padding: 2px 8px;
+                    background: ${statusBg};
+                    border: 1px solid ${statusColor}40;
+                    border-radius: 999px;
+                    font-size: 11px;
+                    font-weight: 500;
+                    color: ${statusColor};
+                    letter-spacing: 0.02em;
+                  ">
+                    <span style="width:6px;height:6px;border-radius:50%;background:${statusColor};flex-shrink:0;"></span>
+                    ${statusLabel}
+                  </span>
+                </div>
+              </div>
+              ${evTypeLabel ? `
+              <div style="
+                padding: 7px 14px;
+                border-top: 1px solid rgba(255,255,255,0.06);
+                background: rgba(255,255,255,0.02);
+                font-size: 11px;
+                color: #64748b;
+                display: flex; align-items: center; gap: 6px;
+              ">
+                <span style="color:#475569;">Evidence</span>
+                <span style="color:#94a3b8;font-weight:500;">${evTypeLabel}</span>
+              </div>` : ""}
+            </div>
           `
 
           updateTooltipPosition(tooltip, evt.originalEvent as MouseEvent)
@@ -546,7 +630,6 @@ export function AtomGraphView(props: {
           const handleMouseMove = (e: MouseEvent) => {
             updateTooltipPosition(tooltip, e)
           }
-
           document.addEventListener("mousemove", handleMouseMove)
           ;(tooltip as any).cleanup = () => {
             document.removeEventListener("mousemove", handleMouseMove)
@@ -618,7 +701,6 @@ export function AtomGraphView(props: {
           relationDeleting: false,
           error: "",
           anchorVisible: false,
-          deleteVisible: false,
         })
       })
 
@@ -840,7 +922,6 @@ export function AtomGraphView(props: {
       setState("deleteIds", [...state.selectedIds])
       setState("confirmOpen", true)
       setState("anchorVisible", false)
-      setState("deleteVisible", false)
     }
 
     window.addEventListener("keydown", onKey)
@@ -1049,11 +1130,13 @@ export function AtomGraphView(props: {
         </svg>
       </Show>
       <Show when={state.anchorVisible && !state.dragging && !state.active}>
-        <button
-          class="absolute z-20 flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-border-interactive-base/70 bg-background-strong/90 text-[12px] font-medium text-text-interactive-base shadow-lg transition-transform hover:scale-110"
+        <div
+          class="absolute z-20"
           style={{
             left: `${state.anchorX}px`,
             top: `${state.anchorY}px`,
+            transform: "translate(4px, -50%)",
+            animation: "node-action-in 0.12s ease-out",
           }}
           onMouseEnter={() => {
             anchorPinned = true
@@ -1063,47 +1146,56 @@ export function AtomGraphView(props: {
             anchorPinned = false
             scheduleAnchorHide()
           }}
-          onMouseDown={(evt) => {
-            evt.preventDefault()
-            evt.stopPropagation()
-            if (!state.hoverNodeId) return
-            beginDraft(state.hoverNodeId)
-          }}
-          title="Create relation"
         >
-          +
-        </button>
-      </Show>
-      <Show when={state.deleteVisible && !state.dragging && !state.active && state.hoverNodeId}>
-        <button
-          class="absolute z-20 flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-red-300/80 bg-red-500 text-[12px] font-semibold leading-none text-white shadow-lg transition-colors hover:bg-red-400"
-          style={{
-            left: `${state.deleteX}px`,
-            top: `${state.deleteY}px`,
-          }}
-          onMouseEnter={() => {
-            anchorPinned = true
-            clearHideAnchor()
-          }}
-          onMouseLeave={() => {
-            anchorPinned = false
-            scheduleAnchorHide()
-          }}
-          onClick={(evt) => {
-            evt.preventDefault()
-            evt.stopPropagation()
-            if (!state.hoverNodeId) return
-            hideTooltip()
-            setState("selectedIds", [state.hoverNodeId])
-            setState("deleteIds", [state.hoverNodeId])
-            setState("confirmOpen", true)
-            setState("anchorVisible", false)
-            setState("deleteVisible", false)
-          }}
-          title="Delete atom"
-        >
-          ×
-        </button>
+          <style>{`
+            @keyframes node-action-in {
+              from { opacity: 0; transform: translate(0px, -50%) scale(0.85); }
+              to   { opacity: 1; transform: translate(4px, -50%) scale(1); }
+            }
+          `}</style>
+          <div class="flex flex-col gap-1 rounded-lg border border-white/10 bg-[rgba(15,23,42,0.88)] p-1 shadow-[0_8px_24px_rgba(0,0,0,0.5)] backdrop-blur-sm">
+            {/* Add relation */}
+            <button
+              class="group flex h-7 w-7 items-center justify-center rounded-md text-[#94a3b8] transition-all hover:bg-indigo-500/20 hover:text-indigo-400"
+              title="Create relation"
+              onMouseDown={(evt) => {
+                evt.preventDefault()
+                evt.stopPropagation()
+                if (!state.hoverNodeId) return
+                beginDraft(state.hoverNodeId)
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M10.5 5.5 C10.5 3.57 9.93 2 8 2 C6.07 2 5.5 3.57 5.5 5.5 L5.5 10.5 C5.5 12.43 6.07 14 8 14 C9.93 14 10.5 12.43 10.5 10.5" />
+                <circle cx="5.5" cy="5.5" r="1.8" fill="currentColor" stroke="none" />
+                <circle cx="10.5" cy="10.5" r="1.8" fill="currentColor" stroke="none" />
+              </svg>
+            </button>
+            {/* Divider */}
+            <div class="mx-1 h-px bg-white/8" />
+            {/* Delete */}
+            <Show when={state.hoverNodeId}>
+              <button
+                class="group flex h-7 w-7 items-center justify-center rounded-md text-[#64748b] transition-all hover:bg-red-500/15 hover:text-red-400"
+                title="Delete atom"
+                onClick={(evt) => {
+                  evt.preventDefault()
+                  evt.stopPropagation()
+                  if (!state.hoverNodeId) return
+                  hideTooltip()
+                  setState("selectedIds", [state.hoverNodeId])
+                  setState("deleteIds", [state.hoverNodeId])
+                  setState("confirmOpen", true)
+                  setState("anchorVisible", false)
+                }}
+              >
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M2 4h12M5 4V2.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 .5.5V4M6 7v5M10 7v5M3 4l.8 9.1A1 1 0 0 0 4.8 14h6.4a1 1 0 0 0 1-.9L13 4" />
+                </svg>
+              </button>
+            </Show>
+          </div>
+        </div>
       </Show>
       <div class="absolute bottom-4 right-4 z-20 bg-surface-raised-base/90 backdrop-blur-sm rounded-lg px-3 py-2 border border-border-weak-base">
         <div class="text-[10px] text-text-weak mb-2 font-medium">ATOM TYPES</div>
@@ -1253,39 +1345,51 @@ export function AtomGraphView(props: {
         </div>
       </Show>
       <Show when={state.confirmOpen}>
-        <div class="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-background-strong/70 backdrop-blur-[1px]">
-          <div class="pointer-events-auto w-[360px] rounded-xl border border-border-weak-base bg-surface-float-base shadow-2xl p-4">
-            <div class="text-sm font-medium text-text-strong">Delete Atom</div>
-            <div class="mt-3 text-sm text-text-base">
-              Delete{" "}
-              <span class="text-text-strong">
-                {deleteAtoms().length === 1
-                  ? (deleteAtoms()[0]?.atom_name ?? state.deleteIds[0]?.slice(0, 8))
-                  : `${state.deleteIds.length} atoms`}
-              </span>{" "}
-              and all related relations, local files, and linked sessions?
+        <div class="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-[rgba(2,6,23,0.6)] backdrop-blur-sm">
+          <div
+            class="pointer-events-auto w-[340px] overflow-hidden rounded-2xl border border-white/10 bg-[rgba(15,23,42,0.95)] shadow-[0_24px_64px_rgba(0,0,0,0.6)]"
+            style={{ animation: "confirm-in 0.15s cubic-bezier(0.34,1.4,0.64,1)" }}
+          >
+            <style>{`
+              @keyframes confirm-in {
+                from { opacity: 0; transform: scale(0.92) translateY(8px); }
+                to   { opacity: 1; transform: scale(1) translateY(0); }
+              }
+            `}</style>
+            {/* Icon + title */}
+            <div class="flex flex-col items-center px-6 pt-6 pb-4 text-center">
+              <div class="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-500/12 ring-1 ring-red-500/25">
+                <svg width="22" height="22" viewBox="0 0 16 16" fill="none" stroke="#f87171" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M2 4h12M5 4V2.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 .5.5V4M6 7v5M10 7v5M3 4l.8 9.1A1 1 0 0 0 4.8 14h6.4a1 1 0 0 0 1-.9L13 4" />
+                </svg>
+              </div>
+              <div class="text-[15px] font-semibold text-[#f1f5f9]">删除原子</div>
+              <div class="mt-2 text-[13px] leading-relaxed text-[#94a3b8]">
+                确认删除{" "}
+                <span class="font-medium text-[#e2e8f0]">
+                  {deleteAtoms().length === 1
+                    ? (deleteAtoms()[0]?.atom_name ?? state.deleteIds[0]?.slice(0, 8))
+                    : `${state.deleteIds.length} 个原子`}
+                </span>
+                ？<br />相关联的关系、文件和会话将一并删除。
+              </div>
+              <div class="mt-2 text-[11px] text-[#475569]">此操作不可撤销</div>
             </div>
-            <div class="mt-2 text-xs text-text-weaker">This action cannot be undone.</div>
-            <div class="mt-4 flex items-center justify-end gap-2">
+            {/* Actions */}
+            <div class="flex gap-2 border-t border-white/6 px-4 py-3">
               <button
-                onClick={() =>
-                  setState({
-                    confirmOpen: false,
-                    deleting: false,
-                    deleteIds: [],
-                  })
-                }
+                onClick={() => setState({ confirmOpen: false, deleting: false, deleteIds: [] })}
                 disabled={state.deleting}
-                class="px-3 py-1.5 text-xs rounded bg-surface-raised-base text-text-base hover:bg-surface-raised-base-hover disabled:opacity-60 transition-colors"
+                class="flex-1 rounded-lg border border-white/8 bg-white/5 py-2 text-[13px] font-medium text-[#94a3b8] transition-all hover:bg-white/10 hover:text-[#e2e8f0] disabled:opacity-50"
               >
-                Cancel
+                取消
               </button>
               <button
                 onClick={() => removeAtom()}
                 disabled={state.deleting}
-                class="px-3 py-1.5 text-xs rounded border border-red-300/80 bg-red-500 text-white shadow-lg hover:bg-red-400 disabled:opacity-60 transition-colors"
+                class="flex-1 rounded-lg bg-red-500/90 py-2 text-[13px] font-medium text-white transition-all hover:bg-red-500 disabled:opacity-50 shadow-[0_2px_8px_rgba(239,68,68,0.35)]"
               >
-                {state.deleting ? "Deleting..." : "Delete"}
+                {state.deleting ? "删除中…" : "确认删除"}
               </button>
             </div>
           </div>
