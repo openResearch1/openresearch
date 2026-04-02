@@ -355,20 +355,28 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
       setUploadProgress(undefined)
       setCreating(false)
       if (xhr.status >= 200 && xhr.status < 300) {
-        const res = JSON.parse(xhr.responseText) as { paths: Array<{ name: string; path: string }> }
-        const uploaded = res.paths ?? []
-        setDroppedPapers((prev) => {
-          const existing = new Set(prev.map((p) => p.path))
-          return [...prev, ...uploaded.filter((p) => !existing.has(p.path))]
-        })
+        try {
+          const res = JSON.parse(xhr.responseText) as { paths: Array<{ name: string; path: string }> }
+          const uploaded = res.paths ?? []
+          if (uploaded.length === 0) {
+            setCreateError("服务器未返回文件路径，请重试")
+            return
+          }
+          setDroppedPapers((prev) => {
+            const existing = new Set(prev.map((p) => p.path))
+            return [...prev, ...uploaded.filter((p) => !existing.has(p.path))]
+          })
+        } catch {
+          setCreateError(`解析响应失败: ${xhr.responseText.slice(0, 100)}`)
+        }
       } else {
-        setCreateError("上传文件失败，请重试")
+        setCreateError(`上传失败 (${xhr.status}): ${xhr.responseText.slice(0, 100)}`)
       }
     }
     xhr.onerror = () => {
       setUploadProgress(undefined)
       setCreating(false)
-      setCreateError("上传文件失败，请重试")
+      setCreateError("网络错误，上传失败")
     }
     xhr.ontimeout = () => {
       setUploadProgress(undefined)

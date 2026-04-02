@@ -276,7 +276,9 @@ export const ResearchRoutes = new Hono()
         const subDir = path.join(uploadDir, crypto.randomUUID())
         await fs.promises.mkdir(subDir, { recursive: true })
         const dest = path.join(subDir, file.name)
-        await Bun.write(dest, file)
+        // Read into buffer first to avoid Bun lazy-stream socket errors on large files
+        const buffer = await file.arrayBuffer()
+        await Bun.write(dest, buffer)
         results.push({ name: file.name, path: dest })
       }
       return c.json({ paths: results })
