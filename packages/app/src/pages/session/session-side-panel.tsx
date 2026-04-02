@@ -118,6 +118,16 @@ export function SessionSidePanel(props: {
   )
   const isExpSession = createMemo(() => !!experimentSession())
 
+  // Record the last main (non-atom, non-exp) session for this research project
+  // so atom/exp sessions can use it as a fallback return target
+  createEffect(() => {
+    const rp = researchProject()
+    const sessionId = params.id
+    if (rp && sessionId && !isAtomSession() && !isExpSession()) {
+      sessionStorage.setItem(`research-project-main-session-${rp.research_project_id}`, sessionId)
+    }
+  })
+
   // Fetch experiment diff data at panel level; refetch when switching to the changes tab
   const [experimentDiff, { refetch: refetchExperimentDiff }] = createResource(
     () => experimentSession()?.exp_id,
@@ -548,17 +558,32 @@ export function SessionSidePanel(props: {
                       <>
                         <Tabs.Content value="atom-content" class="flex flex-col h-full overflow-hidden contain-strict">
                           <Show when={activeTab() === "atom-content"}>
-                            <AtomSessionTab atom={atom} activeTab="content" onRefresh={refetchAtomSession} />
+                            <AtomSessionTab
+                              atom={atom}
+                              activeTab="content"
+                              onRefresh={refetchAtomSession}
+                              onOpenFile={(filePath) => openTab(file.tab(filePath))}
+                            />
                           </Show>
                         </Tabs.Content>
                         <Tabs.Content value="atom-evidence" class="flex flex-col h-full overflow-hidden contain-strict">
                           <Show when={activeTab() === "atom-evidence"}>
-                            <AtomSessionTab atom={atom} activeTab="evidence" onRefresh={refetchAtomSession} />
+                            <AtomSessionTab
+                              atom={atom}
+                              activeTab="evidence"
+                              onRefresh={refetchAtomSession}
+                              onOpenFile={(filePath) => openTab(file.tab(filePath))}
+                            />
                           </Show>
                         </Tabs.Content>
                         <Tabs.Content value="atom-plan" class="flex flex-col h-full overflow-hidden contain-strict">
                           <Show when={activeTab() === "atom-plan"}>
-                            <AtomSessionTab atom={atom} activeTab="plan" onRefresh={refetchAtomSession} />
+                            <AtomSessionTab
+                              atom={atom}
+                              activeTab="plan"
+                              onRefresh={refetchAtomSession}
+                              onOpenFile={(filePath) => openTab(file.tab(filePath))}
+                            />
                           </Show>
                         </Tabs.Content>
                         <Tabs.Content
@@ -566,7 +591,12 @@ export function SessionSidePanel(props: {
                           class="flex flex-col h-full overflow-hidden contain-strict"
                         >
                           <Show when={activeTab() === "atom-assessment"}>
-                            <AtomSessionTab atom={atom} activeTab="assessment" onRefresh={refetchAtomSession} />
+                            <AtomSessionTab
+                              atom={atom}
+                              activeTab="assessment"
+                              onRefresh={refetchAtomSession}
+                              onOpenFile={(filePath) => openTab(file.tab(filePath))}
+                            />
                           </Show>
                         </Tabs.Content>
                       </>

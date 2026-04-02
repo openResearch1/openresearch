@@ -4780,6 +4780,41 @@ export type ResearchExperimentWatchDeleteResponses = {
 export type ResearchExperimentWatchDeleteResponse =
   ResearchExperimentWatchDeleteResponses[keyof ResearchExperimentWatchDeleteResponses]
 
+export type ResearchExperimentWatchRefreshData = {
+  body?: never
+  path: {
+    watchId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/research/experiment-watch/{watchId}/refresh"
+}
+
+export type ResearchExperimentWatchRefreshErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ResearchExperimentWatchRefreshError =
+  ResearchExperimentWatchRefreshErrors[keyof ResearchExperimentWatchRefreshErrors]
+
+export type ResearchExperimentWatchRefreshResponses = {
+  /**
+   * Refresh result
+   */
+  200: {
+    success: boolean
+    message: string
+  }
+}
+
+export type ResearchExperimentWatchRefreshResponse =
+  ResearchExperimentWatchRefreshResponses[keyof ResearchExperimentWatchRefreshResponses]
+
 export type ResearchExperimentDeleteData = {
   body?: never
   path: {

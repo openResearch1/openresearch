@@ -40,6 +40,7 @@ type PathPickerProps = {
   mode: PickerMode
   multiple?: boolean
   acceptExt?: string[]
+  allowDirs?: boolean
   startDir?: () => string | undefined
   onSelect: (value: string | string[]) => void
   onClose: () => void
@@ -94,6 +95,24 @@ function DialogPathPicker(props: PathPickerProps) {
           .map((n) => ({ path: trimTrailing(n.absolute), type: n.type as "file" | "directory" }))
       }
 
+      if (props.mode === "files" && props.allowDirs) {
+        const [files, dirs] = await Promise.all([
+          sdk.client.find
+            .files({ directory: base, query: q, type: "file", limit: 50 })
+            .then((x) => x.data ?? [])
+            .catch(() => []),
+          sdk.client.find
+            .files({ directory: base, query: q, type: "directory", limit: 50 })
+            .then((x) => x.data ?? [])
+            .catch(() => []),
+        ])
+
+        return [
+          ...files.map((rel) => ({ path: trimTrailing(joinPath(base, rel)), type: "file" as const })),
+          ...dirs.map((rel) => ({ path: trimTrailing(joinPath(base, rel)), type: "directory" as const })),
+        ]
+      }
+
       const found = await sdk.client.find
         .files({ directory: base, query: q, type: props.mode === "files" ? "file" : "directory", limit: 50 })
         .then((x) => x.data ?? [])
@@ -111,15 +130,20 @@ function DialogPathPicker(props: PathPickerProps) {
     if (!props.acceptExt || props.mode !== "files") return list
     const allow = props.acceptExt.map((e) => e.toLowerCase())
     return list.filter(
-      (item) => item.type === "directory" || allow.some((ext) => item.path.toLowerCase().endsWith(ext)),
+      (item) =>
+        (props.allowDirs && item.type === "directory") || allow.some((ext) => item.path.toLowerCase().endsWith(ext)),
     )
   })
 
+  const canPick = (item: ListItem) => item.type === "file" || (props.allowDirs && item.type === "directory")
+
   const handleItemClick = (item: ListItem) => {
-    if (item.type === "directory") {
+    if (item.type === "directory" && props.mode === "files" && !props.allowDirs) {
       enterDir(item.path)
       return
     }
+
+    if (!canPick(item)) return
 
     if (!props.multiple) {
       props.onSelect(item.path)
@@ -180,9 +204,23 @@ function DialogPathPicker(props: PathPickerProps) {
                   </Show>
                 </div>
               </div>
-              <Show when={props.multiple && item.type !== "directory"}>
-                <input type="checkbox" class="shrink-0" checked={selected().has(item.path)} />
-              </Show>
+              <div class="flex items-center gap-2 shrink-0">
+                <Show when={item.type === "directory" && props.mode === "files"}>
+                  <Button
+                    variant="ghost"
+                    onClick={(e: MouseEvent) => {
+                      e.stopPropagation()
+                      enterDir(item.path)
+                    }}
+                    class="px-2"
+                  >
+                    进入
+                  </Button>
+                </Show>
+                <Show when={props.multiple && canPick(item)}>
+                  <input type="checkbox" class="shrink-0" checked={selected().has(item.path)} />
+                </Show>
+              </div>
             </div>
           )}
         </List>
@@ -325,17 +363,17 @@ export function DialogNewResearchProject(props: DialogNewResearchProjectProps) {
           </div>
 
           <div class="flex flex-col gap-2">
-            <label class="text-12-medium text-text-strong">论文（可多选 PDF）</label>
+            <label class="text-12-medium text-text-strong">论文源（可多选 PDF 或 LaTeX 文件夹）</label>
             <div class="flex items-center gap-2">
-              <TextField value={paperPaths().join(", ") || ""} placeholder="请选择论文路径" readOnly class="flex-1" />
+              <TextField value={paperPaths().join(", ") || ""} placeholder="请选择论文源路径" readOnly class="flex-1" />
               <Button variant="ghost" onClick={() => setPaperPaths([])}>
                 清除
               </Button>
               <Button variant="secondary" onClick={() => setPicker("papers")}>
-                选择文件
+                选择文件或文件夹
               </Button>
             </div>
-            <div class="text-12-regular text-text-weak">支持一次选择多篇 PDF 论文</div>
+            <div class="text-12-regular text-text-weak">支持一次选择多篇 PDF，或选择 LaTeX 源码文件夹</div>
           </div>
 
           <div class="flex flex-col gap-2">
@@ -393,10 +431,11 @@ export function DialogNewResearchProject(props: DialogNewResearchProjectProps) {
 
       <Show when={picker() === "papers"}>
         <DialogPathPicker
-          title="选择论文 (PDF，可多选)"
+          title="选择论文源 (PDF 或 LaTeX 文件夹，可多选)"
           mode="files"
           multiple
           acceptExt={[".pdf"]}
+          allowDirs
           onSelect={(v) => setPaperPaths(Array.isArray(v) ? v : [v])}
           onClose={() => setPicker(null)}
         />

@@ -44,6 +44,7 @@ export function WatchesTab(props: { onOpenFile?: (filePath: string) => void }) {
   const [watches, setWatches] = createSignal<WatchRow[]>([])
   const [loading, setLoading] = createSignal(true)
   const [error, setError] = createSignal(false)
+  const [syncing, setSyncing] = createSignal<Record<string, boolean>>({})
 
   const fetchWatches = async () => {
     try {
@@ -70,6 +71,18 @@ export function WatchesTab(props: { onOpenFile?: (filePath: string) => void }) {
 
   const openFile = (filePath: string) => {
     props.onOpenFile?.(filePath)
+  }
+
+  const syncWatch = async (watchId: string) => {
+    try {
+      setSyncing((prev) => ({ ...prev, [watchId]: true }))
+      await sdk.client.research.experimentWatch.refresh({ watchId })
+      await fetchWatches()
+    } catch {
+      // ignore
+    } finally {
+      setSyncing((prev) => ({ ...prev, [watchId]: false }))
+    }
   }
 
   const deleteWatch = async (watchId: string) => {
@@ -166,6 +179,16 @@ export function WatchesTab(props: { onOpenFile?: (filePath: string) => void }) {
                         }}
                       >
                         W&B
+                      </button>
+                      <button
+                        class="px-2 py-0.5 rounded text-11-regular bg-background-stronger text-text-base hover:text-text-strong transition-colors disabled:opacity-50"
+                        disabled={syncing()[watch.watch_id]}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          syncWatch(watch.watch_id)
+                        }}
+                      >
+                        {syncing()[watch.watch_id] ? "Syncing..." : "Sync"}
                       </button>
                       <button
                         class="px-2 py-0.5 rounded text-11-regular bg-background-stronger text-text-base hover:text-text-strong transition-colors"

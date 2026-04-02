@@ -27,6 +27,7 @@ import { Instance } from "@/project/instance"
 import { Snapshot } from "@/snapshot"
 import { computeExperimentDiff } from "@/util/git-diff"
 import { checkExperimentReadyByExpId } from "@/session/experiment-guard"
+import { forceRefreshWatch } from "@/research/experiment-watcher"
 
 const createSchema = z.object({
   name: z.string().min(1, "name required"),
@@ -37,9 +38,8 @@ const createSchema = z.object({
 })
 
 async function copyFile(src: string, dest: string) {
-  const file = Bun.file(src)
-  if (!(await file.exists())) throw new Error(`file not found: ${src}`)
-  await fs.promises.cp(src, dest, { force: false })
+  if (!(await Filesystem.exists(src))) throw new Error(`file not found: ${src}`)
+  await fs.promises.cp(src, dest, { force: false, recursive: await Filesystem.isDir(src) })
 }
 
 const uniqueID = () => crypto.randomUUID()
@@ -70,6 +70,7 @@ const remoteServerConfigSchema = z.object({
   port: z.number(),
   user: z.string(),
   password: z.string(),
+  resource_root: z.string().optional(),
   wandb_api_key: z.string().optional(),
   wandb_project_name: z.string().optional(),
 })
@@ -703,6 +704,9 @@ export const ResearchRoutes = new Hono()
       for (const src of paperSources) {
         if (!(await Filesystem.exists(src))) {
           return c.json({ success: false, message: `paper not found: ${src}` }, 400)
+        }
+        if (!(await Filesystem.isDir(src)) && path.extname(src).toLowerCase() !== ".pdf") {
+          return c.json({ success: false, message: `unsupported article source: ${src}` }, 400)
         }
       }
       if (body.backgroundPath && !(await Filesystem.exists(body.backgroundPath))) {
@@ -1649,6 +1653,33 @@ export const ResearchRoutes = new Hono()
       }
       Database.use((db) => db.delete(ExperimentWatchTable).where(eq(ExperimentWatchTable.watch_id, watchId)).run())
       return c.json({ success: true })
+    },
+  )
+  // ── Experiment watch force refresh ──
+  .post(
+    "/experiment-watch/:watchId/refresh",
+    describeRoute({
+      summary: "Force refresh a watch: re-fetch wandb data and overwrite local summary/config",
+      operationId: "research.experimentWatch.refresh",
+      responses: {
+        200: {
+          description: "Refresh result",
+          content: {
+            "application/json": {
+              schema: resolver(z.object({ success: z.boolean(), message: z.string() })),
+            },
+          },
+        },
+        ...errors(404),
+      },
+    }),
+    async (c) => {
+      const watchId = c.req.param("watchId")
+      const result = await forceRefreshWatch(watchId)
+      if (!result.success && result.message.includes("not found")) {
+        return c.json(result, 404)
+      }
+      return c.json(result)
     },
   )
   // ── Experiment delete & update ──

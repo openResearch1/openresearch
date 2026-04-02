@@ -3,13 +3,16 @@ import { Tool } from "./tool"
 import { Database, eq } from "../storage/db"
 import { ArticleTable } from "../research/research.sql"
 import { Research } from "../research/research"
+import { Filesystem } from "../util/filesystem"
 
 type ArticleRow = typeof ArticleTable.$inferSelect
 
 function formatArticle(row: ArticleRow): string {
+  const kind = Filesystem.stat(row.path)?.isDirectory() ? "latex_directory" : "pdf"
   return [
     `article_id: ${row.article_id}`,
     row.title ? `title: ${row.title}` : null,
+    `kind: ${kind}`,
     `path: ${row.path}`,
     row.code_path ? `code_path: ${row.code_path}` : null,
     row.source_url ? `source_url: ${row.source_url}` : null,
@@ -20,12 +23,12 @@ function formatArticle(row: ArticleRow): string {
 
 export const ArticleQueryTool = Tool.define("article_query", {
   description:
-    "Query research articles (papers/PDFs) in the current research project. " +
+    "Query research articles (PDFs or LaTeX source folders) in the current research project. " +
     "IMPORTANT: Always use this tool — not glob, ls, read, or other generic tools — when listing or querying articles/papers in a research project. " +
     "It is the ONLY tool that can query the research project article database. " +
     "When called without an articleId, lists all articles with their metadata (id, title, path, etc.). " +
     "When called with an articleId, returns the article metadata including its file path. " +
-    "To read the actual PDF content, use the returned path with the appropriate file reading tool.",
+    "To read the actual article content, use the returned path with the read tool.",
   parameters: z.object({
     articleId: z
       .string()
