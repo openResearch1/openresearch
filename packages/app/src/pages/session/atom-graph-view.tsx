@@ -2,7 +2,7 @@ import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Graph } from "@antv/g6"
 import type { ResearchAtomsListResponse } from "@opencode-ai/sdk/v2"
-import { GraphState, GraphStateManager } from "./graph-state-manager"
+import { type GraphState, GraphStateManager } from "./graph-state-manager"
 
 type Atom = ResearchAtomsListResponse["atoms"][number]
 type Relation = ResearchAtomsListResponse["relations"][number]
@@ -39,6 +39,20 @@ const EVIDENCE_STATUS_LABELS: Record<string, string> = {
   disproven: "Disproven",
 }
 
+const STATUS_COLORS: Record<string, string> = {
+  pending: "#64748b",
+  in_progress: "#f59e0b",
+  proven: "#22c55e",
+  disproven: "#f87171",
+}
+
+const STATUS_DOT_BG: Record<string, string> = {
+  pending: "rgba(100,116,139,0.15)",
+  in_progress: "rgba(245,158,11,0.15)",
+  proven: "rgba(34,197,94,0.15)",
+  disproven: "rgba(248,113,113,0.15)",
+}
+
 const RELATION_LABELS: Record<string, string> = {
   motivates: "Motivates",
   formalizes: "Formalizes",
@@ -48,6 +62,9 @@ const RELATION_LABELS: Record<string, string> = {
   contradicts: "Contradicts",
   other: "Other",
 }
+
+const NODE_SIZE_MIN = 28
+const NODE_SIZE_MAX = 60
 
 const relationId = (rel: Pick<Relation, "atom_id_source" | "atom_id_target" | "relation_type">) =>
   `${rel.atom_id_source}-${rel.relation_type}-${rel.atom_id_target}`
@@ -78,6 +95,9 @@ export function AtomGraphView(props: {
   let hoverNodeId = ""
   let anchorPinned = false
   let hideAnchorTimer: ReturnType<typeof setTimeout> | undefined
+  let dimDebounceTimer: ReturnType<typeof setTimeout> | undefined
+  let pendingDimNodeId = ""   // "" = schedule clear, non-empty = schedule apply
+  let buildTooltipFn: ((nodeId: string, mouseEvent?: MouseEvent) => void) | undefined
 
   const [containerReady, setContainerReady] = createSignal(false)
   const [state, setState] = createStore({
@@ -85,9 +105,6 @@ export function AtomGraphView(props: {
     anchorVisible: false,
     anchorX: 0,
     anchorY: 0,
-    deleteVisible: false,
-    deleteX: 0,
-    deleteY: 0,
     active: false,
     dragging: false,
     sourceId: "",
@@ -110,6 +127,9 @@ export function AtomGraphView(props: {
     relationTargetId: "",
     relationPrevType: "" as "" | RelationType,
     relationDeleting: false,
+    focusedNodeId: "",   // pinned node: dim effect locked, info card stays visible
+    layoutType: "force" as "force" | "radial" | "circular" | "dagre",
+    layoutMenuOpen: false,
   })
 
   const setContainerRef = (el: HTMLDivElement) => {
@@ -168,6 +188,40 @@ export function AtomGraphView(props: {
     void graph.setElementState(id, next)
   }
 
+  const getNeighborIds = (nodeId: string): Set<string> => {
+    const neighbors = new Set<string>()
+    for (const rel of props.relations) {
+      if (rel.atom_id_source === nodeId) neighbors.add(rel.atom_id_target)
+      else if (rel.atom_id_target === nodeId) neighbors.add(rel.atom_id_source)
+    }
+    return neighbors
+  }
+
+  const applyDimEffect = (nodeId: string) => {
+    if (!graph) return
+    const neighbors = getNeighborIds(nodeId)
+    neighbors.add(nodeId)
+    // Single batch call: set hover, clear neighbors, dim the rest — no intermediate flash
+    const allStates: Record<string, string[]> = {}
+    for (const n of graph.getNodeData()) {
+      const id = String(n.id)
+      allStates[id] = id === nodeId ? ["hover"] : neighbors.has(id) ? [] : ["dimmed"]
+    }
+    for (const e of graph.getEdgeData()) {
+      const id = String(e.id)
+      allStates[id] = e.source === nodeId || e.target === nodeId ? [] : ["dimmed"]
+    }
+    void graph.setElementState(allStates, true)
+  }
+
+  const clearDimEffect = () => {
+    if (!graph) return
+    const allStates: Record<string, string[]> = {}
+    for (const n of graph.getNodeData()) allStates[String(n.id)] = []
+    for (const e of graph.getEdgeData()) allStates[String(e.id)] = []
+    void graph.setElementState(allStates, true)
+  }
+
   const clearHover = () => {
     if (!hoverId) return
     syncState(hoverId, [])
@@ -188,21 +242,25 @@ export function AtomGraphView(props: {
     hoverNodeId = ""
   }
 
+  // Debounced dim effect: waits 110ms of inactivity before applying/clearing,
+  // so rapid mouse movement between nodes doesn't cause jarring flashes.
+  const scheduleDimEffect = (nodeId: string) => {
+    clearTimeout(dimDebounceTimer)
+    pendingDimNodeId = nodeId
+    dimDebounceTimer = setTimeout(() => {
+      if (state.focusedNodeId) return  // focused node manages its own dim
+      if (pendingDimNodeId) {
+        applyDimEffect(pendingDimNodeId)
+      } else {
+        clearDimEffect()
+      }
+    }, 110)
+  }
+
   const hideAnchor = () => {
     clearHideAnchor()
     if (anchorPinned || state.dragging || state.active || state.selectedRelationId || state.confirmOpen) return
-    setState({
-      anchorVisible: false,
-      hoverNodeId: "",
-      deleteVisible: false,
-    })
-  }
-
-  const scheduleAnchorHide = () => {
-    clearHideAnchor()
-    hideAnchorTimer = setTimeout(() => {
-      hideAnchor()
-    }, 120)
+    setState({ anchorVisible: false, hoverNodeId: "" })
   }
 
   const showAnchor = (id: string) => {
@@ -213,11 +271,8 @@ export function AtomGraphView(props: {
     setState({
       hoverNodeId: id,
       anchorVisible: true,
-      anchorX: point.x + 24,
+      anchorX: point.x - 24,
       anchorY: point.y,
-      deleteVisible: true,
-      deleteX: point.x + 22,
-      deleteY: point.y - 24,
     })
   }
 
@@ -230,7 +285,6 @@ export function AtomGraphView(props: {
     syncState(sourceId, ["connect-source"])
     setState({
       anchorVisible: false,
-      deleteVisible: false,
       hoverNodeId: "",
       dragging: true,
       sourceId,
@@ -302,24 +356,6 @@ export function AtomGraphView(props: {
     })
   }
 
-  const closeDraft = () => {
-    if (state.saving) return
-    setState({
-      active: false,
-      dragging: false,
-      sourceId: "",
-      targetId: "",
-      relationType: "",
-      error: "",
-      relationX: 0,
-      relationY: 0,
-      startX: 0,
-      startY: 0,
-      endX: 0,
-      endY: 0,
-    })
-  }
-
   const closeMenu = () => {
     if (state.saving || state.relationDeleting) return
     setState({
@@ -352,9 +388,11 @@ export function AtomGraphView(props: {
     node: {
       type: "circle",
       style: {
-        size: 40,
+        size: (d: any) => d.data?.size ?? 40,
         fill: "#1e293b",
+        fillOpacity: 1,
         stroke: (d: any) => TYPE_COLORS[d.data?.type] ?? "#6366f1",
+        strokeOpacity: 1,
         lineWidth: 2,
         cursor: "pointer",
         shadowColor: "rgba(0,0,0,0.25)",
@@ -363,6 +401,7 @@ export function AtomGraphView(props: {
       },
       state: {
         hover: {
+          size: (d: any) => (d.data?.size ?? 40) + 16,
           stroke: "#f8fafc",
           lineWidth: 4,
           shadowColor: "rgba(248,250,252,0.32)",
@@ -381,16 +420,28 @@ export function AtomGraphView(props: {
           shadowBlur: 18,
         },
         "connect-target": {
+          size: (d: any) => (d.data?.size ?? 40) + 12,
           stroke: "#f8fafc",
           lineWidth: 4,
           shadowColor: "rgba(248,250,252,0.45)",
           shadowBlur: 20,
         },
+        dimmed: {
+          fillOpacity: 0.15,
+          strokeOpacity: 0.12,
+          size: (d: any) => Math.max(14, Math.round((d.data?.size ?? 40) * 0.6)),
+          lineWidth: 1,
+          shadowBlur: 0,
+        },
+      },
+      animation: {
+        update: [{ fields: ["size", "fillOpacity", "strokeOpacity", "lineWidth", "shadowBlur"], duration: 600, easing: "ease-in-out" }],
       },
     },
     edge: {
       style: {
         stroke: (d: any) => RELATION_COLORS[d.data?.type] ?? "#94a3b8",
+        strokeOpacity: 1,
         lineWidth: 1.5,
         endArrow: true,
         endArrowSize: 6,
@@ -400,20 +451,31 @@ export function AtomGraphView(props: {
           stroke: "#e2e8f0",
           lineWidth: 3,
         },
+        dimmed: {
+          strokeOpacity: 0.08,
+          lineWidth: 0.5,
+        },
+      },
+      animation: {
+        update: [{ fields: ["strokeOpacity", "lineWidth"], duration: 600, easing: "ease-in-out" }],
       },
     },
     layout: {
-      type: "dagre" as const,
-      rankdir: "TB",
-      nodesep: 25,
-      ranksep: 40,
+      type: "force" as const,
+      linkDistance: 150,
+      nodeStrength: 30,
+      edgeStrength: 200,
+      preventOverlap: true,
+      nodeSize: 60,
+      nodeSpacing: 20,
+      coulombDisScale: 0.003,
     },
     behaviors: [
       { type: "drag-canvas", key: "drag-canvas" },
       { type: "zoom-canvas", key: "zoom-canvas" },
       { type: "drag-element", key: "drag-element", enable: true },
     ],
-    animation: false,
+    animation: { duration: 600, easing: "ease-in-out" },
   }
 
   onMount(() => {
@@ -427,12 +489,36 @@ export function AtomGraphView(props: {
   })
 
   const toGraphData = () => {
+    // Compute 2nd-order degree for each node (unique nodes reachable within 2 hops)
+    const adj = new Map<string, Set<string>>()
+    for (const atom of props.atoms) adj.set(atom.atom_id, new Set())
+    for (const rel of props.relations) {
+      adj.get(rel.atom_id_source)?.add(rel.atom_id_target)
+      adj.get(rel.atom_id_target)?.add(rel.atom_id_source)
+    }
+    const degree2 = new Map<string, number>()
+    for (const [id, neighbors] of adj) {
+      const reach = new Set<string>(neighbors)
+      for (const nb of neighbors) {
+        for (const nb2 of adj.get(nb) ?? []) {
+          if (nb2 !== id) reach.add(nb2)
+        }
+      }
+      degree2.set(id, reach.size)
+    }
+    const maxDeg = Math.max(1, ...degree2.values())
+    const nodeSize = (id: string) => {
+      const d = degree2.get(id) ?? 0
+      return Math.round(NODE_SIZE_MIN + (d / maxDeg) * (NODE_SIZE_MAX - NODE_SIZE_MIN))
+    }
+
     const nodes = props.atoms.map((atom) => ({
       id: atom.atom_id,
       data: {
         name: atom.atom_name,
         type: atom.atom_type,
         status: atom.atom_evidence_status,
+        size: nodeSize(atom.atom_id),
       },
     }))
 
@@ -461,101 +547,167 @@ export function AtomGraphView(props: {
         tooltip.id = "atom-tooltip"
         tooltip.style.cssText = `
           position: fixed;
-          padding: 8px 12px;
-          background: #1e293b;
-          border: 1px solid #334155;
-          border-radius: 6px;
-          color: #e2e8f0;
-          font-size: 12px;
-          box-shadow: 0 4px 12px rgba(0,0,0,0.3);
           pointer-events: none;
           z-index: 1000;
-          max-width: 200px;
+          max-width: 260px;
+          opacity: 0;
+          transform: translateY(4px) scale(0.97);
+          transition: opacity 0.15s ease, transform 0.15s ease;
         `
         document.body.appendChild(tooltip)
+        requestAnimationFrame(() => {
+          tooltip!.style.opacity = "1"
+          tooltip!.style.transform = "translateY(0) scale(1)"
+        })
       }
       return tooltip
-    }
-
-    const destroyTooltip = () => {
-      const tooltip = document.getElementById("atom-tooltip")
-      if (!tooltip) return
-      if ((tooltip as any).cleanup) {
-        ;(tooltip as any).cleanup()
-      }
-      tooltip.remove()
     }
 
     const updateTooltipPosition = (tooltip: HTMLElement, e: MouseEvent) => {
       const tooltipRect = tooltip.getBoundingClientRect()
       const viewportWidth = window.innerWidth
       const viewportHeight = window.innerHeight
+      const offset = 16
 
-      let left = e.clientX + 10
-      let top = e.clientY + 10
+      let left = e.clientX + offset
+      let top = e.clientY + offset
 
-      if (left + tooltipRect.width > viewportWidth) {
-        left = e.clientX - tooltipRect.width - 10
+      if (left + tooltipRect.width > viewportWidth - 8) {
+        left = e.clientX - tooltipRect.width - offset
       }
-
-      if (top + tooltipRect.height > viewportHeight) {
-        top = e.clientY - tooltipRect.height - 10
+      if (top + tooltipRect.height > viewportHeight - 8) {
+        top = e.clientY - tooltipRect.height - offset
       }
-
-      if (left < 0) left = 10
-      if (top < 0) top = 10
+      if (left < 8) left = 8
+      if (top < 8) top = 8
 
       tooltip.style.left = `${left}px`
       tooltip.style.top = `${top}px`
     }
 
+    const buildTooltip = (nodeId: string, mouseEvent?: MouseEvent) => {
+      const atom = props.atoms.find((a) => a.atom_id === nodeId)
+      if (!atom) return
+      const typeColor = TYPE_COLORS[atom.atom_type] ?? "#6366f1"
+      const typeLabel = TYPE_LABELS[atom.atom_type] ?? atom.atom_type
+      const statusColor = STATUS_COLORS[atom.atom_evidence_status] ?? "#64748b"
+      const statusBg = STATUS_DOT_BG[atom.atom_evidence_status] ?? "rgba(100,116,139,0.15)"
+      const statusLabel = EVIDENCE_STATUS_LABELS[atom.atom_evidence_status] ?? atom.atom_evidence_status
+      const evTypeLabel = atom.atom_evidence_type === "math" ? "Math" : atom.atom_evidence_type === "experiment" ? "Experiment" : atom.atom_evidence_type
+
+      // Remove any existing tooltip first
+      const existing = document.getElementById("atom-tooltip")
+      if (existing) {
+        if ((existing as any).cleanup) (existing as any).cleanup()
+        existing.remove()
+      }
+
+      const tooltip = createTooltip()
+      tooltip.innerHTML = `
+        <div style="
+          background: rgba(15,23,42,0.92);
+          backdrop-filter: blur(12px);
+          -webkit-backdrop-filter: blur(12px);
+          border: 1px solid rgba(255,255,255,0.08);
+          border-left: 3px solid ${typeColor};
+          border-radius: 10px;
+          box-shadow: 0 8px 32px rgba(0,0,0,0.45), 0 1px 0 rgba(255,255,255,0.04) inset;
+          overflow: hidden;
+        ">
+          <div style="padding: 12px 14px 10px;">
+            <div style="
+              font-size: 13px;
+              font-weight: 600;
+              color: #f1f5f9;
+              line-height: 1.4;
+              margin-bottom: 10px;
+              word-break: break-word;
+            ">${atom.atom_name}</div>
+            <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+              <span style="
+                display: inline-flex; align-items: center; gap: 4px;
+                padding: 2px 8px;
+                background: ${typeColor}1a;
+                border: 1px solid ${typeColor}40;
+                border-radius: 999px;
+                font-size: 11px;
+                font-weight: 500;
+                color: ${typeColor};
+                letter-spacing: 0.02em;
+              ">
+                <span style="width:6px;height:6px;border-radius:50%;background:${typeColor};flex-shrink:0;"></span>
+                ${typeLabel}
+              </span>
+              <span style="
+                display: inline-flex; align-items: center; gap: 4px;
+                padding: 2px 8px;
+                background: ${statusBg};
+                border: 1px solid ${statusColor}40;
+                border-radius: 999px;
+                font-size: 11px;
+                font-weight: 500;
+                color: ${statusColor};
+                letter-spacing: 0.02em;
+              ">
+                <span style="width:6px;height:6px;border-radius:50%;background:${statusColor};flex-shrink:0;"></span>
+                ${statusLabel}
+              </span>
+            </div>
+          </div>
+          ${evTypeLabel ? `
+          <div style="
+            padding: 7px 14px;
+            border-top: 1px solid rgba(255,255,255,0.06);
+            background: rgba(255,255,255,0.02);
+            font-size: 11px;
+            color: #64748b;
+            display: flex; align-items: center; gap: 6px;
+          ">
+            <span style="color:#475569;">Evidence</span>
+            <span style="color:#94a3b8;font-weight:500;">${evTypeLabel}</span>
+          </div>` : ""}
+        </div>
+      `
+
+      if (mouseEvent) {
+        updateTooltipPosition(tooltip, mouseEvent)
+        const handleMouseMove = (e: MouseEvent) => updateTooltipPosition(tooltip, e)
+        document.addEventListener("mousemove", handleMouseMove)
+        ;(tooltip as any).cleanup = () => document.removeEventListener("mousemove", handleMouseMove)
+      }
+    }
+
+    buildTooltipFn = buildTooltip
+
     graph.on("node:pointerenter", (evt: any) => {
       const nodeId = evt.target?.id
       if (nodeId) {
-        if (hoverNodeId && hoverNodeId !== nodeId) {
-          syncState(hoverNodeId, [])
-        }
         hoverNodeId = nodeId
         if (!state.dragging && !state.active && !state.selectedRelationId && !state.confirmOpen) {
-          syncState(nodeId, ["hover"])
+          scheduleDimEffect(nodeId)
         }
-        showAnchor(nodeId)
-        const atom = props.atoms.find((a) => a.atom_id === nodeId)
-        if (atom) {
-          const typeLabel = TYPE_LABELS[atom.atom_type] ?? atom.atom_type
-          const statusLabel = EVIDENCE_STATUS_LABELS[atom.atom_evidence_status] ?? atom.atom_evidence_status
-          const tooltip = createTooltip()
-
-          tooltip.innerHTML = `
-            <div style="font-weight: 600; margin-bottom: 4px;">${atom.atom_name}</div>
-            <div style="color: #94a3b8; margin-bottom: 2px;">Type: ${typeLabel}</div>
-            <div style="color: #94a3b8;">Status: ${statusLabel}</div>
-          `
-
-          updateTooltipPosition(tooltip, evt.originalEvent as MouseEvent)
-
-          const handleMouseMove = (e: MouseEvent) => {
-            updateTooltipPosition(tooltip, e)
-          }
-
-          document.addEventListener("mousemove", handleMouseMove)
-          ;(tooltip as any).cleanup = () => {
-            document.removeEventListener("mousemove", handleMouseMove)
-          }
-        }
+        if (state.focusedNodeId) return
+        buildTooltip(nodeId, evt.originalEvent as MouseEvent)
       }
     })
 
     graph.on("node:pointerleave", () => {
-      clearNodeHover()
-      const tooltip = document.getElementById("atom-tooltip")
-      if (tooltip) {
-        if ((tooltip as any).cleanup) {
-          ;(tooltip as any).cleanup()
+      if (state.focusedNodeId) {
+        // Keep dim locked on focused node; tooltip and toolbar stay pinned
+        clearTimeout(dimDebounceTimer)
+        applyDimEffect(state.focusedNodeId)
+        hoverNodeId = ""
+      } else {
+        clearNodeHover()
+        scheduleDimEffect("")
+        const tooltip = document.getElementById("atom-tooltip")
+        if (tooltip) {
+          if ((tooltip as any).cleanup) {
+            ;(tooltip as any).cleanup()
+          }
+          tooltip.remove()
         }
-        tooltip.remove()
       }
-      scheduleAnchorHide()
     })
   }
 
@@ -575,11 +727,32 @@ export function AtomGraphView(props: {
         if (!nodeId) return
         const e = evt.originalEvent as MouseEvent | PointerEvent | undefined
         const multi = !!e && (("metaKey" in e && e.metaKey) || ("ctrlKey" in e && e.ctrlKey))
-        const next = multi
-          ? state.selectedIds.includes(nodeId)
-            ? state.selectedIds.filter((id) => id !== nodeId)
-            : [...state.selectedIds, nodeId]
-          : [nodeId]
+        // Focus toggle: single click pins/unpins dim + tooltip
+        if (!multi) {
+          const prevFocused = state.focusedNodeId
+          if (prevFocused === nodeId) {
+            // Unpin same node
+            setState({ focusedNodeId: "", selectedIds: [] })
+            clearDimEffect()
+            hideAnchor()
+            const tooltip = document.getElementById("atom-tooltip")
+            if (tooltip) {
+              if ((tooltip as any).cleanup) { ;(tooltip as any).cleanup() }
+              tooltip.remove()
+            }
+          } else {
+            // Pin new node (may be switching from another pinned node)
+            setState({ focusedNodeId: nodeId, selectedIds: [nodeId] })
+            applyDimEffect(nodeId)
+            showAnchor(nodeId)
+            // Build tooltip for new node, frozen at click position
+            buildTooltipFn?.(nodeId, e as MouseEvent | undefined)
+          }
+          return
+        }
+        const next = state.selectedIds.includes(nodeId)
+          ? state.selectedIds.filter((id) => id !== nodeId)
+          : [...state.selectedIds, nodeId]
         setState("selectedIds", next)
       })
 
@@ -609,7 +782,6 @@ export function AtomGraphView(props: {
           relationDeleting: false,
           error: "",
           anchorVisible: false,
-          deleteVisible: false,
         })
       })
 
@@ -643,11 +815,6 @@ export function AtomGraphView(props: {
           syncState(nodeId, ["connect-target"])
           return
         }
-
-        const nodeId = evt.target?.id
-        if (nodeId) {
-          showAnchor(nodeId)
-        }
       })
 
       graph.on("canvas:pointermove", (evt: any) => {
@@ -669,13 +836,19 @@ export function AtomGraphView(props: {
 
       graph.on("canvas:click", () => {
         hideAnchor()
-        setState("selectedIds", [])
+        clearTimeout(dimDebounceTimer)
+        if (state.focusedNodeId) {
+          const tooltip = document.getElementById("atom-tooltip")
+          if (tooltip) {
+            if ((tooltip as any).cleanup) { ;(tooltip as any).cleanup() }
+            tooltip.remove()
+          }
+        }
+        setState({ selectedIds: [], focusedNodeId: "", layoutMenuOpen: false })
         clearNodeHover()
         clearRelationHover()
+        clearDimEffect()
         closeMenu()
-        if (state.active && !state.saving) {
-          closeDraft()
-        }
       })
 
       graph.on("node:dragend", () => {
@@ -767,14 +940,54 @@ export function AtomGraphView(props: {
     }
   }
 
-  const triggerAutoLayout = async () => {
+  const LAYOUT_CONFIGS: Record<string, object> = {
+    force: {
+      type: "force",
+      linkDistance: 150,
+      nodeStrength: 30,
+      edgeStrength: 200,
+      preventOverlap: true,
+      nodeSize: 60,
+      nodeSpacing: 20,
+      coulombDisScale: 0.003,
+    },
+    radial: {
+      type: "radial",
+      linkDistance: 160,
+      preventOverlap: true,
+      nodeSize: 60,
+      nodeSpacing: 16,
+      unitRadius: 220,
+      strictRadial: false,
+      sortBy: "degree",     // high-degree nodes near center
+    },
+    circular: {
+      type: "circular",
+      radius: 300,          // explicit radius so nodes don't crowd
+      clockwise: true,
+      divisions: 1,
+      ordering: "degree",
+      angleRatio: 1,
+    },
+    dagre: {
+      type: "dagre",
+      rankdir: "TB",
+      align: "UL",
+      nodesep: 30,
+      ranksep: 70,
+      controlPoints: false,
+    },
+  }
+
+  const triggerAutoLayout = async (type?: string) => {
     if (!graph || !stateManager) return
+    const layoutType = type ?? state.layoutType
     stateManager.clearState()
     if (!syncSize()) return
+    await graph.setLayout(LAYOUT_CONFIGS[layoutType] as any)
     await frame()
     await graph.layout()
     await fit()
-    await graph.render()
     saveCurrentState()
   }
 
@@ -791,7 +1004,9 @@ export function AtomGraphView(props: {
       } else {
         applySavedPositions(graphState).then(() => {})
       }
-    } catch {}
+    } catch (err) {
+      console.warn("Error updating graph:", err)
+    }
   }
 
   createEffect(() => {
@@ -832,7 +1047,6 @@ export function AtomGraphView(props: {
       setState("deleteIds", [...state.selectedIds])
       setState("confirmOpen", true)
       setState("anchorVisible", false)
-      setState("deleteVisible", false)
     }
 
     window.addEventListener("keydown", onKey)
@@ -841,6 +1055,7 @@ export function AtomGraphView(props: {
 
   onCleanup(() => {
     clearHideAnchor()
+    clearTimeout(dimDebounceTimer)
     ro?.disconnect()
     if (graph) {
       saveCurrentState()
@@ -876,29 +1091,25 @@ export function AtomGraphView(props: {
     color: RELATION_COLORS[type],
   }))
 
+  const [legendExpanded, setLegendExpanded] = createSignal(false)
+
   const relationMenu = () => {
-    if (!containerRef) {
-      return {
-        left: state.relationX,
-        top: state.relationY,
-        up: true,
-      }
-    }
+    if (!containerRef) return { left: state.relationX, top: state.relationY }
 
-    const width = state.selectedRelationId ? 220 : 188
-    const height = state.selectedRelationId ? (state.error ? 116 : 72) : state.error ? 88 : 44
-    const gap = 12
+    const cardW = 220
+    const cardH = state.selectedRelationId
+      ? (state.error ? 290 : 268)   // edit card: header + 7 types + error? + delete row
+      : (state.error ? 260 : 240)   // create card: header + 7 types + error?
+    const gap = 8
     const pad = 8
-    const maxX = containerRef.clientWidth - width / 2 - pad
-    const minX = width / 2 + pad
-    const preferUp = state.relationY - height - gap >= pad
-    const up = preferUp || state.relationY + height + gap > containerRef.clientHeight - pad
-    const left = Math.min(Math.max(state.relationX, minX), maxX)
-    const top = up
-      ? Math.max(state.relationY - height / 2 - gap, height / 2 + pad)
-      : Math.min(state.relationY + height / 2 + gap, containerRef.clientHeight - height / 2 - pad)
 
-    return { left, top, up }
+    const left = Math.min(Math.max(state.relationX, cardW / 2 + pad), containerRef.clientWidth - cardW / 2 - pad)
+    const spaceBelow = containerRef.clientHeight - state.relationY - gap - pad
+    const top = spaceBelow >= cardH
+      ? state.relationY + gap
+      : Math.max(state.relationY - cardH - gap, pad)
+
+    return { left, top }
   }
 
   const deleteAtoms = () => props.atoms.filter((item) => state.deleteIds.includes(item.atom_id))
@@ -1018,7 +1229,15 @@ export function AtomGraphView(props: {
         deleting: false,
         deleteIds: [],
         selectedIds: [],
+        anchorVisible: false,
+        focusedNodeId: "",
       })
+      // Remove pinned tooltip if any
+      const tooltip = document.getElementById("atom-tooltip")
+      if (tooltip) {
+        if ((tooltip as any).cleanup) { ;(tooltip as any).cleanup() }
+        tooltip.remove()
+      }
     } catch {
       setState("deleting", false)
     }
@@ -1041,11 +1260,13 @@ export function AtomGraphView(props: {
         </svg>
       </Show>
       <Show when={state.anchorVisible && !state.dragging && !state.active}>
-        <button
-          class="absolute z-20 flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-border-interactive-base/70 bg-background-strong/90 text-[12px] font-medium text-text-interactive-base shadow-lg transition-transform hover:scale-110"
+        <div
+          class="absolute z-20"
           style={{
             left: `${state.anchorX}px`,
             top: `${state.anchorY}px`,
+            transform: "translate(calc(-100% - 4px), -50%)",
+            animation: "node-action-in 0.12s ease-out",
           }}
           onMouseEnter={() => {
             anchorPinned = true
@@ -1053,240 +1274,352 @@ export function AtomGraphView(props: {
           }}
           onMouseLeave={() => {
             anchorPinned = false
-            scheduleAnchorHide()
+            // Toolbar dismisses on unpin/canvas-click, not on mouse leave
           }}
-          onMouseDown={(evt) => {
-            evt.preventDefault()
-            evt.stopPropagation()
-            if (!state.hoverNodeId) return
-            beginDraft(state.hoverNodeId)
-          }}
-          title="Create relation"
         >
-          +
-        </button>
-      </Show>
-      <Show when={state.deleteVisible && !state.dragging && !state.active && state.hoverNodeId}>
-        <button
-          class="absolute z-20 flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-red-300/80 bg-red-500 text-[12px] font-semibold leading-none text-white shadow-lg transition-colors hover:bg-red-400"
-          style={{
-            left: `${state.deleteX}px`,
-            top: `${state.deleteY}px`,
-          }}
-          onMouseEnter={() => {
-            anchorPinned = true
-            clearHideAnchor()
-          }}
-          onMouseLeave={() => {
-            anchorPinned = false
-            scheduleAnchorHide()
-          }}
-          onClick={(evt) => {
-            evt.preventDefault()
-            evt.stopPropagation()
-            if (!state.hoverNodeId) return
-            hideTooltip()
-            setState("selectedIds", [state.hoverNodeId])
-            setState("deleteIds", [state.hoverNodeId])
-            setState("confirmOpen", true)
-            setState("anchorVisible", false)
-            setState("deleteVisible", false)
-          }}
-          title="Delete atom"
-        >
-          ×
-        </button>
-      </Show>
-      <div class="absolute bottom-4 right-4 z-20 bg-surface-raised-base/90 backdrop-blur-sm rounded-lg px-3 py-2 border border-border-weak-base">
-        <div class="text-[10px] text-text-weak mb-2 font-medium">ATOM TYPES</div>
-        <div class="flex flex-col gap-1.5 mb-3">
-          {legendItems.map((item) => (
-            <div class="flex items-center gap-2">
-              <div class="w-3 h-3 rounded-full" style={{ background: item.color }} />
-              <span class="text-xs text-text-base">{item.label}</span>
-            </div>
-          ))}
+          <style>{`
+            @keyframes node-action-in {
+              from { opacity: 0; transform: translate(calc(-100% + 4px), -50%) scale(0.85); }
+              to   { opacity: 1; transform: translate(calc(-100% - 4px), -50%) scale(1); }
+            }
+          `}</style>
+          <div class="flex flex-col gap-1 rounded-lg border border-white/10 bg-[rgba(15,23,42,0.88)] p-1 shadow-[0_8px_24px_rgba(0,0,0,0.5)] backdrop-blur-sm">
+            {/* Add relation */}
+            <button
+              class="group flex h-7 w-7 items-center justify-center rounded-md text-[#94a3b8] transition-all hover:bg-indigo-500/20 hover:text-indigo-400"
+              title="Create relation"
+              onMouseDown={(evt) => {
+                evt.preventDefault()
+                evt.stopPropagation()
+                if (!state.hoverNodeId) return
+                beginDraft(state.hoverNodeId)
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M10.5 5.5 C10.5 3.57 9.93 2 8 2 C6.07 2 5.5 3.57 5.5 5.5 L5.5 10.5 C5.5 12.43 6.07 14 8 14 C9.93 14 10.5 12.43 10.5 10.5" />
+                <circle cx="5.5" cy="5.5" r="1.8" fill="currentColor" stroke="none" />
+                <circle cx="10.5" cy="10.5" r="1.8" fill="currentColor" stroke="none" />
+              </svg>
+            </button>
+            {/* Divider */}
+            <div class="mx-1 h-px bg-white/8" />
+            {/* Delete */}
+            <Show when={state.hoverNodeId}>
+              <button
+                class="group flex h-7 w-7 items-center justify-center rounded-md text-[#64748b] transition-all hover:bg-red-500/15 hover:text-red-400"
+                title="Delete atom"
+                onClick={(evt) => {
+                  evt.preventDefault()
+                  evt.stopPropagation()
+                  if (!state.hoverNodeId) return
+                  hideTooltip()
+                  setState("selectedIds", [state.hoverNodeId])
+                  setState("deleteIds", [state.hoverNodeId])
+                  setState("confirmOpen", true)
+                  setState("anchorVisible", false)
+                }}
+              >
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M2 4h12M5 4V2.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 .5.5V4M6 7v5M10 7v5M3 4l.8 9.1A1 1 0 0 0 4.8 14h6.4a1 1 0 0 0 1-.9L13 4" />
+                </svg>
+              </button>
+            </Show>
+          </div>
         </div>
-        <div class="border-t border-border-weak-base pt-2">
-          <div class="text-[10px] text-text-weak mb-2 font-medium">RELATIONS</div>
-          <div class="flex flex-col gap-1.5">
-            {relationLegendItems.map((item) => (
-              <div class="flex items-center gap-2">
-                <div class="w-3 h-0.5 rounded-full" style={{ background: item.color }} />
-                <span class="text-xs text-text-base">{item.label}</span>
+      </Show>
+      <div
+        class="absolute bottom-4 right-4 z-20 rounded-lg border border-white/8 backdrop-blur-sm"
+        style={{ background: "rgba(15,23,42,0.82)" }}
+        onMouseEnter={() => setLegendExpanded(true)}
+        onMouseLeave={() => setLegendExpanded(false)}
+      >
+        <style>{`
+          @keyframes legend-expand {
+            from { opacity: 0; transform: translateY(6px) scale(0.97); }
+            to   { opacity: 1; transform: translateY(0) scale(1); }
+          }
+        `}</style>
+
+        {/* Collapsed: 2×2 type grid with initials */}
+        <Show when={!legendExpanded()}>
+          <div class="p-2 grid grid-cols-2 gap-1.5">
+            {legendItems.map((item) => (
+              <div
+                class="flex items-center gap-1 px-1.5 py-1 rounded"
+                style={{ background: `${item.color}22` }}
+              >
+                <div class="w-2 h-2 rounded-full flex-shrink-0" style={{ background: item.color }} />
+                <span class="text-[10px] font-medium" style={{ color: item.color }}>
+                  {item.label.slice(0, 3)}
+                </span>
               </div>
             ))}
           </div>
-        </div>
-        <button
-          onClick={() => triggerAutoLayout()}
-          class="mt-3 w-full px-2 py-1.5 text-xs bg-surface-weak hover:bg-surface-weaker text-text-base rounded transition-colors flex items-center justify-center gap-1"
-        >
-          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-            />
-          </svg>
-          Auto Layout
-        </button>
+        </Show>
+
+        {/* Expanded: full legend */}
+        <Show when={legendExpanded()}>
+          <div class="px-3 py-2.5 w-44" style={{ animation: "legend-expand 0.15s ease-out" }}>
+            <div class="text-[10px] mb-2 font-medium tracking-wider" style={{ color: "#64748b" }}>ATOM TYPES</div>
+            <div class="flex flex-col gap-1.5 mb-3">
+              {legendItems.map((item) => (
+                <div class="flex items-center gap-2">
+                  <div class="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: item.color }} />
+                  <span class="text-xs" style={{ color: "#cbd5e1" }}>{item.label}</span>
+                </div>
+              ))}
+            </div>
+            <div class="border-t border-white/8 pt-2">
+              <div class="text-[10px] mb-2 font-medium tracking-wider" style={{ color: "#64748b" }}>RELATIONS</div>
+              <div class="flex flex-col gap-1.5">
+                {relationLegendItems.map((item) => (
+                  <div class="flex items-center gap-2">
+                    <div class="w-3 h-0.5 rounded-full flex-shrink-0" style={{ background: item.color }} />
+                    <span class="text-xs" style={{ color: "#cbd5e1" }}>{item.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            {/* Layout picker */}
+            <div class="relative mt-3">
+              <button
+                onClick={() => setState("layoutMenuOpen", !state.layoutMenuOpen)}
+                class="w-full px-2 py-1.5 text-xs rounded transition-colors flex items-center justify-between gap-1 bg-white/5 hover:bg-white/10"
+                style={{ color: "#94a3b8" }}
+              >
+                <span class="flex items-center gap-1">
+                  <svg class="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  {({ force: "Force", radial: "Radial", circular: "Circular", dagre: "Tree" } as Record<string,string>)[state.layoutType]}
+                </span>
+                <svg class="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              <Show when={state.layoutMenuOpen}>
+                <div
+                  class="absolute bottom-full left-0 right-0 mb-1 rounded-lg border border-white/10 overflow-hidden z-50"
+                  style={{ background: "rgba(15,23,42,0.97)", "backdrop-filter": "blur(12px)" }}
+                >
+                  {(
+                    [
+                      { key: "force",    label: "Force",    desc: "Physics simulation" },
+                      { key: "radial",   label: "Radial",   desc: "Important nodes centered" },
+                      { key: "circular", label: "Circular", desc: "Ring arrangement" },
+                      { key: "dagre",    label: "Tree",     desc: "Hierarchical top-down" },
+                    ] as const
+                  ).map((item) => (
+                    <button
+                      class="w-full px-3 h-8 text-left transition-colors hover:bg-white/8 flex items-center justify-between gap-2"
+                      style={{ background: state.layoutType === item.key ? "rgba(99,102,241,0.15)" : undefined }}
+                      onClick={() => {
+                        setState({ layoutType: item.key, layoutMenuOpen: false })
+                        void triggerAutoLayout(item.key)
+                      }}
+                    >
+                      <span class="text-xs font-medium leading-none" style={{ color: state.layoutType === item.key ? "#818cf8" : "#cbd5e1" }}>
+                        {item.label}
+                      </span>
+                      <span class="text-[10px] leading-none shrink-0" style={{ color: "#475569" }}>{item.desc}</span>
+                    </button>
+                  ))}
+                </div>
+              </Show>
+            </div>
+          </div>
+        </Show>
       </div>
       <Show when={props.loading}>
-        <div class="absolute inset-0 flex items-center justify-center bg-background-strong/80 z-10">
-          <div class="text-text-weak">Loading graph...</div>
+        <div class="absolute inset-0 flex items-center justify-center bg-[rgba(2,6,23,0.8)] z-10">
+          <div class="text-slate-400">Loading graph...</div>
         </div>
       </Show>
-      <Show when={state.active}>
+      <Show when={state.active || !!state.selectedRelationId}>
         <div
-          class="absolute z-30 w-[188px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/8 bg-[linear-gradient(180deg,rgba(84,101,126,0.34),rgba(37,46,60,0.22))] shadow-[0_12px_24px_rgba(0,0,0,0.20)] backdrop-blur-2xl px-2.5 py-1"
+          class="absolute z-30 w-[220px] rounded-xl border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.5)] overflow-hidden"
           style={{
             left: `${relationMenu().left}px`,
             top: `${relationMenu().top}px`,
+            transform: "translateX(-50%)",
+            background: "rgba(15,23,42,0.96)",
+            "backdrop-filter": "blur(12px)",
+            animation: "node-info-in 0.14s ease-out",
           }}
           onClick={(evt) => evt.stopPropagation()}
         >
-          <div class="relative">
-            <select
-              value={state.relationType}
-              onInput={(evt) => {
-                const value = evt.currentTarget.value as RelationType
-                setState("relationType", value)
-                if (state.selectedRelationId) {
-                  void updateRelation(value)
-                  return
-                }
-                void submitRelation()
-              }}
-              class="w-full appearance-none bg-transparent px-3 py-1.5 pr-8 text-[13px] font-medium tracking-[0.01em] text-text-strong outline-none"
-              disabled={state.saving || state.relationDeleting}
-            >
-              <option value="" disabled>
-                Select relation
-              </option>
-              {Object.entries(RELATION_LABELS).map(([value, label]) => (
-                <option value={value}>{label}</option>
-              ))}
-            </select>
-            <div class="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-text-weak">
-              <svg class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7">
-                <path d="M5 7.5L10 12.5L15 7.5" stroke-linecap="round" stroke-linejoin="round" />
-              </svg>
+          {/* Header: source → target */}
+          <div class="px-3 pt-3 pb-2 border-b border-white/8">
+            <div class="text-[10px] font-medium mb-1" style={{ color: "#475569" }}>
+              {state.active ? "New relation" : "Edit relation"}
+            </div>
+            <div class="flex items-center gap-1 text-[12px] font-medium leading-tight" style={{ color: "#e2e8f0" }}>
+              <span class="truncate max-w-[70px]">
+                {state.active
+                  ? (props.atoms.find((a) => a.atom_id === state.sourceId)?.atom_name ?? "…")
+                  : (relationSource()?.atom_name ?? state.relationSourceId.slice(0, 8))}
+              </span>
+              <span style={{ color: "#475569" }} class="shrink-0">→</span>
+              <span class="truncate max-w-[70px]">
+                {state.active
+                  ? (props.atoms.find((a) => a.atom_id === state.targetId)?.atom_name ?? "…")
+                  : (relationTarget()?.atom_name ?? state.relationTargetId.slice(0, 8))}
+              </span>
             </div>
           </div>
+
+          {/* Relation type list */}
+          <div class="py-1">
+            {Object.entries(RELATION_LABELS).map(([value, label]) => {
+              const color = RELATION_COLORS[value] ?? "#64748b"
+              const isSelected = state.relationType === value
+              const isSaving = state.saving && isSelected
+              return (
+                <button
+                  class="w-full flex items-center gap-2.5 px-3 h-8 transition-colors text-left"
+                  style={{
+                    background: isSelected ? `${color}18` : undefined,
+                    opacity: (state.saving || state.relationDeleting) && !isSelected ? 0.4 : 1,
+                  }}
+                  disabled={state.saving || state.relationDeleting}
+                  onClick={() => {
+                    if (isSaving) return
+                    setState("relationType", value as RelationType)
+                    if (state.selectedRelationId) {
+                      void updateRelation(value as RelationType)
+                    } else {
+                      void submitRelation()
+                    }
+                  }}
+                >
+                  <span
+                    class="shrink-0 h-2 w-2 rounded-full"
+                    style={{ background: color, "box-shadow": isSelected ? `0 0 6px ${color}80` : undefined }}
+                  />
+                  <span class="text-xs flex-1" style={{ color: isSelected ? color : "#cbd5e1" }}>{label}</span>
+                  <Show when={isSaving}>
+                    <svg class="w-3 h-3 animate-spin shrink-0" style={{ color: "#64748b" }} viewBox="0 0 24 24" fill="none">
+                      <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" stroke-dasharray="31.4" stroke-linecap="round" />
+                    </svg>
+                  </Show>
+                  <Show when={isSelected && !isSaving}>
+                    <svg class="w-3 h-3 shrink-0" style={{ color }} viewBox="0 0 16 16" fill="none">
+                      <path d="M3 8l3.5 3.5L13 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                  </Show>
+                </button>
+              )
+            })}
+          </div>
+
+          {/* Error */}
           <Show when={state.error}>
-            <div class="mt-1 rounded-2xl border border-border-critical-base/20 bg-surface-critical-base/10 px-2.5 py-1.5 text-[11px] text-text-on-critical-base">
+            <div class="mx-3 mb-2 rounded-lg border border-red-500/20 bg-red-500/10 px-2.5 py-1.5 text-[11px] text-red-300">
               {state.error}
+            </div>
+          </Show>
+
+          {/* Footer: edit mode only — delete + cancel */}
+          <Show when={!!state.selectedRelationId}>
+            <div class="flex items-center gap-2 px-3 pb-3 pt-1 border-t border-white/8">
+              <button
+                onClick={() => removeRelation()}
+                disabled={state.saving || state.relationDeleting}
+                class="flex-1 h-7 text-[11px] rounded-lg border border-red-500/25 bg-red-500/15 hover:bg-red-500/25 disabled:opacity-50 transition-colors"
+                style={{ color: "#fca5a5" }}
+              >
+                {state.relationDeleting ? "Deleting…" : "Delete"}
+              </button>
+              <button
+                onClick={() => closeMenu()}
+                disabled={state.saving || state.relationDeleting}
+                class="flex-1 h-7 text-[11px] rounded-lg bg-white/5 hover:bg-white/10 disabled:opacity-50 transition-colors"
+                style={{ color: "#94a3b8" }}
+              >
+                Cancel
+              </button>
+            </div>
+          </Show>
+
+          {/* Footer: create mode — cancel */}
+          <Show when={state.active && !state.selectedRelationId}>
+            <div class="px-3 pb-3 pt-1 border-t border-white/8">
+              <button
+                onClick={() => closeMenu()}
+                class="w-full h-7 text-[11px] rounded-lg bg-white/5 hover:bg-white/10 transition-colors"
+                style={{ color: "#94a3b8" }}
+              >
+                Cancel
+              </button>
             </div>
           </Show>
         </div>
       </Show>
-      <Show when={state.selectedRelationId}>
-        <div class="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-background-strong/70 backdrop-blur-[1px]">
-          <div class="pointer-events-auto w-[360px] rounded-xl border border-border-weak-base bg-surface-float-base shadow-2xl p-4">
-            <div class="text-sm font-medium text-text-strong">Edit Relation</div>
-            <div class="mt-3 text-sm text-text-base">
-              <span class="text-text-strong">{relationSource()?.atom_name ?? state.relationSourceId.slice(0, 8)}</span>{" "}
-              →{" "}
-              <span class="text-text-strong">{relationTarget()?.atom_name ?? state.relationTargetId.slice(0, 8)}</span>
-            </div>
-            <div class="mt-4">
-              <div class="mb-2 text-xs text-text-weaker">Relation type</div>
-              <select
-                value={state.relationType}
-                onInput={(evt) => {
-                  const value = evt.currentTarget.value as RelationType
-                  setState("relationType", value)
-                }}
-                disabled={state.saving || state.relationDeleting}
-                class="w-full rounded-lg border border-border-weak-base bg-surface-raised-base px-3 py-2 text-sm text-text-strong outline-none"
-              >
-                {Object.entries(RELATION_LABELS).map(([value, label]) => (
-                  <option value={value}>{label}</option>
-                ))}
-              </select>
-            </div>
-            <Show when={state.error}>
-              <div class="mt-3 rounded-lg border border-border-critical-base/20 bg-surface-critical-base/10 px-3 py-2 text-xs text-text-on-critical-base">
-                {state.error}
-              </div>
-            </Show>
-            <div class="mt-4 flex items-center justify-between gap-2">
-              <button
-                onClick={() => removeRelation()}
-                disabled={state.saving || state.relationDeleting}
-                class="px-3 py-1.5 text-xs rounded border border-red-300/80 bg-red-500 text-white shadow-lg hover:bg-red-400 disabled:opacity-60 transition-colors"
-              >
-                {state.relationDeleting ? "Deleting..." : "Delete"}
-              </button>
-              <div class="flex items-center gap-2">
-                <button
-                  onClick={() => closeMenu()}
-                  disabled={state.saving || state.relationDeleting}
-                  class="px-3 py-1.5 text-xs rounded bg-surface-raised-base text-text-base hover:bg-surface-raised-base-hover disabled:opacity-60 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => void updateRelation(state.relationType as RelationType)}
-                  disabled={state.saving || state.relationDeleting}
-                  class="px-3 py-1.5 text-xs rounded bg-surface-primary-base text-text-on-primary-base hover:bg-surface-primary-base disabled:opacity-60 transition-colors"
-                >
-                  {state.saving ? "Saving..." : "Save"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </Show>
       <Show when={state.confirmOpen}>
-        <div class="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-background-strong/70 backdrop-blur-[1px]">
-          <div class="pointer-events-auto w-[360px] rounded-xl border border-border-weak-base bg-surface-float-base shadow-2xl p-4">
-            <div class="text-sm font-medium text-text-strong">Delete Atom</div>
-            <div class="mt-3 text-sm text-text-base">
-              Delete{" "}
-              <span class="text-text-strong">
-                {deleteAtoms().length === 1
-                  ? (deleteAtoms()[0]?.atom_name ?? state.deleteIds[0]?.slice(0, 8))
-                  : `${state.deleteIds.length} atoms`}
-              </span>{" "}
-              and all related relations, local files, and linked sessions?
+        <div class="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-[rgba(2,6,23,0.6)] backdrop-blur-sm">
+          <div
+            class="pointer-events-auto w-[340px] overflow-hidden rounded-2xl border border-white/10 bg-[rgba(15,23,42,0.95)] shadow-[0_24px_64px_rgba(0,0,0,0.6)]"
+            style={{ animation: "confirm-in 0.15s cubic-bezier(0.34,1.4,0.64,1)" }}
+          >
+            <style>{`
+              @keyframes confirm-in {
+                from { opacity: 0; transform: scale(0.92) translateY(8px); }
+                to   { opacity: 1; transform: scale(1) translateY(0); }
+              }
+            `}</style>
+            {/* Icon + title */}
+            <div class="flex flex-col items-center px-6 pt-6 pb-4 text-center">
+              <div class="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-500/12 ring-1 ring-red-500/25">
+                <svg width="22" height="22" viewBox="0 0 16 16" fill="none" stroke="#f87171" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M2 4h12M5 4V2.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 .5.5V4M6 7v5M10 7v5M3 4l.8 9.1A1 1 0 0 0 4.8 14h6.4a1 1 0 0 0 1-.9L13 4" />
+                </svg>
+              </div>
+              <div class="text-[15px] font-semibold text-[#f1f5f9]">删除原子</div>
+              <div class="mt-2 text-[13px] leading-relaxed text-[#94a3b8]">
+                确认删除{" "}
+                <span class="font-medium text-[#e2e8f0]">
+                  {(() => {
+                    const atoms = deleteAtoms()
+                    return atoms.length === 1
+                      ? (atoms[0]?.atom_name ?? state.deleteIds[0]?.slice(0, 8))
+                      : `${state.deleteIds.length} 个原子`
+                  })()}
+                </span>
+                ？<br />相关联的关系、文件和会话将一并删除。
+              </div>
+              <div class="mt-2 text-[11px] text-[#475569]">此操作不可撤销</div>
             </div>
-            <div class="mt-2 text-xs text-text-weaker">This action cannot be undone.</div>
-            <div class="mt-4 flex items-center justify-end gap-2">
+            {/* Actions */}
+            <div class="flex gap-2 border-t border-white/6 px-4 py-3">
               <button
-                onClick={() =>
-                  setState({
-                    confirmOpen: false,
-                    deleting: false,
-                    deleteIds: [],
-                  })
-                }
+                onClick={() => setState({ confirmOpen: false, deleting: false, deleteIds: [] })}
                 disabled={state.deleting}
-                class="px-3 py-1.5 text-xs rounded bg-surface-raised-base text-text-base hover:bg-surface-raised-base-hover disabled:opacity-60 transition-colors"
+                class="flex-1 rounded-lg border border-white/8 bg-white/5 py-2 text-[13px] font-medium transition-all hover:bg-white/10 disabled:opacity-50"
+                style={{ color: "#94a3b8" }}
               >
-                Cancel
+                取消
               </button>
               <button
                 onClick={() => removeAtom()}
                 disabled={state.deleting}
-                class="px-3 py-1.5 text-xs rounded border border-red-300/80 bg-red-500 text-white shadow-lg hover:bg-red-400 disabled:opacity-60 transition-colors"
+                class="flex-1 rounded-lg bg-red-500 py-2 text-[13px] font-medium transition-all hover:bg-red-400 disabled:opacity-50 shadow-[0_2px_8px_rgba(239,68,68,0.35)]"
+                style={{ color: "#ffffff" }}
               >
-                {state.deleting ? "Deleting..." : "Delete"}
+                {state.deleting ? "删除中…" : "确认删除"}
               </button>
             </div>
           </div>
         </div>
       </Show>
       <Show when={props.error}>
-        <div class="pointer-events-none absolute inset-0 flex items-center justify-center bg-background-strong/80 z-10">
-          <div class="text-icon-critical-base">Error loading graph</div>
+        <div class="pointer-events-none absolute inset-0 flex items-center justify-center bg-[rgba(2,6,23,0.8)] z-10">
+          <div class="text-red-400">Error loading graph</div>
         </div>
       </Show>
       <Show when={!props.loading && !props.error && props.atoms.length === 0}>
-        <div class="pointer-events-none absolute inset-0 flex items-center justify-center bg-background-strong/80 z-10">
-          <div class="text-text-weak">No atoms to display</div>
+        <div class="pointer-events-none absolute inset-0 flex items-center justify-center bg-[rgba(2,6,23,0.8)] z-10">
+          <div class="text-slate-400">No atoms to display</div>
         </div>
       </Show>
     </div>
