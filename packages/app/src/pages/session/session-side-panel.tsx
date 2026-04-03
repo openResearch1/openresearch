@@ -765,6 +765,7 @@ export function SessionSidePanel(props: {
                                   mode="files"
                                   multiple={true}
                                   acceptExt={[".pdf"]}
+                                  allowDirs
                                   validateSelection={async (paths: string[]) => {
                                     const rpId = researchProject()?.research_project_id
                                     if (!rpId) return { valid: false, error: "Research project not found" }

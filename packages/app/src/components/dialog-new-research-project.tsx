@@ -7,7 +7,7 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { getFilename } from "@opencode-ai/util/path"
 import { useNavigate } from "@solidjs/router"
-import { Show, createEffect, createMemo, createResource, createSignal, onCleanup } from "solid-js"
+import { Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLayout } from "@/context/layout"
@@ -57,13 +57,7 @@ export function DialogPathPicker(props: PathPickerProps) {
   const [isValidating, setIsValidating] = createSignal(false)
 
   const home = createMemo(() => props.startDir?.() || sync.data.path.home || sync.data.path.directory || "/")
-  const [cwd, setCwd] = createSignal("")
-
-  // Initialize cwd from home on first render
-  createEffect(() => {
-    const h = home()
-    if (h && !cwd()) setCwd(h)
-  })
+  const [cwd, setCwd] = createSignal(home())
 
   const goUp = () => {
     const cur = cwd()
@@ -80,11 +74,17 @@ export function DialogPathPicker(props: PathPickerProps) {
 
   type ListItem = { path: string; type: "file" | "directory" }
 
-  const [items] = createResource(
-    () => ({ base: cwd(), q: cleanInput(filter()) }),
-    async ({ base, q }) => {
-      if (!base) return [] as ListItem[]
+  const [items, setItems] = createSignal<ListItem[]>([])
 
+  createEffect(() => {
+    const base = cwd()
+    const q = cleanInput(filter())
+    if (!base) {
+      setItems([])
+      return
+    }
+
+    const fetchItems = async () => {
       if (!q) {
         const nodes = await sdk.client.file
           .list({ directory: base, path: "" })
@@ -126,17 +126,34 @@ export function DialogPathPicker(props: PathPickerProps) {
         path: trimTrailing(joinPath(base, rel)),
         type: (props.mode === "files" ? "file" : "directory") as "file" | "directory",
       }))
-    },
-  )
+    }
+
+    fetchItems()
+      .then(setItems)
+      .catch(() => setItems([]))
+  })
 
   const filtered = createMemo(() => {
-    const list = items() ?? []
-    if (!props.acceptExt || props.mode !== "files") return list
-    const allow = props.acceptExt.map((e) => e.toLowerCase())
-    return list.filter(
-      (item) =>
-        (props.allowDirs && item.type === "directory") || allow.some((ext) => item.path.toLowerCase().endsWith(ext)),
-    )
+    let list = items()
+
+    // Filter by search query
+    const q = cleanInput(filter()).toLowerCase()
+    if (q) {
+      list = list.filter((item) => {
+        const name = item.path.split("/").pop() || item.path
+        return name.toLowerCase().includes(q)
+      })
+    }
+
+    // Filter by accepted extensions
+    if (props.acceptExt && props.mode === "files") {
+      const allow = props.acceptExt.map((e) => e.toLowerCase())
+      list = list.filter(
+        (item) => item.type === "directory" || allow.some((ext) => item.path.toLowerCase().endsWith(ext)),
+      )
+    }
+
+    return list
   })
 
   const canPick = (item: ListItem) => item.type === "file" || (props.allowDirs && item.type === "directory")
