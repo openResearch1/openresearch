@@ -1,6 +1,6 @@
 import { Session } from "@/session"
 import { Database, eq } from "../storage/db"
-import { ArticleTable, ResearchProjectTable } from "./research.sql"
+import { ResearchProjectTable } from "./research.sql"
 import { BusEvent } from "@/bus/bus-event"
 import z from "zod"
 
@@ -70,12 +70,12 @@ export namespace Research {
     )
   }
 
-  export function updateArticleMacroTablePath(articleId: string, macroTablePath: string) {
+  export function updateMacroTablePath(researchProjectId: string, macroTablePath: string) {
     Database.use((db) =>
       db
-        .update(ArticleTable)
+        .update(ResearchProjectTable)
         .set({ macro_table_path: macroTablePath, time_updated: Date.now() })
-        .where(eq(ArticleTable.article_id, articleId))
+        .where(eq(ResearchProjectTable.research_project_id, researchProjectId))
         .run(),
     )
   }

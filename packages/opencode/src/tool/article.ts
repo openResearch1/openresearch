@@ -15,7 +15,6 @@ function formatArticle(row: ArticleRow): string {
     `kind: ${kind}`,
     `path: ${row.path}`,
     row.code_path ? `code_path: ${row.code_path}` : null,
-    row.macro_table_path ? `macro_table_path: ${row.macro_table_path}` : null,
     row.source_url ? `source_url: ${row.source_url}` : null,
   ]
     .filter(Boolean)

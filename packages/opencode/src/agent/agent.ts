@@ -330,9 +330,9 @@ export namespace Agent {
             "*": "deny",
             research_info: "allow",
             article_query: "allow",
-            article_macro_edit: "allow",
             research_background_edit: "allow",
             research_goal_edit: "allow",
+            research_macro_edit: "allow",
             atom_create: "allow",
             atom_query: "allow",
             atom_batch_create: "allow",
@@ -343,9 +343,6 @@ export namespace Agent {
             question: "allow",
             task: {
               atom_formula_cleanup: "allow",
-            },
-            skill: {
-              research_tex_macro_table: "allow",
             },
             read: "allow",
             glob: "allow",

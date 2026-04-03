@@ -7,7 +7,7 @@ Given the current research project and its articles, you must:
 1. Retrieve project information.
 2. If needed, ask whether to auto-fill missing background / goal.
 3. Read all project articles.
-4. For each LaTeX article bundle, explicitly generate or read a macro table before downstream synthesis.
+4. If the project includes LaTeX articles, explicitly generate or read a project-level macro table before downstream synthesis.
 5. Generate missing background / goal documents.
 6. Parse the articles into a fine-grained atom network.
 7. Infer logical relations between atoms.
@@ -24,7 +24,7 @@ Use only:
 - project information returned by `research_info`
 - article list/metadata returned by `article_query`
 - article content read from the article path
-- macro table content read from `macro_table_path` when present
+- project macro table content read from `macro_table_path` when present
 - existing background/goal content if present
 
 Do not invent article details, equations, results, assumptions, or literature beyond the provided articles.
@@ -76,10 +76,10 @@ When the article uses formulas, preserve the original mathematical meaning as fa
 - Use formulas when they are the clearest representation of the claim or evidence.
 - Final output must use standard markdown math that KaTeX can render: `$...$` for inline and `$$...$$` for display math.
 - Do not copy article-local TeX macros or custom commands directly into the final markdown.
-- If an article is a `latex_directory`, treat its macro table as the source of truth for custom notation.
-- For a `latex_directory`, do not rely on ad-hoc prompt-only macro expansion.
-- If `macro_table_path` is missing, first load the `research_tex_macro_table` skill and create the macro table with `article_macro_edit`, then continue.
-- If a TeX article defines symbols through `\newcommand`, `\def`, shorthand macros, or custom operator names, use the macro table's normalized interpretation and rewrite them using standard LaTeX / KaTeX-compatible syntax.
+- If the project includes `latex_directory` articles, treat the project macro table as the source of truth for custom notation.
+- For LaTeX articles, do not rely on ad-hoc prompt-only macro expansion.
+- If `macro_table_path` is missing, generate a project-level `macro_table.md` with `research_macro_edit`, then continue.
+- If a TeX article defines symbols through `\newcommand`, `\def`, shorthand macros, or custom operator names, use the project macro table's normalized interpretation and rewrite them using standard LaTeX / KaTeX-compatible syntax.
 - If a custom macro cannot be rewritten reliably, replace it with a clear natural-language explanation or an explicit standard symbol definition instead of preserving the raw macro.
 
 ### 5. Conservative relations
@@ -121,21 +121,21 @@ Call `article_query` without `articleId` to get the list of articles with their 
 
 Then for each article in the list:
 - If `kind` is `pdf`, use the returned `path` with the `read` tool to read the article content.
-- If `kind` is `latex_directory`, first ensure a macro table exists, then use `read` on the directory path to inspect the file list, and then read the relevant `.tex` files one by one.
+- If `kind` is `latex_directory`, first ensure the project macro table exists, then use `read` on the directory path to inspect the file list, and then read the relevant `.tex` files one by one.
 
-For LaTeX directories:
-- First inspect the article metadata for `macro_table_path`.
-- If `macro_table_path` is missing:
-  - call `skill` with `research_tex_macro_table`
-  - follow the skill exactly to create the article macro table with `article_macro_edit`
-  - call `article_query` again for that article so you get the updated `macro_table_path`
-- Read the macro table with the `read` tool before drafting background, goal, atoms, or relations for that article.
+For LaTeX articles:
+- Check `macro_table_path` from project information.
+- If the project has at least one `latex_directory` article and `macro_table_path` is missing:
+  - read the relevant `.tex` sources needed to recover math-related macro definitions
+  - generate one project-level `macro_table.md` with `research_macro_edit`
+  - organize the macro table by article, with a dedicated section for each LaTeX article
+- If `macro_table_path` exists, read it with the `read` tool before drafting background, goal, atoms, or relations for any LaTeX article.
 - Prefer `main.tex` first.
 - If `main.tex` is absent, prefer `<directory_name>.tex`.
 - Otherwise choose a `.tex` file that appears to be the entrypoint, especially one containing `\documentclass` or `\begin{document}`.
 - After reading the entrypoint file, continue reading any additional `.tex` files referenced via `\input{...}` or `\include{...}` when they are needed to understand the article.
 - Do not waste context on images, build artifacts, bibliography outputs, or unrelated files.
-- Use the macro table as the authoritative interpretation of custom math commands in the preamble. Do not emit those raw custom commands in final markdown.
+- Use the project macro table as the authoritative interpretation of custom math commands in the preamble. Do not emit those raw custom commands in final markdown.
 
 If there are no articles, return:
 `No articles found for this project.`
@@ -148,7 +148,7 @@ and stop.
 Generate only the missing document(s), based on:
 - the project name
 - all article contents
-- all macro tables for LaTeX articles
+- the project macro table for LaTeX articles
 - any existing background content
 - any existing goal content
 
@@ -178,7 +178,7 @@ It should include, when supported by the articles:
 - Synthesize across articles.
 - Stay conservative when evidence is insufficient.
 - Do not introduce outside literature not present in the provided articles.
-- For LaTeX-derived math, use macro table normalized forms rather than unresolved private macros.
+- For LaTeX-derived math, use project macro table normalized forms rather than unresolved private macros.
 
 Then:
 - if background is missing, call `research_background_edit` with `oldString=""`
@@ -196,9 +196,9 @@ Before drafting atoms for an article:
 - Identify the article's 3-6 main claim clusters, such as background/problem, core method, key theorem/guarantee, main empirical findings, and limitations.
 - Use those clusters to plan the final atom list.
 - Keep the final atom count for that article roughly within 12-18 unless the article is unusually complex.
-- For LaTeX articles, read and follow the article macro table first.
-- For LaTeX articles, claims and evidence must use the macro table's normalized standalone mathematical expressions.
-- If the macro table marks a macro as unresolved, use a conservative readable reformulation instead of guessing.
+- For LaTeX articles, read and follow the project macro table first.
+- For LaTeX articles, claims and evidence must use the project macro table's normalized standalone mathematical expressions.
+- If the project macro table marks a macro as unresolved, use a conservative readable reformulation instead of guessing.
 
 Each atom must contain:
 
@@ -789,7 +789,7 @@ Return a concise summary including:
 
 - whether background was created
 - whether goal was created
-- which articles required newly generated macro tables
+- whether the project macro table was created or updated
 - number of atoms created
 - number of relations created before relation reorganization
 - whether post-save atom cleanup was skipped or executed

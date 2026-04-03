@@ -12,7 +12,7 @@ import { createTwoFilesPatch } from "diff"
 import { trimDiff, replace } from "./edit"
 
 interface DocFieldConfig {
-  field: "background" | "goal"
+  field: "background" | "goal" | "macro_table"
   fileName: string
   getPath: (project: NonNullable<ReturnType<typeof Research.getResearchProject>>) => string | null
   updatePath: (researchProjectId: string, filePath: string) => void
@@ -154,5 +154,18 @@ export const ResearchGoalTool = defineResearchDocTool(
     fileName: "goal.md",
     getPath: (project) => project.goal_path,
     updatePath: Research.updateGoalPath,
+  },
+)
+
+export const ResearchMacroTool = defineResearchDocTool(
+  "research_macro_edit",
+  "Edit or create the macro table document of the current research project. " +
+    "Use oldString='' to create a new macro table file. " +
+    "Use oldString with content to edit existing macro table.",
+  {
+    field: "macro_table",
+    fileName: "macro_table.md",
+    getPath: (project) => project.macro_table_path,
+    updatePath: Research.updateMacroTablePath,
   },
 )

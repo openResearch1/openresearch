@@ -29,7 +29,6 @@ import { Truncate } from "./truncation"
 
 import { ApplyPatchTool } from "./apply_patch"
 import { ArticleQueryTool } from "@/tool/article.ts"
-import { ArticleMacroEditTool } from "@/tool/article-macro.ts"
 import { ArticleCodeTool } from "@/tool/article-code.ts"
 import {
   AtomCreateTool,
@@ -43,7 +42,7 @@ import {
 } from "./atom"
 import { ExperimentCreateTool } from "./experiment"
 import { ExperimentQueryTool } from "./experiment-query"
-import { ResearchBackgroundTool, ResearchGoalTool } from "./research-background"
+import { ResearchBackgroundTool, ResearchGoalTool, ResearchMacroTool } from "./research-background"
 import { ResearchInfoTool } from "./research-info"
 import { SshTool } from "./ssh"
 import { ExperimentWatchTool } from "./experiment-watch"
@@ -137,7 +136,6 @@ export namespace ToolRegistry {
       SkillTool,
       ApplyPatchTool,
       ArticleQueryTool,
-      ArticleMacroEditTool,
       ArticleCodeTool,
       AtomCreateTool,
       AtomQueryTool,
@@ -151,6 +149,7 @@ export namespace ToolRegistry {
       ExperimentQueryTool,
       ResearchBackgroundTool,
       ResearchGoalTool,
+      ResearchMacroTool,
       ResearchInfoTool,
       SshTool,
       ExperimentWatchTool,
