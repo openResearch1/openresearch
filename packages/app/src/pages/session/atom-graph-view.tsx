@@ -432,8 +432,8 @@ export function AtomGraphView(props: {
     const point = getPoint(sourceId)
     if (!point) return
 
+    resetNodeVisualState()
     anchorPinned = false
-    clearHover()
     syncState(sourceId, ["connect-source"])
     setState({
       anchorVisible: false,
@@ -463,7 +463,15 @@ export function AtomGraphView(props: {
   }
 
   const resetDraft = () => {
+    clearHideAnchor()
+    clearTimeout(dimDebounceTimer)
+    pendingDimNodeId = ""
+    anchorPinned = false
     clearHover()
+    clearNodeHover()
+    clearRelationHover()
+    hideTooltip()
+    clearDimEffect()
     if (state.sourceId) {
       syncState(state.sourceId, [])
     }
@@ -475,6 +483,10 @@ export function AtomGraphView(props: {
       startY: 0,
       endX: 0,
       endY: 0,
+      anchorVisible: false,
+      hoverNodeId: "",
+      focusedNodeId: "",
+      selectedIds: [],
     })
   }
 
@@ -1412,21 +1424,8 @@ export function AtomGraphView(props: {
         targetAtomId: state.targetId,
         relationType: state.relationType,
       })
-      setState({
-        active: false,
-        dragging: false,
-        sourceId: "",
-        targetId: "",
-        relationType: "",
-        saving: false,
-        error: "",
-        relationX: 0,
-        relationY: 0,
-        startX: 0,
-        startY: 0,
-        endX: 0,
-        endY: 0,
-      })
+      setState("saving", false)
+      closeMenu()
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to create relation"
       setState("saving", false)
@@ -1600,9 +1599,10 @@ export function AtomGraphView(props: {
                   evt.preventDefault()
                   evt.stopPropagation()
                   if (!state.hoverNodeId) return
+                  const nodeId = state.hoverNodeId
                   resetNodeVisualState()
-                  setState("selectedIds", [state.hoverNodeId])
-                  setState("deleteIds", [state.hoverNodeId])
+                  setState("selectedIds", [nodeId])
+                  setState("deleteIds", [nodeId])
                   setState("confirmOpen", true)
                 }}
               >
