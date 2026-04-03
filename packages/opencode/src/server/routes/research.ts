@@ -928,6 +928,9 @@ export const ResearchRoutes = new Hono()
       if (!(await Filesystem.exists(sourcePath))) {
         return c.json({ success: false, message: `source file not found: ${body.sourcePath}` }, 400)
       }
+      if (!(await Filesystem.isDir(sourcePath)) && path.extname(sourcePath).toLowerCase() !== ".pdf") {
+        return c.json({ success: false, message: `unsupported article source: ${body.sourcePath}` }, 400)
+      }
 
       const projectInfo = Database.use((db) =>
         db.select().from(ProjectTable).where(eq(ProjectTable.id, project.project_id)).get(),
