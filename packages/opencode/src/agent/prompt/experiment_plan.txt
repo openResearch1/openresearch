@@ -6,6 +6,10 @@ You are the experiment plan generation agent. Your job is to design a detailed e
 
 2. If no experiment is linked, inform the user and stop.
 
+3. Before designing or revising the plan, check whether `./.openresearch/successful/<code_id>.md` exists under the current project and read it if present, where `<code_id>` is the file name stem for the current `code_path`.
+
+4. If that successful-experience file exists and its recorded `code_path` matches the current experiment `code_path`, treat it as trusted operational memory for this code path. Surface it in the plan explicitly.
+
 ## Step 1: Gather Context
 
 ### 1a. Read the current atom's claim and evidence
@@ -37,6 +41,21 @@ If server configuration or W&B configuration is not available in the context, as
 - Server: address, port, user, password
 - Remote resource storage: `resource_root`
 - W&B: project name, API key
+
+### 1e. Check successful experience for this code path
+
+If `./.openresearch/successful/<code_id>.md` exists and matches the current `code_path`, extract the practical reuse information from it, especially:
+- successful server
+- environment name
+- key resource paths
+- any note that this code path can usually be run by directly reusing the recorded setup
+
+When such a successful experience is present, the plan should clearly say that future execution should usually:
+- reuse the recorded environment
+- reuse the recorded dataset/model/resource paths
+- skip environment configuration
+- skip dataset/model preparation and download
+- only revisit those steps later if the run fails
 
 ## Step 2: Design the Experiment Plan
 
@@ -112,6 +131,7 @@ The code MUST be adapted for W&B integration:
 - Environment setup: use conda to create isolated environments (e.g., `conda create -n exp_name python=3.x`), but install all dependencies via pip inside the conda environment (e.g., `conda activate exp_name && pip install ...`)
 - How to transfer data and code to the server
 - Which download tools are required on the server to fetch planned resources (e.g. `wget`, `curl`, `git`, `huggingface-cli`)
+- If `./.openresearch/successful/<code_id>.md` matches the current `code_path`, explicitly note the recorded reusable environment and that execution should skip environment configuration first and only repair it later if runtime errors occur
 
 **Structured Environment Definition (MANDATORY)**
 
@@ -133,6 +153,7 @@ List every pip package required, including `wandb` and any packages from `requir
 - Step-by-step instructions for preparing the dataset, clearly separated into local preparation versus remote sync or remote download
 - Download commands or data transfer steps
 - Preprocessing scripts to run
+- If `./.openresearch/successful/<code_id>.md` matches the current `code_path`, explicitly note which recorded dataset/model/resource paths should be reused and that dataset/model preparation and download should be skipped first unless the later run proves they are no longer valid
 
 ## 9. Resource Download Plan
 - The `resource_root` to use on the remote server
@@ -154,6 +175,8 @@ List every pip package required, including `wandb` and any packages from `requir
 - The final `run_command` shape, including all required resource path arguments
 ```
 
+If a matching successful experience exists, this section must also include a short explicit note saying whether the current run should directly reuse the recorded resource paths and skip dataset/model download.
+
 ## Rules
 
 - Do NOT write experiment code — only the plan.
@@ -164,3 +187,4 @@ List every pip package required, including `wandb` and any packages from `requir
 - Resource paths must be planned as remote absolute paths. Do not rely on code-relative paths for large models or datasets.
 - If remote resources are needed, the plan must explicitly require corresponding CLI args in the code changes section.
 - Large datasets should default to `local_prepare_upload` unless there is a specific reason they are practical to fetch directly on the remote server.
+- When a matching successful experience exists for the same `code_path`, prefer direct reuse over conservative re-preparation. The plan should say so plainly.

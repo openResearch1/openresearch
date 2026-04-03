@@ -26,6 +26,7 @@ import PROMPT_EXPERIMENT_DEPLOY from "./prompt/experiment_deploy.txt"
 import PROMPT_EXPERIMENT_SETUP_ENV from "./prompt/experiment_setup_env.txt"
 import PROMPT_EXPERIMENT_RUN from "./prompt/experiment_run.txt"
 import PROMPT_EXPERIMENT_SUMMARY from "./prompt/experiment_summary.txt"
+import PROMPT_EXPERIMENT_SUCCESS from "./prompt/experiment_success.txt"
 import PROMPT_EVIDENCE_ASSESSMENT from "./prompt/evidence_assessment.txt"
 import { PermissionNext } from "@/permission/next"
 import { mergeDeep, pipe, sortBy, values } from "remeda"
@@ -446,6 +447,29 @@ export namespace Agent {
         description:
           "Summarize completed experiment results for an atom and write the evidence to evidence.md. Reads experiment watchers, W&B metrics, and synthesizes findings.",
         prompt: PROMPT_EXPERIMENT_SUMMARY,
+        permission: PermissionNext.merge(
+          defaults,
+          PermissionNext.fromConfig({
+            "*": "deny",
+            atom_query: "allow",
+            experiment_query: "allow",
+            read: "allow",
+            write: "allow",
+            edit: "allow",
+            apply_patch: "allow",
+            glob: "allow",
+          }),
+          user,
+        ),
+        options: {},
+        mode: "subagent",
+        native: true,
+      },
+      experiment_success: {
+        name: "experiment_success",
+        description:
+          "Summarize the actual runtime setup of a successful experiment run and write reusable success notes under openresearch/successful.",
+        prompt: PROMPT_EXPERIMENT_SUCCESS,
         permission: PermissionNext.merge(
           defaults,
           PermissionNext.fromConfig({

@@ -53,6 +53,17 @@ If the plan requires `local_prepare_upload`, also capture or choose:
 
 Then read the linked atom's claim and evidence files using `atom_query` and `read` tools to understand the research context.
 
+Also check whether `./.openresearch/successful/<code_id>.md` exists under the current project and read it if present, where `<code_id>` is the file name stem for the current `code_path`.
+
+If that file exists and its recorded `code_path` matches the current experiment `code_path`, treat it as trusted successful experience for this code path. Capture from it:
+
+- successful server
+- reusable environment name
+- reusable dataset, model, or other key resource paths
+- any operational notes
+
+When a matching successful experience is present, you should generally trust it first instead of conservatively rebuilding everything.
+
 Immediately initialize the experiment execution watch:
 
 ```
@@ -98,6 +109,11 @@ Read the file at `exp_plan_path`.
   After the plan is generated, read it and present a summary to the user. Ask the user to confirm before proceeding. If the user wants changes, edit the plan accordingly.
 
 - **If the plan already exists**, read it and proceed to Phase 4.
+
+If a matching successful experience exists, ensure the plan summary shown to the user explicitly mentions:
+- that a successful experience was found for this `code_path`
+- which server, environment, and key resource paths are recorded
+- that later execution should skip environment configuration and dataset/model preparation first, and only repair them if the run fails
 
 Before generating or revising the plan, update the watch:
 
@@ -185,6 +201,8 @@ subagent_type: experiment_deploy
 
 Invoke `experiment_setup_env` only when the environment does not already satisfy the plan, or when recent code changes modified environment requirements. The remote server should already have the code uploaded if setup depends on `requirements.txt` or similar files:
 
+If a matching successful experience records a reusable environment for this same `code_path`, you should normally treat that environment as already valid and skip `experiment_setup_env` on the first attempt. Do not do a slow conservative rebuild first. Only come back to environment configuration later if the run fails and the error indicates an environment issue.
+
 Before invoking it, update the watch:
 
 ```
@@ -206,6 +224,8 @@ prompt: "code_path: <code_path>. server: <server_json>. env: <conda_env_name, py
 ### Step 3: Prepare Resources
 
 If the plan includes models, datasets, checkpoints, or other remote resources that are not already ready remotely, the primary agent must orchestrate the resource steps directly. Do NOT use a resource-orchestration subagent.
+
+If a matching successful experience records reusable dataset, model, or other resource paths for this same `code_path`, you should normally trust those paths on the first attempt and skip dataset/model preparation and download. Use the recorded paths directly in the run configuration. Only return to local download, remote download, or sync steps later if the run fails and the error indicates a missing or invalid resource.
 
 At the start of this step, use the `todowrite` tool to create a resource-preparation todo list for every resource that still needs work. Process the resources one by one. Keep exactly one resource todo `in_progress` at a time, mark it `completed` immediately after it is fully handled, and update the list as you move to the next resource.
 
@@ -373,6 +393,25 @@ wandbEntity: <wandb_entity>
 wandbProject: <wandb_project>
 wandbRunId: <wandb_run_id>
 ```
+
+### Successful Experience Summary
+
+As soon as the experiment has started successfully and W&B watching is registered, immediately invoke `experiment_success` to record the actual runtime setup used for this run:
+
+```
+tool: task
+subagent_type: experiment_success
+prompt: "Summarize the actual runtime setup into ./.openresearch/successful/<code_id>.md. Treat code_path as a directory and code_id as the file name stem for that code path. Only record the actual server, env, and dataset/model paths used at runtime. Make it explicit that same code_path can reuse these and skip env setup and dataset/model prep first. code_path: <code_path>. server: <server_json>. env: <conda_env_name>. resolved_resources: <resolved_resources_json>."
+```
+
+This success-experience note should be treated as operational memory for future experiments on the same `code_path`.
+It should summarize what was actually used to launch the run, not merely what the plan proposed.
+If a future experiment hits this successful experience, it should generally trust it and:
+- reuse the recorded environment
+- reuse the recorded resource paths
+- skip dataset download
+- skip environment configuration
+- only revisit those steps if the later run fails
 
 ## Phase 6: Commit Changes
 
