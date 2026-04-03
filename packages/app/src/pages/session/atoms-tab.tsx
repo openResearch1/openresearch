@@ -1,7 +1,12 @@
 import { createEffect, createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js"
 import { useNavigate } from "@solidjs/router"
+import { Icon } from "@opencode-ai/ui/icon"
 import { base64Encode } from "@opencode-ai/util/encode"
+import { getFilename } from "@opencode-ai/util/path"
 import { useSDK } from "@/context/sdk"
+import { useGlobalSDK } from "@/context/global-sdk"
+import { useGlobalSync } from "@/context/global-sync"
+import { useSync } from "@/context/sync"
 import type { ResearchAtomsListResponse } from "@opencode-ai/sdk/v2"
 import { AtomGraphView } from "./atom-graph-view"
 
@@ -122,11 +127,24 @@ type SubTab = "list" | "graph"
 
 export function AtomsTab(props: { researchProjectId: string; currentSessionId?: string }) {
   const sdk = useSDK()
+  const globalSDK = useGlobalSDK()
+  const globalSync = useGlobalSync()
+  const sync = useSync()
   const navigate = useNavigate()
   const [atoms, setAtoms] = createSignal<Atom[]>([])
   const [relations, setRelations] = createSignal<Relation[]>([])
   const [loading, setLoading] = createSignal(true)
   const [error, setError] = createSignal(false)
+  const [editing, setEditing] = createSignal(false)
+  const [nameInput, setNameInput] = createSignal("")
+  let nameInputRef: HTMLInputElement | undefined
+
+  const project = createMemo(() => sync.project)
+  const projectName = createMemo(() => {
+    const p = project()
+    if (!p) return ""
+    return p.name || getFilename(p.worktree)
+  })
 
   // Initialize subTab with saved state from localStorage
   const getSavedViewMode = (): SubTab => {
@@ -249,8 +267,65 @@ export function AtomsTab(props: { researchProjectId: string; currentSessionId?: 
     return res.data
   }
 
+  function startEditing() {
+    setNameInput(projectName())
+    setEditing(true)
+    setTimeout(() => nameInputRef?.select(), 0)
+  }
+
+  async function commitRename() {
+    const next = nameInput().trim()
+    const p = project()
+    setEditing(false)
+    if (!next || !p || next === projectName()) return
+    const name = next === getFilename(p.worktree) ? "" : next
+    try {
+      if (p.id && p.id !== "global") {
+        await globalSDK.client.project.update({ projectID: p.id, directory: p.worktree, name })
+      } else {
+        globalSync.project.meta(p.worktree, { name })
+      }
+    } catch (e) {
+      console.error("Failed to rename project", e)
+    }
+  }
+
   return (
     <div class="relative flex-1 min-h-0 overflow-hidden h-full flex flex-col">
+      <Show when={projectName()}>
+        <div class="px-3 pt-3 pb-2 border-b border-border-weak-base">
+          <Show
+            when={editing()}
+            fallback={
+              <div class="flex items-center gap-1.5 group">
+                <span class="text-13-medium text-text-strong truncate flex-1">{projectName()}</span>
+                <button
+                  type="button"
+                  class="opacity-0 group-hover:opacity-100 shrink-0 text-text-weak hover:text-text-strong transition-opacity"
+                  onClick={startEditing}
+                  title="Rename project"
+                >
+                  <Icon name="edit" class="size-3.5" />
+                </button>
+              </div>
+            }
+          >
+            <input
+              ref={(el) => {
+                nameInputRef = el
+              }}
+              class="w-full text-13-medium bg-transparent border-b border-brand-base outline-none text-text-strong py-0.5"
+              value={nameInput()}
+              onInput={(e) => setNameInput(e.currentTarget.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commitRename()
+                if (e.key === "Escape") { setEditing(false); setNameInput(projectName()) }
+              }}
+              onBlur={commitRename}
+            />
+          </Show>
+        </div>
+      </Show>
       <div class="px-3 pt-3 pb-1 flex items-center justify-between">
         <div class="text-12-semibold text-text-weak uppercase tracking-wider">Atoms</div>
         <div class="flex items-center gap-1">

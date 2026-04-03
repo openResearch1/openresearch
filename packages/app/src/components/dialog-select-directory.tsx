@@ -2,16 +2,16 @@ import { Button } from "@opencode-ai/ui/button"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { FileIcon } from "@opencode-ai/ui/file-icon"
+import { Icon } from "@opencode-ai/ui/icon"
 import { List } from "@opencode-ai/ui/list"
 import type { ListRef } from "@opencode-ai/ui/list"
 import { getDirectory, getFilename } from "@opencode-ai/util/path"
 import fuzzysort from "fuzzysort"
-import { createMemo, createResource, createSignal } from "solid-js"
+import { For, Show, createMemo, createResource, createSignal, onCleanup } from "solid-js"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLayout } from "@/context/layout"
 import { useLanguage } from "@/context/language"
-import { DialogNewResearchProject } from "./dialog-new-research-project"
 
 interface DialogSelectDirectoryProps {
   title?: string
@@ -257,6 +257,14 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
   const [filter, setFilter] = createSignal("")
   let list: ListRef | undefined
 
+  const [dragOver, setDragOver] = createSignal(false)
+  const [droppedPapers, setDroppedPapers] = createSignal<Array<{ name: string; path: string }>>([])
+  const [creating, setCreating] = createSignal(false)
+  const [createError, setCreateError] = createSignal<string>()
+  const [uploadProgress, setUploadProgress] = createSignal<number | undefined>(undefined)
+  let activeXhr: XMLHttpRequest | undefined
+  onCleanup(() => activeXhr?.abort())
+
   const missingBase = createMemo(() => !(sync.data.path.home || sync.data.path.directory))
   const [fallbackPath] = createResource(
     () => (missingBase() ? true : undefined),
@@ -323,23 +331,201 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
     dialog.close()
   }
 
+  function handlePaperDrop(e: DragEvent) {
+    e.preventDefault()
+    setDragOver(false)
+    if (creating()) return
+    const files = Array.from(e.dataTransfer?.files ?? [])
+    const pdfs = files.filter(
+      (f) => f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf"),
+    )
+    if (pdfs.length === 0) return
+
+    const formData = new FormData()
+    for (const f of pdfs) formData.append("files", f)
+
+    setCreating(true)
+    setCreateError(undefined)
+    setUploadProgress(0)
+
+    const xhr = new XMLHttpRequest()
+    activeXhr = xhr
+    xhr.open("POST", `${sdk.url}/research/upload`)
+    xhr.upload.onprogress = (ev) => {
+      if (ev.lengthComputable) setUploadProgress(Math.round((ev.loaded / ev.total) * 100))
+    }
+    xhr.onload = () => {
+      activeXhr = undefined
+      setUploadProgress(undefined)
+      setCreating(false)
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          const res = JSON.parse(xhr.responseText) as { paths: Array<{ name: string; path: string }> }
+          const uploaded = res.paths ?? []
+          if (uploaded.length === 0) {
+            setCreateError("服务器未返回文件路径，请重试")
+            return
+          }
+          setDroppedPapers((prev) => {
+            const existing = new Set(prev.map((p) => p.path))
+            return [...prev, ...uploaded.filter((p) => !existing.has(p.path))]
+          })
+        } catch {
+          setCreateError(`解析响应失败: ${xhr.responseText.slice(0, 100)}`)
+        }
+      } else {
+        setCreateError(`上传失败 (${xhr.status}): ${xhr.responseText.slice(0, 100)}`)
+      }
+    }
+    xhr.onerror = () => {
+      activeXhr = undefined
+      setUploadProgress(undefined)
+      setCreating(false)
+      setCreateError("网络错误，上传失败")
+    }
+    xhr.ontimeout = () => {
+      activeXhr = undefined
+      setUploadProgress(undefined)
+      setCreating(false)
+      setCreateError("上传超时，请重试")
+    }
+    xhr.timeout = 120_000 // 2 分钟
+    xhr.send(formData)
+  }
+
+  function removePaper(index: number) {
+    setDroppedPapers((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  function clearPapers() {
+    setDroppedPapers([])
+    setCreateError(undefined)
+  }
+
+  async function handleCreateProject() {
+    const papers = droppedPapers()
+    if (papers.length === 0) return
+
+    setCreating(true)
+    setCreateError(undefined)
+    try {
+      const MAX_NAME_LEN = 50
+      const joined = papers
+        .map((p) => getFilename(p.name).replace(/\.[^.]+$/, ""))
+        .filter(Boolean)
+        .join("+")
+      const baseName = (joined.length > MAX_NAME_LEN ? joined.slice(0, MAX_NAME_LEN) : joined) || "research-project"
+      const homeDir = home()
+      const paperPaths = papers.map((p) => p.path)
+
+      const tryCreate = async (name: string, target: string) => {
+        try {
+          const res = await sdk.client.research.project.create({
+            name,
+            targetPath: target,
+            papers: paperPaths,
+          })
+          return res.data?.project_id ? target : null
+        } catch {
+          return null
+        }
+      }
+
+      let targetPath = `${homeDir}/${baseName}`
+      let resolved = await tryCreate(baseName, targetPath)
+      for (let suffix = 2; !resolved && suffix <= 99; suffix++) {
+        const name = `${baseName}-${suffix}`
+        targetPath = `${homeDir}/${name}`
+        resolved = await tryCreate(name, targetPath)
+      }
+
+      if (!resolved) throw new Error("创建项目失败，请检查文件是否有效")
+      clearPapers()
+      resolve(targetPath)
+    } catch (err: unknown) {
+      setCreateError(err instanceof Error ? err.message : "创建失败")
+    } finally {
+      setCreating(false)
+    }
+  }
+
   return (
     <Dialog title={props.title ?? language.t("command.project.open")}>
-      <div class="flex flex-col gap-3 px-4 pt-4 pb-4 border-b border-border-weak-base ">
-        <div class="flex items-start justify-between gap-3">
-          <div class="flex flex-col gap-1">
-            <div class="text-14-medium text-text-strong">新建科研项目</div>
-            <div class="text-12-regular text-text-weak">导入论文、可选背景与目标，快速开始新课题</div>
+      {/* Drag-drop papers zone */}
+      <div class="flex flex-col gap-3 px-4 pt-4 pb-4 border-b border-border-weak-base">
+        <div
+          class={`border-2 border-dashed rounded-lg p-5 flex flex-col items-center gap-2 text-center transition-colors select-none ${
+            creating()
+              ? "border-border-weak-base text-text-weak opacity-60 cursor-wait"
+              : dragOver()
+                ? "border-brand-base bg-brand-faint text-brand-base"
+                : "border-border-weak-base hover:border-border-base text-text-weak"
+          }`}
+          onDragOver={(e) => {
+            if (creating()) return
+            e.preventDefault()
+            setDragOver(true)
+          }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={handlePaperDrop}
+        >
+          <Icon name="cloud-upload" class="size-6 shrink-0" />
+          <div class="text-13-regular">
+            {uploadProgress() !== undefined
+              ? `上传中… ${uploadProgress()}%`
+              : creating()
+                ? "处理中…"
+                : "拖入 PDF 论文到此处（可多次拖入）"}
           </div>
-          <Button
-            variant="primary"
-            icon="plus-small"
-            class="shrink-0"
-            onClick={() => dialog.show(() => <DialogNewResearchProject onSelect={resolve} />)}
-          >
-            新建
-          </Button>
+          <Show when={uploadProgress() !== undefined}>
+            <div class="w-full bg-surface-strong rounded-full h-1.5 mt-1">
+              <div
+                class="bg-brand-base h-1.5 rounded-full transition-all"
+                style={{ width: `${uploadProgress()}%` }}
+              />
+            </div>
+          </Show>
         </div>
+
+        <Show when={droppedPapers().length > 0}>
+          <div class="flex flex-col gap-2">
+            <div class="text-12-medium text-text-strong">已选论文（{droppedPapers().length} 篇）</div>
+            <div class="flex flex-col gap-1 max-h-28 overflow-y-auto">
+              <For each={droppedPapers()}>
+                {(paper, index) => (
+                  <div class="flex items-center justify-between gap-2 px-2 py-1 rounded bg-surface-strong/30">
+                    <span class="text-12-regular text-text-strong truncate min-w-0">{paper.name}</span>
+                    <button
+                      type="button"
+                      class="shrink-0 text-text-weak hover:text-text-strong text-14-regular leading-none"
+                      onClick={() => removePaper(index())}
+                    >
+                      ×
+                    </button>
+                  </div>
+                )}
+              </For>
+            </div>
+
+            <Show when={createError()}>
+              <div class="text-12-regular text-icon-critical-strong">{createError()}</div>
+            </Show>
+
+            <div class="flex justify-end gap-2">
+              <Button variant="ghost" onClick={clearPapers}>
+                清除全部
+              </Button>
+              <Button
+                variant="primary"
+                onClick={handleCreateProject}
+                disabled={droppedPapers().length === 0 || creating()}
+                loading={creating()}
+              >
+                创建目录
+              </Button>
+            </div>
+          </div>
+        </Show>
       </div>
 
       <List

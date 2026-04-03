@@ -21,6 +21,7 @@ import { and, eq } from "drizzle-orm"
 import { Session } from "@/session"
 import { linkKinds } from "@/research/research.sql"
 import { Bus } from "@/bus"
+import { Global } from "@/global"
 import { errors } from "../error"
 import fs from "fs"
 import { rm } from "fs/promises"
@@ -241,6 +242,48 @@ const researchProjectSchema = z.object({
 })
 
 export const ResearchRoutes = new Hono()
+  .post(
+    "/upload",
+    describeRoute({
+      summary: "Upload paper files",
+      description: "Upload PDF files to a temporary server directory, returns server-side paths.",
+      operationId: "research.upload",
+      responses: {
+        200: {
+          description: "Uploaded file paths",
+          content: {
+            "application/json": {
+              schema: resolver(z.object({ paths: z.array(z.object({ name: z.string(), path: z.string() })) })),
+            },
+          },
+        },
+        ...errors(400),
+      },
+    }),
+    async (c) => {
+      const body = await c.req.parseBody({ all: true })
+      const files = body["files"]
+      const fileList = Array.isArray(files) ? files : files ? [files] : []
+      if (fileList.length === 0) return c.json({ success: false, message: "no files" }, 400)
+
+      const uploadDir = path.join(Global.Path.cache, "uploads")
+      await fs.promises.mkdir(uploadDir, { recursive: true })
+
+      const results: { name: string; path: string }[] = []
+      for (const file of fileList) {
+        if (!(file instanceof File)) continue
+        // Store under a UUID subdirectory so path.basename() returns the original filename
+        const subDir = path.join(uploadDir, crypto.randomUUID())
+        await fs.promises.mkdir(subDir, { recursive: true })
+        const dest = path.join(subDir, file.name)
+        // Read into buffer first to avoid Bun lazy-stream socket errors on large files
+        const buffer = await file.arrayBuffer()
+        await Bun.write(dest, buffer)
+        results.push({ name: file.name, path: dest })
+      }
+      return c.json({ paths: results })
+    },
+  )
   .get(
     "/project/by-project/:projectId",
     describeRoute({
@@ -957,6 +1000,14 @@ export const ResearchRoutes = new Hono()
           macro_table_path: null,
         }
       })
+
+      // Clean up upload temp dirs (fire-and-forget)
+      for (const src of paperSources) {
+        const dir = path.dirname(src)
+        if (dir.startsWith(path.join(Global.Path.cache, "uploads"))) {
+          rm(dir, { recursive: true, force: true }).catch(() => {})
+        }
+      }
 
       return c.json(result)
     },
