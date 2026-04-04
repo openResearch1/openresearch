@@ -634,6 +634,7 @@ export function AtomGraphView(props: {
     edge: {
       style: {
         stroke: (d: any) => RELATION_COLORS[d.data?.type] ?? "#94a3b8",
+        fillOpacity: 1,
         strokeOpacity: 1,
         lineWidth: 1.5,
         endArrow: true,
@@ -645,12 +646,13 @@ export function AtomGraphView(props: {
           lineWidth: 3,
         },
         dimmed: {
+          fillOpacity: 0.08,
           strokeOpacity: 0.08,
           lineWidth: 0.5,
         },
       },
       animation: {
-        update: [{ fields: ["strokeOpacity", "lineWidth"], duration: 600, easing: "ease-in-out" }],
+        update: [{ fields: ["fillOpacity", "strokeOpacity", "lineWidth"], duration: 600, easing: "ease-in-out" }],
       },
     },
     layout: {
