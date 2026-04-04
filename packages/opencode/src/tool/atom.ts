@@ -163,11 +163,36 @@ function formatAtom(row: AtomRow): string {
 
 export const AtomQueryTool = Tool.define("atom_query", {
   description:
-    "Query atom information for the current session. " +
-    "If the current session is bound to a specific atom, returns that atom's details. " +
-    "Otherwise, returns all atoms in the research project.",
-  parameters: z.object({}),
-  async execute(_params, ctx) {
+    "Query atom information. " +
+    "If an atomId is provided, returns that specific atom's details directly. " +
+    "Otherwise, if the current session is bound to a specific atom, returns that atom's details. " +
+    "If neither, returns all atoms in the research project.",
+  parameters: z.object({
+    atomId: z
+      .string()
+      .optional()
+      .describe("The atom ID to query. If provided, returns that specific atom's details directly, bypassing session-based resolution."),
+  }),
+  async execute(params, ctx) {
+    // 0. If atomId is explicitly provided, query it directly
+    if (params.atomId) {
+      const atom = Database.use((db) =>
+        db.select().from(AtomTable).where(eq(AtomTable.atom_id, params.atomId!)).get(),
+      )
+      if (!atom) {
+        return {
+          title: "Not found",
+          output: `Atom not found: ${params.atomId}`,
+          metadata: { count: 0 },
+        }
+      }
+      return {
+        title: `Atom: ${atom.atom_name}`,
+        output: formatAtom(atom),
+        metadata: { count: 1 },
+      }
+    }
+
     // 1. Check if current session is directly bound to an atom
     let parentSessionId = await Research.getParentSessionId(ctx.sessionID)
     if (!parentSessionId) {
@@ -185,7 +210,24 @@ export const AtomQueryTool = Tool.define("atom_query", {
       }
     }
 
-    // 2. Fall back: find research project and return all its atoms
+    // 2. Check if current session is an experiment session → return the experiment's atom
+    const experiment = Database.use((db) =>
+      db.select().from(ExperimentTable).where(eq(ExperimentTable.exp_session_id, parentSessionId)).get(),
+    )
+    if (experiment?.atom_id) {
+      const expAtom = Database.use((db) =>
+        db.select().from(AtomTable).where(eq(AtomTable.atom_id, experiment.atom_id!)).get(),
+      )
+      if (expAtom) {
+        return {
+          title: `Atom: ${expAtom.atom_name}`,
+          output: formatAtom(expAtom),
+          metadata: { count: 1 },
+        }
+      }
+    }
+
+    // 3. Fall back: find research project and return all its atoms
     const researchProjectId = await Research.getResearchProjectId(ctx.sessionID)
     if (!researchProjectId) {
       return {
@@ -647,7 +689,7 @@ export const AtomRelationQueryTool = Tool.define("atom_relation_query", {
       const targetName = targetAtom?.atom_name ?? r.atom_id_target.slice(0, 8)
       const sourceType = sourceAtom?.atom_type ?? "unknown"
       const targetType = targetAtom?.atom_type ?? "unknown"
-      return `- ${sourceName} (${sourceType}) → ${targetName} (${targetType}) [${r.relation_type}]`
+      return `- [${r.atom_id_source}] ${sourceName} (${sourceType}) → [${r.atom_id_target}] ${targetName} (${targetType}) [${r.relation_type}]`
     })
 
     return {

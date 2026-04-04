@@ -1,0 +1,24 @@
+diff --git a/dist/index/index.js b/dist/index/index.js
+--- a/dist/index/index.js
++++ b/dist/index/index.js
+@@ -3917,7 +3917,7 @@
+       const state = connection();
+       return {
+         ...state,
+-        from: state.inProgress ? pointToRendererPoint(state.from, this.transform) : state.from,
++        from: state.from,
+         to: state.inProgress ? pointToRendererPoint(state.to, this.transform) : state.to
+       };
+     },
+diff --git a/dist/index/index.jsx b/dist/index/index.jsx
+--- a/dist/index/index.jsx
++++ b/dist/index/index.jsx
+@@ -1573,7 +1573,7 @@
+       const state = connection();
+       return {
+         ...state,
+-        from: state.inProgress ? pointToRendererPoint(state.from, this.transform) : state.from,
++        from: state.from,
+         to: state.inProgress ? pointToRendererPoint(state.to, this.transform) : state.to
+       };
+     },

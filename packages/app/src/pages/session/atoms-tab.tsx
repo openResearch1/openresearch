@@ -4,6 +4,7 @@ import { base64Encode } from "@opencode-ai/util/encode"
 import { useSDK } from "@/context/sdk"
 import type { ResearchAtomsListResponse } from "@opencode-ai/sdk/v2"
 import { AtomGraphView } from "./atom-graph-view"
+import { AtomDetailFullscreen } from "./atom-detail-fullscreen"
 
 type Atom = ResearchAtomsListResponse["atoms"][number]
 type Relation = ResearchAtomsListResponse["relations"][number]
@@ -140,6 +141,11 @@ export function AtomsTab(props: { researchProjectId: string; currentSessionId?: 
   }
 
   const [subTab, setSubTab] = createSignal<SubTab>(getSavedViewMode())
+  const [showDetail, setShowDetail] = createSignal(false)
+  const [hasOpenedDetail, setHasOpenedDetail] = createSignal(false)
+  const [detailOrigin, setDetailOrigin] = createSignal({ x: 0, y: 0, width: 0, height: 0 })
+  const [focusAtomId, setFocusAtomId] = createSignal<string | null>(null)
+  let detailBtnRef!: HTMLButtonElement
 
   const atomMap = createMemo(() => new Map(atoms().map((a) => [a.atom_id, a])))
   const safeAtoms = createMemo(() => atoms())
@@ -249,6 +255,14 @@ export function AtomsTab(props: { researchProjectId: string; currentSessionId?: 
     return res.data
   }
 
+  const handleAtomViewDetail = (atomId: string) => {
+    const rect = detailBtnRef.getBoundingClientRect()
+    setDetailOrigin({ x: rect.x, y: rect.y, width: rect.width, height: rect.height })
+    setFocusAtomId(atomId)
+    setHasOpenedDetail(true)
+    setShowDetail(true)
+  }
+
   return (
     <div class="relative flex-1 min-h-0 overflow-hidden h-full flex flex-col">
       <div class="px-3 pt-3 pb-1 flex items-center justify-between">
@@ -269,6 +283,20 @@ export function AtomsTab(props: { researchProjectId: string; currentSessionId?: 
             onClick={() => setSubTab("graph")}
           >
             Graph
+          </button>
+          <button
+            ref={detailBtnRef}
+            class={`px-2 py-1 rounded text-11-regular transition-colors ${
+              showDetail() ? "bg-background-stronger text-text-strong" : "text-text-weak hover:text-text-base"
+            }`}
+            onClick={() => {
+              const rect = detailBtnRef.getBoundingClientRect()
+              setDetailOrigin({ x: rect.x, y: rect.y, width: rect.width, height: rect.height })
+              setHasOpenedDetail(true)
+              setShowDetail(true)
+            }}
+          >
+            Detail
           </button>
         </div>
       </div>
@@ -299,12 +327,36 @@ export function AtomsTab(props: { researchProjectId: string; currentSessionId?: 
                 onRelationCreate={handleRelationCreate}
                 onRelationUpdate={handleRelationUpdate}
                 onRelationDelete={handleRelationDelete}
+                onAtomViewDetail={handleAtomViewDetail}
                 researchProjectId={props.researchProjectId}
               />
             </div>
           </Match>
         </Switch>
       </div>
+
+      <Show when={hasOpenedDetail()}>
+        <AtomDetailFullscreen
+          atoms={safeAtoms()}
+          relations={safeRelations()}
+          loading={loading()}
+          error={error()}
+          onAtomClick={handleAtomClick}
+          onAtomCreate={handleAtomCreate}
+          onAtomDelete={handleAtomDelete}
+          onRelationCreate={handleRelationCreate}
+          onRelationUpdate={handleRelationUpdate}
+          onRelationDelete={handleRelationDelete}
+          researchProjectId={props.researchProjectId}
+          originRect={detailOrigin()}
+          visible={showDetail()}
+          focusAtomId={focusAtomId()}
+          onClose={() => {
+            setShowDetail(false)
+            setFocusAtomId(null)
+          }}
+        />
+      </Show>
     </div>
   )
 }

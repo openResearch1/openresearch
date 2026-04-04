@@ -86,6 +86,7 @@ export function AtomGraphView(props: {
     nextRelationType: string
   }) => Promise<void>
   onRelationDelete: (input: { sourceAtomId: string; targetAtomId: string; relationType: string }) => Promise<void>
+  onAtomViewDetail?: (atomId: string) => void
   researchProjectId: string
 }) {
   let containerRef: HTMLDivElement | undefined
@@ -1619,6 +1620,36 @@ export function AtomGraphView(props: {
                   stroke-linejoin="round"
                 >
                   <path d="M2 4h12M5 4V2.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 .5.5V4M6 7v5M10 7v5M3 4l.8 9.1A1 1 0 0 0 4.8 14h6.4a1 1 0 0 0 1-.9L13 4" />
+                </svg>
+              </button>
+            </Show>
+            {/* View in Detail */}
+            <Show when={state.hoverNodeId && props.onAtomViewDetail}>
+              <button
+                class="group flex h-7 w-7 items-center justify-center rounded-md text-[#64748b] transition-all hover:bg-blue-500/15 hover:text-blue-400"
+                title="View in detail"
+                onClick={(evt) => {
+                  evt.preventDefault()
+                  evt.stopPropagation()
+                  if (!state.hoverNodeId) return
+                  const nodeId = state.hoverNodeId
+                  resetNodeVisualState()
+                  props.onAtomViewDetail?.(nodeId)
+                }}
+              >
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <rect x="1" y="1" width="14" height="14" rx="2" />
+                  <line x1="9" y1="1" x2="9" y2="15" />
+                  <polyline points="5.5 6 3.5 8 5.5 10" />
                 </svg>
               </button>
             </Show>
