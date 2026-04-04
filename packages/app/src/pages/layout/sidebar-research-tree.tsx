@@ -13,6 +13,8 @@ import {
 import { useParams } from "@solidjs/router"
 import { Collapsible } from "@opencode-ai/ui/collapsible"
 import { Icon } from "@opencode-ai/ui/icon"
+import { IconButton } from "@opencode-ai/ui/icon-button"
+import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { type Session } from "@opencode-ai/sdk/v2/client"
 import type { ResearchProjectSessionTreeResponse } from "@opencode-ai/sdk/v2"
 import { useGlobalSDK } from "@/context/global-sdk"
@@ -128,8 +130,20 @@ export function ResearchSessionTree(props: {
 
       {/* Level 1: Normal Conversations - always expanded */}
       <Show when={normalSessions().length > 0}>
-        <div class="text-11-regular text-text-weak uppercase tracking-wider px-2 pt-2 pb-1">
-          {language.t("sidebar.research.conversations")}
+        <div class="flex items-center justify-between px-2 pt-2 pb-1">
+          <div class="text-11-regular text-text-weak uppercase tracking-wider">
+            {language.t("sidebar.research.conversations")}
+          </div>
+          <Tooltip value={language.t("command.session.viewArchived")} placement="top">
+            <IconButton
+              icon="archive"
+              variant="ghost"
+              size="small"
+              class="size-5"
+              onClick={() => props.ctx.showArchivedSessionsDialog(props.directory)}
+              aria-label={language.t("command.session.viewArchived")}
+            />
+          </Tooltip>
         </div>
         <For each={normalSessions()}>
           {(session) => (

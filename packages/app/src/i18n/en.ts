@@ -31,6 +31,7 @@ export const dict = {
   "command.session.previous.unseen": "Previous unread session",
   "command.session.next.unseen": "Next unread session",
   "command.session.archive": "Archive session",
+  "command.session.viewArchived": "View archived sessions",
 
   "command.palette": "Command palette",
 
@@ -350,6 +351,11 @@ export const dict = {
   "dialog.project.delete.title": "Delete project",
   "dialog.project.delete.confirm": 'Delete project "{{name}}"?',
   "dialog.project.delete.description": "This permanently removes the project's sessions and related local metadata.",
+  "dialog.project.delete.removeLocal": "Also delete project folder",
+  "dialog.project.delete.removeLocal.description": "Warning: This will permanently delete all project files on disk",
+  "dialog.archived.title": "Archived sessions",
+  "dialog.archived.empty": "No archived sessions",
+  "dialog.archived.count": "{{count}} archived sessions",
 
   "dialog.releaseNotes.action.getStarted": "Get started",
   "dialog.releaseNotes.action.next": "Next",
@@ -610,6 +616,7 @@ export const dict = {
   "common.rename": "Rename",
   "common.reset": "Reset",
   "common.archive": "Archive",
+  "common.unarchive": "Unarchive",
   "common.delete": "Delete",
   "common.close": "Close",
   "common.edit": "Edit",

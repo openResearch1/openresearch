@@ -54,6 +54,7 @@ export type WorkspaceSidebarContext = {
   setWorkspaceExpanded: (directory: string, value: boolean) => void
   showResetWorkspaceDialog: (root: string, directory: string) => void
   showDeleteWorkspaceDialog: (root: string, directory: string) => void
+  showArchivedSessionsDialog: (directory: string) => void
   setScrollContainerRef: (el: HTMLDivElement | undefined, mobile?: boolean) => void
 }
 
@@ -154,6 +155,7 @@ const WorkspaceActions = (props: {
   openEditor: WorkspaceSidebarContext["openEditor"]
   showResetWorkspaceDialog: WorkspaceSidebarContext["showResetWorkspaceDialog"]
   showDeleteWorkspaceDialog: WorkspaceSidebarContext["showDeleteWorkspaceDialog"]
+  showArchivedSessionsDialog: WorkspaceSidebarContext["showArchivedSessionsDialog"]
   root: string
   setHoverSession: WorkspaceSidebarContext["setHoverSession"]
   clearHoverProjectSoon: WorkspaceSidebarContext["clearHoverProjectSoon"]
@@ -201,6 +203,14 @@ const WorkspaceActions = (props: {
             }}
           >
             <DropdownMenu.ItemLabel>{props.language.t("common.rename")}</DropdownMenu.ItemLabel>
+          </DropdownMenu.Item>
+          <DropdownMenu.Item
+            onSelect={() => {
+              props.showArchivedSessionsDialog(props.directory)
+              props.setMenuOpen(false)
+            }}
+          >
+            <DropdownMenu.ItemLabel>{props.language.t("command.session.viewArchived")}</DropdownMenu.ItemLabel>
           </DropdownMenu.Item>
           <DropdownMenu.Item
             disabled={props.local() || props.busy()}
@@ -460,6 +470,7 @@ export const SortableWorkspace = (props: {
                 openEditor={props.ctx.openEditor}
                 showResetWorkspaceDialog={props.ctx.showResetWorkspaceDialog}
                 showDeleteWorkspaceDialog={props.ctx.showDeleteWorkspaceDialog}
+                showArchivedSessionsDialog={props.ctx.showArchivedSessionsDialog}
                 root={props.project.worktree}
                 setHoverSession={props.ctx.setHoverSession}
                 clearHoverProjectSoon={props.ctx.clearHoverProjectSoon}

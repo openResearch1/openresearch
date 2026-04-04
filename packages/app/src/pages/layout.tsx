@@ -23,6 +23,7 @@ import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { Dialog } from "@opencode-ai/ui/dialog"
+import { Checkbox } from "@opencode-ai/ui/checkbox"
 import { getFilename } from "@opencode-ai/util/path"
 import { Session, type Message } from "@opencode-ai/sdk/v2/client"
 import { usePlatform } from "@/context/platform"
@@ -931,6 +932,27 @@ export default function Layout(props: ParentProps) {
     }
   }
 
+  async function unarchiveSession(session: Session) {
+    // Use 0 to indicate unarchived (backend will set to null)
+    await globalSDK.client.session.update({
+      directory: session.directory,
+      sessionID: session.id,
+      time: { archived: 0 },
+    })
+    const [store, setStore] = globalSync.child(session.directory)
+    setStore(
+      produce((draft) => {
+        const updated = { ...session, time: { ...session.time, archived: undefined } }
+        const match = Binary.search(draft.session, session.id, (s) => s.id)
+        if (match.found) {
+          draft.session[match.index] = updated
+        } else {
+          draft.session.splice(match.index, 0, updated)
+        }
+      }),
+    )
+  }
+
   command.register("layout", () => {
     const commands: CommandOption[] = [
       {
@@ -1003,6 +1025,18 @@ export default function Layout(props: ParentProps) {
         onSelect: () => {
           const session = currentSessions().find((s) => s.id === params.id)
           if (session) archiveSession(session)
+        },
+      },
+      {
+        id: "session.viewArchived",
+        title: language.t("command.session.viewArchived"),
+        category: language.t("command.category.session"),
+        disabled: !params.dir,
+        onSelect: () => {
+          const project = currentProject()
+          if (project) {
+            dialog.show(() => <DialogArchivedSessions directory={project.worktree} />)
+          }
         },
       },
       {
@@ -1374,7 +1408,7 @@ export default function Layout(props: ParentProps) {
     }
   }
 
-  async function deleteProject(project: LocalProject) {
+  async function deleteProject(project: LocalProject, removeLocal: boolean = false) {
     if (!project.id) return false
 
     const global = project.id === "global"
@@ -1419,8 +1453,8 @@ export default function Layout(props: ParentProps) {
       throwOnError: true,
     }).project
     const input = global
-      ? { projectID: project.id, directory: root, removeLocal: "true" as const }
-      : { projectID: project.id, removeLocal: "true" as const }
+      ? { projectID: project.id, directory: root, removeLocal: removeLocal ? ("true" as const) : ("false" as const) }
+      : { projectID: project.id, removeLocal: removeLocal ? ("true" as const) : ("false" as const) }
     const matched = list.filter(match)
     const shift = () => {
       notification.project.markViewed(project.worktree)
@@ -1728,13 +1762,14 @@ export default function Layout(props: ParentProps) {
     const name = createMemo(() => displayName(props.project))
     const [state, setState] = createStore({
       deleting: false,
+      removeLocal: false,
     })
 
     const handleDelete = async () => {
       if (state.deleting) return
       setState("deleting", true)
       dialog.close()
-      const deleted = await deleteProject(props.project)
+      const deleted = await deleteProject(props.project, state.removeLocal)
       if (!deleted) setState("deleting", false)
     }
 
@@ -1746,6 +1781,17 @@ export default function Layout(props: ParentProps) {
               {language.t("dialog.project.delete.confirm", { name: name() })}
             </span>
             <span class="text-12-regular text-text-weak">{language.t("dialog.project.delete.description")}</span>
+          </div>
+          <div class="flex flex-col gap-2">
+            <label class="flex items-start gap-2 cursor-pointer">
+              <Checkbox checked={state.removeLocal} onChange={(checked) => setState("removeLocal", checked)} />
+              <div class="flex flex-col gap-0.5">
+                <span class="text-13-regular text-text-strong">{language.t("dialog.project.delete.removeLocal")}</span>
+                <span class="text-12-regular text-text-weak">
+                  {language.t("dialog.project.delete.removeLocal.description")}
+                </span>
+              </div>
+            </label>
           </div>
           <div class="flex justify-end gap-2">
             <Button variant="ghost" size="large" onClick={() => dialog.close()}>
@@ -1829,6 +1875,115 @@ export default function Layout(props: ParentProps) {
             </Button>
             <Button variant="primary" size="large" disabled={state.status === "loading"} onClick={handleReset}>
               {language.t("workspace.reset.button")}
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+    )
+  }
+
+  function DialogArchivedSessions(props: { directory: string }) {
+    const [state, setState] = createStore({
+      loading: true,
+      sessions: [] as Session[],
+    })
+
+    onMount(async () => {
+      const sessions = await globalSDK.client.experimental.session
+        .list({ directory: props.directory, limit: 1000, archived: true })
+        .then((x) => x.data ?? [])
+        .catch(() => [])
+      // Filter out sessions with invalid archived time
+      const validSessions = sessions.filter(
+        (s) => s.time.archived && typeof s.time.archived === "number" && s.time.archived > 0,
+      )
+      setState({ loading: false, sessions: validSessions })
+    })
+
+    const handleUnarchive = async (session: Session) => {
+      try {
+        await unarchiveSession(session)
+        setState(
+          produce((draft) => {
+            const index = draft.sessions.findIndex((s) => s.id === session.id)
+            if (index !== -1) draft.sessions.splice(index, 1)
+          }),
+        )
+      } catch (error) {
+        console.error("Failed to unarchive session:", error)
+        showToast({
+          title: language.t("common.error"),
+          description: "Failed to unarchive session",
+        })
+      }
+    }
+
+    const handleDelete = async (session: Session) => {
+      try {
+        await globalSDK.client.session.delete({ sessionID: session.id })
+        setState(
+          produce((draft) => {
+            const index = draft.sessions.findIndex((s) => s.id === session.id)
+            if (index !== -1) draft.sessions.splice(index, 1)
+          }),
+        )
+      } catch (error) {
+        console.error("Failed to delete session:", error)
+        showToast({
+          title: language.t("common.error"),
+          description: "Failed to delete session",
+        })
+      }
+    }
+
+    return (
+      <Dialog title={language.t("dialog.archived.title")} fit>
+        <div class="flex flex-col gap-3 pl-6 pr-2.5 pb-3 min-w-[500px] max-h-[600px]">
+          <Show when={!state.loading} fallback={<div class="text-13-regular text-text-weak py-4">Loading...</div>}>
+            <Show
+              when={state.sessions.length > 0}
+              fallback={<div class="text-13-regular text-text-weak py-4">{language.t("dialog.archived.empty")}</div>}
+            >
+              <div class="text-12-regular text-text-weak pb-2">
+                {language.t("dialog.archived.count", { count: state.sessions.length })}
+              </div>
+              <div class="flex flex-col gap-2 overflow-y-auto max-h-[500px]">
+                <For each={state.sessions}>
+                  {(session) => (
+                    <div class="flex items-center justify-between gap-3 p-3 rounded-lg bg-bg-weak hover:bg-bg-weaker">
+                      <div class="flex flex-col gap-1 flex-1 min-w-0">
+                        <span class="text-13-medium text-text-strong truncate">{session.title || "Untitled"}</span>
+                        <span class="text-11-regular text-text-weak">
+                          {new Date(session.time.archived!).toLocaleString()}
+                        </span>
+                      </div>
+                      <div class="flex gap-2">
+                        <Tooltip value={language.t("common.unarchive")} placement="top">
+                          <IconButton
+                            icon="archive"
+                            size="small"
+                            variant="ghost"
+                            onClick={() => void handleUnarchive(session)}
+                          />
+                        </Tooltip>
+                        <Tooltip value={language.t("common.delete")} placement="top">
+                          <IconButton
+                            icon="trash"
+                            size="small"
+                            variant="ghost"
+                            onClick={() => void handleDelete(session)}
+                          />
+                        </Tooltip>
+                      </div>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </Show>
+          </Show>
+          <div class="flex justify-end gap-2 pt-2">
+            <Button variant="ghost" size="large" onClick={() => dialog.close()}>
+              {language.t("common.close")}
             </Button>
           </div>
         </div>
@@ -2050,6 +2205,7 @@ export default function Layout(props: ParentProps) {
       dialog.show(() => <DialogResetWorkspace root={root} directory={directory} />),
     showDeleteWorkspaceDialog: (root, directory) =>
       dialog.show(() => <DialogDeleteWorkspace root={root} directory={directory} />),
+    showArchivedSessionsDialog: (directory) => dialog.show(() => <DialogArchivedSessions directory={directory} />),
     setScrollContainerRef: (el, mobile) => {
       if (!mobile) scrollContainerRef = el
     },
