@@ -28,6 +28,7 @@ import fs from "fs"
 import { rm } from "fs/promises"
 import { git } from "@/util/git"
 import { Research } from "@/research/research.ts"
+import { ensureGitignore, GIT_ENV, gitErr } from "@/session/experiment-guard"
 import { Instance } from "@/project/instance"
 import { Snapshot } from "@/snapshot"
 import { computeExperimentDiff } from "@/util/git-diff"
@@ -1579,6 +1580,40 @@ export const ResearchRoutes = new Hono()
         }
         await fs.promises.mkdir(path.dirname(codeDest), { recursive: true })
         await fs.promises.cp(srcDir, codeDest, { recursive: true })
+      }
+
+      // Ensure the code directory is a git repository with proper .gitignore
+      const hasGit = await Filesystem.exists(path.join(codeDest, ".git"))
+      if (!hasGit) {
+        const init = await git(["init", "--quiet"], { cwd: codeDest })
+        if (init.exitCode !== 0) {
+          await rm(codeDest, { recursive: true, force: true }).catch(() => {})
+          return c.json({ success: false, message: `failed to git init: ${gitErr(init, "unknown error")}` }, 500)
+        }
+
+        await ensureGitignore(codeDest)
+
+        const add = await git(["add", "."], { cwd: codeDest })
+        if (add.exitCode !== 0) {
+          await rm(codeDest, { recursive: true, force: true }).catch(() => {})
+          return c.json({ success: false, message: `failed to git add: ${gitErr(add, "unknown error")}` }, 500)
+        }
+
+        const commit = await git(["commit", "-m", "init", "--allow-empty"], {
+          cwd: codeDest,
+          env: GIT_ENV,
+        })
+        if (commit.exitCode !== 0) {
+          await rm(codeDest, { recursive: true, force: true }).catch(() => {})
+          return c.json({ success: false, message: `failed to git commit: ${gitErr(commit, "unknown error")}` }, 500)
+        }
+      } else {
+        // Pre-existing git repo: ensure .gitignore has required rules
+        const changed = await ensureGitignore(codeDest)
+        if (changed) {
+          await git(["add", ".gitignore"], { cwd: codeDest })
+          await git(["commit", "-m", "update .gitignore"], { cwd: codeDest, env: GIT_ENV })
+        }
       }
 
       const now = Date.now()

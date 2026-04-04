@@ -6,7 +6,7 @@ import { ExperimentTable } from "@/research/research.sql"
 import { Filesystem } from "@/util/filesystem"
 import { git } from "@/util/git"
 
-const REQUIRED_IGNORE_RULES = [
+export const REQUIRED_IGNORE_RULES = [
   "__pycache__/",
   "*.pyc",
   "*.pyo",
@@ -21,7 +21,7 @@ const REQUIRED_IGNORE_RULES = [
   "venv/",
 ]
 
-async function ensureGitignore(codePath: string): Promise<boolean> {
+export async function ensureGitignore(codePath: string): Promise<boolean> {
   const gitignorePath = path.join(codePath, ".gitignore")
   const existing = await fs.readFile(gitignorePath, "utf-8").catch(() => "")
   const existingLines = new Set(existing.split("\n").map((l) => l.trim()))
@@ -54,7 +54,7 @@ export class ExperimentBranchError extends Error {
   }
 }
 
-const GIT_ENV = {
+export const GIT_ENV = {
   ...process.env,
   GIT_AUTHOR_NAME: process.env.GIT_AUTHOR_NAME || "OpenCode",
   GIT_AUTHOR_EMAIL: process.env.GIT_AUTHOR_EMAIL || "opencode@local",
@@ -62,7 +62,7 @@ const GIT_ENV = {
   GIT_COMMITTER_EMAIL: process.env.GIT_COMMITTER_EMAIL || "opencode@local",
 }
 
-function gitErr(result: { stderr?: Buffer; text?: () => string }, fallback: string) {
+export function gitErr(result: { stderr?: Buffer; text?: () => string }, fallback: string) {
   return result.stderr?.toString().trim() || result.text?.() || fallback
 }
 
