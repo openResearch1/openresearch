@@ -119,7 +119,7 @@ export namespace Skill {
       }
     }
 
-    // Scan .opencode/skill/ directories
+    // Scan .openresearch/skill/ directories
     for (const dir of await Config.directories()) {
       const matches = await Glob.scan(OPENCODE_SKILL_PATTERN, {
         cwd: dir,

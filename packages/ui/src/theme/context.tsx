@@ -72,8 +72,8 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
     const [store, setStore] = createStore({
       themes: DEFAULT_THEMES as Record<string, DesktopTheme>,
       themeId: props.defaultTheme ?? "oc-2",
-      colorScheme: "system" as ColorScheme,
-      mode: getSystemMode(),
+      colorScheme: "dark" as ColorScheme,
+      mode: "dark" as "light" | "dark",
       previewThemeId: null as string | null,
       previewScheme: null as ColorScheme | null,
     })
@@ -89,16 +89,13 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
       onCleanup(() => mediaQuery.removeEventListener("change", handler))
 
       const savedTheme = localStorage.getItem(STORAGE_KEYS.THEME_ID)
-      const savedScheme = localStorage.getItem(STORAGE_KEYS.COLOR_SCHEME) as ColorScheme | null
       if (savedTheme && store.themes[savedTheme]) {
         setStore("themeId", savedTheme)
       }
-      if (savedScheme) {
-        setStore("colorScheme", savedScheme)
-        if (savedScheme !== "system") {
-          setStore("mode", savedScheme)
-        }
-      }
+      // Force dark mode — ignore saved color scheme
+      localStorage.setItem(STORAGE_KEYS.COLOR_SCHEME, "dark")
+      setStore("colorScheme", "dark")
+      setStore("mode", "dark")
       const currentTheme = store.themes[store.themeId]
       if (currentTheme) {
         cacheThemeVariants(currentTheme, store.themeId)
@@ -123,10 +120,11 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
       cacheThemeVariants(theme, id)
     }
 
-    const setColorScheme = (scheme: ColorScheme) => {
-      setStore("colorScheme", scheme)
-      localStorage.setItem(STORAGE_KEYS.COLOR_SCHEME, scheme)
-      setStore("mode", scheme === "system" ? getSystemMode() : scheme)
+    const setColorScheme = (_scheme: ColorScheme) => {
+      // Force dark mode — switching is disabled
+      setStore("colorScheme", "dark")
+      localStorage.setItem(STORAGE_KEYS.COLOR_SCHEME, "dark")
+      setStore("mode", "dark")
     }
 
     return {

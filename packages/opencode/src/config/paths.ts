@@ -25,7 +25,7 @@ export namespace ConfigPaths {
       ...(!Flag.OPENCODE_DISABLE_PROJECT_CONFIG
         ? await Array.fromAsync(
             Filesystem.up({
-              targets: [".opencode"],
+              targets: [".openresearch"],
               start: directory,
               stop: worktree,
             }),
@@ -33,7 +33,7 @@ export namespace ConfigPaths {
         : []),
       ...(await Array.fromAsync(
         Filesystem.up({
-          targets: [".opencode"],
+          targets: [".openresearch"],
           start: Global.Path.home,
           stop: Global.Path.home,
         }),

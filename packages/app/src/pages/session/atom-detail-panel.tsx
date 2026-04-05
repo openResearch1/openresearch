@@ -43,6 +43,10 @@ type Experiment = {
   status: string
 }
 
+const PANEL_MIN_WIDTH = 400
+const PANEL_MAX_WIDTH = 1200
+const PANEL_DEFAULT_WIDTH = 680
+
 export function AtomDetailPanel(props: {
   atom: Atom
   onClose: () => void
@@ -60,6 +64,30 @@ export function AtomDetailPanel(props: {
   const [creatingExp, setCreatingExp] = createSignal(false)
   const [deletingExpId, setDeletingExpId] = createSignal<string | null>(null)
   const [updatingStatus, setUpdatingStatus] = createSignal(false)
+  const [panelWidth, setPanelWidth] = createSignal(PANEL_DEFAULT_WIDTH)
+  const [dragging, setDragging] = createSignal(false)
+
+  const handleResizeStart = (e: MouseEvent) => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startWidth = panelWidth()
+    setDragging(true)
+
+    const onMouseMove = (ev: MouseEvent) => {
+      const delta = startX - ev.clientX
+      const newWidth = Math.min(PANEL_MAX_WIDTH, Math.max(PANEL_MIN_WIDTH, startWidth + delta))
+      setPanelWidth(newWidth)
+    }
+
+    const onMouseUp = () => {
+      setDragging(false)
+      document.removeEventListener("mousemove", onMouseMove)
+      document.removeEventListener("mouseup", onMouseUp)
+    }
+
+    document.addEventListener("mousemove", onMouseMove)
+    document.addEventListener("mouseup", onMouseUp)
+  }
 
   const typeColor = () => TYPE_COLORS[props.atom.atom_type] ?? "#64748b"
   const statusColor = () => STATUS_COLORS[props.atom.atom_evidence_status] ?? "#64748b"
@@ -205,7 +233,7 @@ export function AtomDetailPanel(props: {
   return (
     <div
       style={{
-        width: "680px",
+        width: `${panelWidth()}px`,
         height: "100%",
         "border-left": "1px solid #1e293b",
         background: "#0f172a",
@@ -213,9 +241,28 @@ export function AtomDetailPanel(props: {
         "flex-direction": "column",
         "flex-shrink": "0",
         overflow: "hidden",
+        position: "relative",
         animation: "panel-slide-in 250ms cubic-bezier(0.4, 0, 0.2, 1) forwards",
+        "user-select": dragging() ? "none" : "auto",
       }}
     >
+      {/* Resize handle */}
+      <div
+        onMouseDown={handleResizeStart}
+        style={{
+          position: "absolute",
+          left: "0",
+          top: "0",
+          width: "5px",
+          height: "100%",
+          cursor: "col-resize",
+          "z-index": "10",
+          background: dragging() ? "#3b82f6" : "transparent",
+          transition: dragging() ? "none" : "background 0.15s",
+        }}
+        onMouseEnter={(e) => { if (!dragging()) e.currentTarget.style.background = "#334155" }}
+        onMouseLeave={(e) => { if (!dragging()) e.currentTarget.style.background = "transparent" }}
+      />
       {/* Header */}
       <div
         style={{
