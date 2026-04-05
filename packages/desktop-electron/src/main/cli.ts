@@ -11,7 +11,7 @@ import treeKill from "tree-kill"
 import { WSL_ENABLED_KEY } from "./constants"
 import { store } from "./store"
 
-const CLI_INSTALL_DIR = ".opencode/bin"
+const CLI_INSTALL_DIR = ".openresearch/bin"
 const CLI_BINARY_NAME = "opencode"
 
 export type ServerConfig = {
@@ -215,7 +215,7 @@ function buildCommand(args: string, env: Record<string, string>) {
     const version = app.getVersion()
     const script = [
       "set -e",
-      'BIN="$HOME/.opencode/bin/opencode"',
+      'BIN="$HOME/.openresearch/bin/openresearch"',
       'if [ ! -x "$BIN" ]; then',
       `  curl -fsSL https://opencode.ai/install | bash -s -- --version ${shellEscape(version)} --no-modify-path`,
       "fi",

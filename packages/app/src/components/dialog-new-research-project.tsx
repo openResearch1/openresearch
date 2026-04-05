@@ -348,6 +348,7 @@ export function DialogNewResearchProject(props: DialogNewResearchProjectProps) {
     sdk.client.file
       .list({ directory: dir, path: "" })
       .then((res) => {
+        if (!isMounted) return
         const existing = new Set((res.data ?? []).map((n) => n.name))
         let idx = 1
         while (existing.has(`research_project_${idx}`)) idx++
@@ -403,6 +404,7 @@ export function DialogNewResearchProject(props: DialogNewResearchProjectProps) {
       bodySerializer: null,
       headers: { "Content-Type": null },
     } as any)
+    if (!isMounted) return
     const data = res.data as { paths: string[] } | undefined
     if (!data?.paths?.length) throw new Error(language.t("research.new.upload.failed"))
     addPapers(data.paths)
@@ -419,6 +421,7 @@ export function DialogNewResearchProject(props: DialogNewResearchProjectProps) {
     const files = Array.from(dt.files).filter((f) => f.name.toLowerCase().endsWith(".pdf"))
     if (files.length === 0) return
     uploadFiles(files).catch((err) => {
+      if (!isMounted) return
       setError(err instanceof Error ? err.message : language.t("research.new.upload.failed"))
     })
   }
@@ -456,15 +459,17 @@ export function DialogNewResearchProject(props: DialogNewResearchProjectProps) {
       const researchID = res?.data?.research_project_id
       if (!projectID || !researchID) throw new Error(language.t("research.new.create.failed"))
 
+      // onSelect triggers dialog.close() which starts unmounting the portal.
+      // Do NOT update any signals after this point — the reactive root is
+      // still alive for 100ms while Kobalte has already torn down the DOM,
+      // so signal writes (e.g. setSubmitting) would re-evaluate stale
+      // <Show> accessors and throw.
       props.onSelect(currentTargetDir)
     } catch (err: unknown) {
       if (!isMounted) return
       const message = err instanceof Error ? err.message : language.t("research.new.create.error")
       setError(message)
-    } finally {
-      if (isMounted) {
-        setSubmitting(false)
-      }
+      setSubmitting(false)
     }
   }
 

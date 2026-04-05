@@ -7,8 +7,8 @@ describe("Database.Path", () => {
   test("returns database path for the current channel", () => {
     const file = path.basename(Database.Path)
     const expected = ["latest", "beta"].includes(Installation.CHANNEL)
-      ? "opencode.db"
-      : `opencode-${Installation.CHANNEL.replace(/[^a-zA-Z0-9._-]/g, "-")}.db`
+      ? "openresearch.db"
+      : `openresearch-${Installation.CHANNEL.replace(/[^a-zA-Z0-9._-]/g, "-")}.db`
     expect(file).toBe(expected)
   })
 })

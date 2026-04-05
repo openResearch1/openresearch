@@ -697,7 +697,7 @@ fn opencode_db_path() -> Result<PathBuf, &'static str> {
         }
     };
 
-    Ok(data_home.join("opencode").join("opencode.db"))
+    Ok(data_home.join("openresearch").join("openresearch.db"))
 }
 
 // Creates a `once` listener for the specified event and returns a future that resolves

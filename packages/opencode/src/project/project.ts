@@ -487,7 +487,7 @@ export namespace Project {
 
       const base =
         info.vcs || input.projectID !== "global"
-          ? path.join(info.worktree, ".opencode", "plans")
+          ? path.join(info.worktree, ".openresearch", "plans")
           : path.join(Global.Path.data, "plans")
 
       for (const session of sessions) {

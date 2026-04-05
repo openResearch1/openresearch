@@ -13,31 +13,28 @@ You will receive the following information in your prompt:
 
 Use the `ssh` tool to create a workspace directory on the remote server, then use `bash` locally to upload the code via `rsync` or `scp`.
 
-Example (use `bash` tool locally):
-```
-sshpass -p '<password>' rsync -avz -e 'ssh -p <port> -o StrictHostKeyChecking=no' <code_path>/ <user>@<address>:<remote_path>/
-```
-
-If `rsync` is not available, fall back to `scp -r`.
-
 The remote workspace path should be `~/experiments/<exp_id>/`.
 
-## Important Rules
+When uploading code, **do not upload any Git-related files or directories**. This includes at least:
+- `.git/`
+- `.gitignore`
+- `.gitattributes`
+- `.gitmodules`
 
-- **Do NOT configure the environment.** Use `experiment_setup_env` for that.
-- **Do NOT run the experiment.** Use `experiment_run` for that.
-- Always use the `ssh` tool for remote commands, and `bash` for local commands (like rsync/scp).
+Also exclude other unnecessary local metadata if present, such as:
+- `.DS_Store`
+- `__pycache__/`
+- `*.pyc`
 
-## Return Format
-
-When done, return a summary:
-
-```
-## Deploy Result
-
-**Status**: success | failed
-**Server**: <address>
-**Remote Path**: <remote_path>
-
-The `Remote Path` (e.g., `~/experiments/<exp_id>/`) is required by subsequent steps. Always include it in the result summary.
-```
+Preferred command example (use `bash` tool locally):
+```bash
+sshpass -p '<password>' rsync -avz \
+  --exclude '.git' \
+  --exclude '.gitignore' \
+  --exclude '.gitattributes' \
+  --exclude '.gitmodules' \
+  --exclude '.DS_Store' \
+  --exclude '__pycache__' \
+  --exclude '*.pyc' \
+  -e 'ssh -p <port> -o StrictHostKeyChecking=no' \
+  <code_path>/ <user>@<address>:<remote_path>/

@@ -466,7 +466,7 @@ export function SessionTimelineHeader(props: {
                 </Show>
               </Show>
             </div>
-            <Show when={props.sessionID()}>
+            <Show when={props.sessionID()} keyed>
               {(id) => (
                 <div class="shrink-0 flex items-center gap-3">
                   <SessionContextUsage placement="bottom" />
@@ -501,11 +501,11 @@ export function SessionTimelineHeader(props: {
                         >
                           <DropdownMenu.ItemLabel>{language.t("common.rename")}</DropdownMenu.ItemLabel>
                         </DropdownMenu.Item>
-                        <DropdownMenu.Item onSelect={() => void archiveSession(id())}>
+                        <DropdownMenu.Item onSelect={() => void archiveSession(id)}>
                           <DropdownMenu.ItemLabel>{language.t("common.archive")}</DropdownMenu.ItemLabel>
                         </DropdownMenu.Item>
                         <DropdownMenu.Separator />
-                        <DropdownMenu.Item onSelect={() => dialog.show(() => <DialogDeleteSession sessionID={id()} />)}>
+                        <DropdownMenu.Item onSelect={() => dialog.show(() => <DialogDeleteSession sessionID={id} />)}>
                           <DropdownMenu.ItemLabel>{language.t("common.delete")}</DropdownMenu.ItemLabel>
                         </DropdownMenu.Item>
                       </DropdownMenu.Content>

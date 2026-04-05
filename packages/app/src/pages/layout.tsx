@@ -122,7 +122,7 @@ export default function Layout(props: ParentProps) {
   const language = useLanguage()
   const initialDirectory = decode64(params.dir)
   const availableThemeEntries = createMemo(() => Object.entries(theme.themes()))
-  const colorSchemeOrder: ColorScheme[] = ["system", "light", "dark"]
+  const colorSchemeOrder: ColorScheme[] = ["dark"]
   const colorSchemeKey: Record<ColorScheme, "theme.scheme.system" | "theme.scheme.light" | "theme.scheme.dark"> = {
     system: "theme.scheme.system",
     light: "theme.scheme.light",
