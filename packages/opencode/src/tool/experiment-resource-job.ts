@@ -17,7 +17,7 @@ function safe(input: string) {
 }
 
 function control(root: string, expId: string, resourceKey: string) {
-  return path.join(root, ".opencode", "jobs", expId, safe(resourceKey))
+  return path.join(root, ".openresearch", "jobs", expId, safe(resourceKey))
 }
 
 function script(input: { statusPath: string; logPath: string; command: string }) {

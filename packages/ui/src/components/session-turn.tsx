@@ -558,17 +558,17 @@ export function SessionTurn(
         class={props.classes?.content}
       >
         <div onClick={autoScroll.handleInteraction}>
-          <Show when={message()}>
+          <Show when={message()} keyed>
             {(msg) => (
               <div
                 ref={autoScroll.contentRef}
-                data-message={msg().id}
+                data-message={msg.id}
                 data-slot="session-turn-message-container"
                 class={props.classes?.container}
               >
                 <div data-slot="session-turn-message-content" aria-live="off">
                   <UserMessageDisplay
-                    message={msg()}
+                    message={msg}
                     parts={parts()}
                     interrupted={interrupted()}
                     animate={props.animate}
@@ -579,7 +579,7 @@ export function SessionTurn(
                   {(part) => (
                     <GrowBox animate={props.animate !== false} fade gap={8} class="w-full min-w-0">
                       <div data-slot="session-turn-compaction">
-                        <Part part={part()} message={msg()} hideDetails />
+                        <Part part={part()} message={msg} hideDetails />
                       </div>
                     </GrowBox>
                   )}

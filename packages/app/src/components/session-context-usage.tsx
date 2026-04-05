@@ -48,7 +48,9 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
   const metrics = createMemo(() => getSessionContextMetrics(messages(), sync.data.provider.all))
   const context = createMemo(() => metrics().context)
   const cost = createMemo(() => {
-    return usd().format(metrics().totalCost)
+    const formatter = usd()
+    if (!formatter) return "$0.00"
+    return formatter.format(metrics().totalCost)
   })
 
   const openContext = () => {
