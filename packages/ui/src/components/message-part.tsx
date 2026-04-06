@@ -1574,8 +1574,9 @@ ToolRegistry.register({
       if (!nav || typeof window === "undefined") return
 
       e.preventDefault()
+      const handled = nav(sessionId)
+      if (handled) return
       const before = window.location.pathname + window.location.search + window.location.hash
-      nav(sessionId)
       setTimeout(() => {
         const after = window.location.pathname + window.location.search + window.location.hash
         if (after === before) window.location.assign(url)

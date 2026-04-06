@@ -19,7 +19,7 @@ import {
   ExperimentWatchTable,
   LocalDownloadWatchTable,
 } from "@/research/research.sql"
-import { and, eq } from "drizzle-orm"
+import { and, desc, eq } from "drizzle-orm"
 import { Session } from "@/session"
 import { linkKinds } from "@/research/research.sql"
 import { Bus } from "@/bus"
@@ -1909,6 +1909,26 @@ export const ResearchRoutes = new Hono()
         return c.json(null satisfies z.infer<typeof experimentSessionResponseSchema>)
       }
 
+      // Resolve status from experiment_execution_watch if available
+      const executionWatch = Database.use((db) =>
+        db
+          .select()
+          .from(ExperimentExecutionWatchTable)
+          .where(eq(ExperimentExecutionWatchTable.exp_id, experiment.exp_id))
+          .orderBy(desc(ExperimentExecutionWatchTable.time_updated))
+          .get(),
+      )
+      const executionStatusMap: Record<string, "pending" | "running" | "done" | "idle" | "failed"> = {
+        pending: "pending",
+        running: "running",
+        finished: "done",
+        failed: "failed",
+        canceled: "idle",
+      }
+      const resolvedStatus = executionWatch
+        ? (executionStatusMap[executionWatch.status] ?? "pending")
+        : "pending"
+
       const atom = experiment.atom_id
         ? (Database.use((db) => db.select().from(AtomTable).where(eq(AtomTable.atom_id, experiment.atom_id!)).get()) ??
           null)
@@ -1922,6 +1942,7 @@ export const ResearchRoutes = new Hono()
 
       return c.json({
         ...withRemoteServerConfig(experiment),
+        status: resolvedStatus,
         atom,
         article,
       } satisfies z.infer<typeof experimentSessionResponseSchema>)

@@ -468,7 +468,7 @@ export function ExpResultTab(props: ExperimentTabProps & { onOpenFile?: (filePat
   )
 }
 
-export function ExpProgressTab(props: ExperimentTabProps & { onUpdated?: () => void }) {
+export function ExpProgressTab(props: ExperimentTabProps & { onUpdated?: () => void; hideStatus?: boolean; hideAtom?: boolean }) {
   const language = useLanguage()
   const sdk = useSDK()
   const navigate = useNavigate()
@@ -590,13 +590,15 @@ export function ExpProgressTab(props: ExperimentTabProps & { onUpdated?: () => v
     <div class="h-full flex flex-col overflow-hidden">
       <div class="flex-1 overflow-auto p-4">
         <div class="space-y-4">
-          <div>
-            <div class="text-12-medium text-text-weak mb-1">{language.t("session.experiment.status")}</div>
-            <div class="flex items-center gap-2">
-              <div class={`w-2 h-2 rounded-full ${statusColor(props.experiment.status)}`} />
-              <span class="text-14-regular">{statusText(props.experiment.status)}</span>
+          <Show when={!props.hideStatus}>
+            <div>
+              <div class="text-12-medium text-text-weak mb-1">{language.t("session.experiment.status")}</div>
+              <div class="flex items-center gap-2">
+                <div class={`w-2 h-2 rounded-full ${statusColor(props.experiment.status)}`} />
+                <span class="text-14-regular">{statusText(props.experiment.status)}</span>
+              </div>
             </div>
-          </div>
+          </Show>
 
           <Show when={props.experiment.exp_branch_name}>
             <div>
@@ -681,7 +683,7 @@ export function ExpProgressTab(props: ExperimentTabProps & { onUpdated?: () => v
             </Show>
           </div>
 
-          <Show when={props.experiment.atom}>
+          <Show when={!props.hideAtom && props.experiment.atom}>
             <div>
               <div class="text-12-medium text-text-weak mb-1">{language.t("session.experiment.atom")}</div>
               <div class="text-14-regular">{props.experiment.atom!.atom_name}</div>

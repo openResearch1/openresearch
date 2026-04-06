@@ -931,9 +931,9 @@ export function AtomGraphView(props: {
         const nodeId = evt.target?.id
         if (!nodeId) return
         const e = evt.originalEvent as MouseEvent | PointerEvent | undefined
-        const multi = !!e && (("metaKey" in e && e.metaKey) || ("ctrlKey" in e && e.ctrlKey))
-        // Focus toggle: single click pins/unpins dim + tooltip
-        if (!multi) {
+        const withCtrl = !!e && (("metaKey" in e && e.metaKey) || ("ctrlKey" in e && e.ctrlKey))
+        // Ctrl+click: focus toggle (pin/unpin dim + tooltip)
+        if (withCtrl) {
           const prevFocused = state.focusedNodeId
           if (prevFocused === nodeId) {
             // Unpin same node
@@ -957,16 +957,9 @@ export function AtomGraphView(props: {
           }
           return
         }
-        const next = state.selectedIds.includes(nodeId)
-          ? state.selectedIds.filter((id) => id !== nodeId)
-          : [...state.selectedIds, nodeId]
-        setState("selectedIds", next)
-      })
-
-      graph.on("node:dblclick", (evt: any) => {
-        if (state.dragging || state.active || state.confirmOpen || state.createOpen) return
-        const nodeId = evt.target?.id
-        if (nodeId) props.onAtomClick(nodeId)
+        // Plain click: navigate to atom detail
+        resetNodeVisualState()
+        props.onAtomViewDetail?.(nodeId)
       })
 
       graph.on("edge:click", (evt: any) => {

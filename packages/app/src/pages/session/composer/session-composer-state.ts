@@ -1,7 +1,7 @@
 import { createEffect, createMemo, on, onCleanup } from "solid-js"
 import { createStore } from "solid-js/store"
 import type { PermissionRequest, QuestionRequest, Todo } from "@opencode-ai/sdk/v2"
-import { useParams } from "@solidjs/router"
+import { useSessionID } from "@/context/session-id"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
@@ -11,7 +11,7 @@ import { useSync } from "@/context/sync"
 import { sessionPermissionRequest, sessionQuestionRequest } from "./session-request-tree"
 
 export function createSessionComposerBlocked() {
-  const params = useParams()
+  const params = useSessionID()
   const permission = usePermission()
   const sdk = useSDK()
   const sync = useSync()
@@ -30,7 +30,7 @@ export function createSessionComposerBlocked() {
 }
 
 export function createSessionComposerState(options?: { closeMs?: number | (() => number) }) {
-  const params = useParams()
+  const params = useSessionID()
   const sdk = useSDK()
   const sync = useSync()
   const globalSync = useGlobalSync()

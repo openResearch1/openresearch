@@ -51,6 +51,11 @@ export function AtomDetailPanel(props: {
   atom: Atom
   onClose: () => void
   onDelete?: (atomId: string) => Promise<void>
+  onAtomSessionId?: (sessionId: string | null) => void
+  chatOpen?: boolean
+  onToggleChat?: () => void
+  onOpenFileDetail?: (path: string, title: string) => void
+  onOpenExpDetail?: (expId: string) => void
 }) {
   const file = useFile()
   const sdk = useSDK()
@@ -92,16 +97,58 @@ export function AtomDetailPanel(props: {
   const typeColor = () => TYPE_COLORS[props.atom.atom_type] ?? "#64748b"
   const statusColor = () => STATUS_COLORS[props.atom.atom_evidence_status] ?? "#64748b"
 
-  // Load claim file
+  // Load & watch claim file
   createEffect(() => {
     const path = props.atom.atom_claim_path
-    if (path) file.load(path).catch(console.error)
+    if (!path) return
+    file.load(path).catch(console.error)
+    let mounted = true
+    const unsub = sdk.event.on("file.watcher.updated" as any, (event: { file: string; event: string }) => {
+      if (!mounted) return
+      if (
+        (event.file === path || event.file.endsWith(path) || path.endsWith(event.file)) &&
+        (event.event === "change" || event.event === "add")
+      ) {
+        file.load(path, { force: true }).catch(console.error)
+      }
+    })
+    onCleanup(() => { mounted = false; unsub() })
   })
 
-  // Load evidence file
+  // Load & watch evidence file
   createEffect(() => {
     const path = props.atom.atom_evidence_path
-    if (path) file.load(path).catch(console.error)
+    if (!path) return
+    file.load(path).catch(console.error)
+    let mounted = true
+    const unsub = sdk.event.on("file.watcher.updated" as any, (event: { file: string; event: string }) => {
+      if (!mounted) return
+      if (
+        (event.file === path || event.file.endsWith(path) || path.endsWith(event.file)) &&
+        (event.event === "change" || event.event === "add")
+      ) {
+        file.load(path, { force: true }).catch(console.error)
+      }
+    })
+    onCleanup(() => { mounted = false; unsub() })
+  })
+
+  // Load & watch evidence assessment file
+  createEffect(() => {
+    const path = props.atom.atom_evidence_assessment_path
+    if (!path) return
+    file.load(path).catch(console.error)
+    let mounted = true
+    const unsub = sdk.event.on("file.watcher.updated" as any, (event: { file: string; event: string }) => {
+      if (!mounted) return
+      if (
+        (event.file === path || event.file.endsWith(path) || path.endsWith(event.file)) &&
+        (event.event === "change" || event.event === "add")
+      ) {
+        file.load(path, { force: true }).catch(console.error)
+      }
+    })
+    onCleanup(() => { mounted = false; unsub() })
   })
 
   const claimContent = createMemo(() => {
@@ -115,6 +162,14 @@ export function AtomDetailPanel(props: {
     if (!path) return null
     return file.get(path)?.content?.content ?? null
   })
+
+  const assessmentContent = createMemo(() => {
+    const path = props.atom.atom_evidence_assessment_path
+    if (!path) return null
+    return file.get(path)?.content?.content ?? null
+  })
+
+  const [evidenceTab, setEvidenceTab] = createSignal<"evidence" | "assessment">("evidence")
 
   const fetchExperiments = async (atomId: string) => {
     setLoadingExps(true)
@@ -138,6 +193,11 @@ export function AtomDetailPanel(props: {
   // Fetch experiments via atom session
   createEffect(() => {
     fetchExperiments(props.atom.atom_id)
+  })
+
+  // Notify parent of atom session ID changes
+  createEffect(() => {
+    props.onAtomSessionId?.(atomSessionId())
   })
 
   const navigateToAtomSession = () => {
@@ -232,16 +292,11 @@ export function AtomDetailPanel(props: {
 
   return (
     <div
+      class="bg-background-base border-l border-border-base flex flex-col overflow-hidden relative"
       style={{
         width: `${panelWidth()}px`,
         height: "100%",
-        "border-left": "1px solid #1e293b",
-        background: "#0f172a",
-        display: "flex",
-        "flex-direction": "column",
         "flex-shrink": "0",
-        overflow: "hidden",
-        position: "relative",
         animation: "panel-slide-in 250ms cubic-bezier(0.4, 0, 0.2, 1) forwards",
         "user-select": dragging() ? "none" : "auto",
       }}
@@ -249,71 +304,42 @@ export function AtomDetailPanel(props: {
       {/* Resize handle */}
       <div
         onMouseDown={handleResizeStart}
+        class="absolute left-0 top-0 w-[5px] h-full z-10 cursor-col-resize"
         style={{
-          position: "absolute",
-          left: "0",
-          top: "0",
-          width: "5px",
-          height: "100%",
-          cursor: "col-resize",
-          "z-index": "10",
-          background: dragging() ? "#3b82f6" : "transparent",
+          background: dragging() ? "var(--accent-base)" : "transparent",
           transition: dragging() ? "none" : "background 0.15s",
         }}
-        onMouseEnter={(e) => { if (!dragging()) e.currentTarget.style.background = "#334155" }}
+        onMouseEnter={(e) => { if (!dragging()) e.currentTarget.style.background = "var(--border-base)" }}
         onMouseLeave={(e) => { if (!dragging()) e.currentTarget.style.background = "transparent" }}
       />
       {/* Header */}
-      <div
-        style={{
-          display: "flex",
-          "align-items": "flex-start",
-          "justify-content": "space-between",
-          padding: "16px",
-          "border-bottom": "1px solid #1e293b",
-          "flex-shrink": "0",
-        }}
-      >
-        <div style={{ flex: "1", "min-width": "0" }}>
-          <div
-            style={{
-              display: "flex",
-              "align-items": "flex-start",
-              gap: "8px",
-              "margin-bottom": "8px",
-            }}
-          >
-            <div
-              style={{
-                "font-size": "14px",
-                "font-weight": "600",
-                color: "#f1f5f9",
-                "word-break": "break-word",
-                "line-height": "1.3",
-                flex: "1",
-                "min-width": "0",
-              }}
-            >
+      <div class="flex items-start justify-between p-4 border-b border-border-base shrink-0">
+        <div class="flex-1 min-w-0">
+          <div class="flex items-start gap-2 mb-2">
+            <div class="text-sm font-semibold text-text-base break-words leading-snug flex-1 min-w-0">
               {props.atom.atom_name}
             </div>
             <Show when={atomSessionId()}>
+              <Show when={props.onToggleChat}>
+                <button
+                  onClick={props.onToggleChat}
+                  title={props.chatOpen ? "Close chat panel" : "Open chat panel"}
+                  class="flex items-center gap-1 px-2 py-0.5 rounded border text-[11px] cursor-pointer shrink-0 whitespace-nowrap transition-colors"
+                  classList={{
+                    "border-accent-base bg-accent-base/10 text-accent-base": props.chatOpen,
+                    "border-border-base bg-transparent text-text-weak hover:text-text-base": !props.chatOpen,
+                  }}
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                  </svg>
+                  Chat
+                </button>
+              </Show>
               <button
                 onClick={navigateToAtomSession}
                 title="Go to atom session"
-                style={{
-                  display: "flex",
-                  "align-items": "center",
-                  gap: "4px",
-                  padding: "2px 8px",
-                  border: "1px solid #334155",
-                  "border-radius": "4px",
-                  background: "transparent",
-                  color: "#60a5fa",
-                  "font-size": "11px",
-                  cursor: "pointer",
-                  "flex-shrink": "0",
-                  "white-space": "nowrap",
-                }}
+                class="flex items-center gap-1 px-2 py-0.5 rounded border border-border-base bg-transparent text-accent-base text-[11px] cursor-pointer shrink-0 whitespace-nowrap hover:bg-background-stronger transition-colors"
               >
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
@@ -327,39 +353,21 @@ export function AtomDetailPanel(props: {
               <Show
                 when={!confirmDelete()}
                 fallback={
-                  <div style={{ display: "flex", "align-items": "center", gap: "4px", "flex-shrink": "0" }}>
+                  <div class="flex items-center gap-1 shrink-0">
                     <button
                       onClick={handleDelete}
                       disabled={deleting()}
+                      class="flex items-center gap-1 px-2 py-0.5 rounded border border-red-600 bg-red-600 text-white text-[11px] whitespace-nowrap"
                       style={{
-                        display: "flex",
-                        "align-items": "center",
-                        gap: "4px",
-                        padding: "2px 8px",
-                        border: "1px solid #dc2626",
-                        "border-radius": "4px",
-                        background: "#dc2626",
-                        color: "#fff",
-                        "font-size": "11px",
                         cursor: deleting() ? "not-allowed" : "pointer",
                         opacity: deleting() ? "0.6" : "1",
-                        "white-space": "nowrap",
                       }}
                     >
                       {deleting() ? "Deleting..." : "Confirm"}
                     </button>
                     <button
                       onClick={() => setConfirmDelete(false)}
-                      style={{
-                        padding: "2px 8px",
-                        border: "1px solid #334155",
-                        "border-radius": "4px",
-                        background: "transparent",
-                        color: "#94a3b8",
-                        "font-size": "11px",
-                        cursor: "pointer",
-                        "white-space": "nowrap",
-                      }}
+                      class="px-2 py-0.5 rounded border border-border-base bg-transparent text-text-weak text-[11px] cursor-pointer whitespace-nowrap hover:text-text-base transition-colors"
                     >
                       Cancel
                     </button>
@@ -369,20 +377,7 @@ export function AtomDetailPanel(props: {
                 <button
                   onClick={() => setConfirmDelete(true)}
                   title="Delete atom"
-                  style={{
-                    display: "flex",
-                    "align-items": "center",
-                    gap: "4px",
-                    padding: "2px 8px",
-                    border: "1px solid #334155",
-                    "border-radius": "4px",
-                    background: "transparent",
-                    color: "#f87171",
-                    "font-size": "11px",
-                    cursor: "pointer",
-                    "flex-shrink": "0",
-                    "white-space": "nowrap",
-                  }}
+                  class="flex items-center gap-1 px-2 py-0.5 rounded border border-border-base bg-transparent text-red-400 text-[11px] cursor-pointer shrink-0 whitespace-nowrap hover:border-red-400 transition-colors"
                 >
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6M10 11v6M14 11v6" />
@@ -392,13 +387,10 @@ export function AtomDetailPanel(props: {
               </Show>
             </Show>
           </div>
-          <div style={{ display: "flex", "align-items": "center", gap: "6px", "flex-wrap": "wrap" }}>
+          <div class="flex items-center gap-1.5 flex-wrap">
             <span
+              class="text-[11px] font-medium px-2 py-0.5 rounded"
               style={{
-                "font-size": "11px",
-                "font-weight": "500",
-                padding: "2px 8px",
-                "border-radius": "4px",
                 background: `${typeColor()}22`,
                 color: typeColor(),
               }}
@@ -410,35 +402,14 @@ export function AtomDetailPanel(props: {
               updating={updatingStatus()}
               onSelect={handleUpdateStatus}
             />
-            <span
-              style={{
-                "font-size": "11px",
-                padding: "2px 8px",
-                "border-radius": "4px",
-                background: "#334155",
-                color: "#94a3b8",
-              }}
-            >
+            <span class="text-[11px] px-2 py-0.5 rounded bg-background-stronger text-text-weak">
               {props.atom.atom_evidence_type}
             </span>
           </div>
         </div>
         <button
           onClick={props.onClose}
-          style={{
-            display: "flex",
-            "align-items": "center",
-            "justify-content": "center",
-            width: "28px",
-            height: "28px",
-            border: "1px solid #334155",
-            "border-radius": "6px",
-            background: "transparent",
-            color: "#94a3b8",
-            cursor: "pointer",
-            "flex-shrink": "0",
-            "margin-left": "12px",
-          }}
+          class="flex items-center justify-center w-7 h-7 border border-border-base rounded-md bg-transparent text-text-weak cursor-pointer shrink-0 ml-3 hover:text-text-base hover:bg-background-stronger transition-colors"
         >
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <line x1="18" y1="6" x2="6" y2="18" />
@@ -448,42 +419,16 @@ export function AtomDetailPanel(props: {
       </div>
 
       {/* Two-column content */}
-      <div
-        style={{
-          flex: "1",
-          "min-height": "0",
-          display: "flex",
-          gap: "0",
-        }}
-      >
+      <div class="flex-1 min-h-0 flex">
         {/* Left column: Experiments + Claim */}
-        <div
-          style={{
-            flex: "1",
-            "min-width": "0",
-            padding: "16px",
-            display: "flex",
-            "flex-direction": "column",
-            gap: "16px",
-            "border-right": "1px solid #1e293b",
-          }}
-        >
+        <div class="flex-1 min-w-0 p-4 flex flex-col gap-4 border-r border-border-base">
           <Section
             title="Experiments"
             scrollable
             action={
               <button
                 onClick={handleCreateExperiment}
-                style={{
-                  padding: "1px 6px",
-                  border: "1px solid #334155",
-                  "border-radius": "4px",
-                  background: "transparent",
-                  color: "#94a3b8",
-                  "font-size": "11px",
-                  cursor: "pointer",
-                  "white-space": "nowrap",
-                }}
+                class="px-1.5 py-px border border-border-base rounded bg-transparent text-text-weak text-[11px] cursor-pointer whitespace-nowrap hover:text-text-base transition-colors"
               >
                 + New
               </button>
@@ -491,50 +436,24 @@ export function AtomDetailPanel(props: {
           >
             <Show when={!loadingExps()} fallback={<EmptyHint text="Loading..." />}>
               <Show when={experiments().length > 0} fallback={<EmptyHint text="No experiments yet" />}>
-                <div style={{ display: "flex", "flex-direction": "column", gap: "4px" }}>
+                <div class="flex flex-col gap-1">
                   <For each={experiments()}>
                     {(exp) => (
                       <div
-                        style={{
-                          display: "flex",
-                          "align-items": "center",
-                          gap: "8px",
-                          padding: "6px 8px",
-                          "border-radius": "6px",
-                          background: "#0f172a",
-                          cursor: "pointer",
-                        }}
-                        onClick={() => navigateToExpSession(exp.exp_id)}
-                        title="Go to experiment session"
+                        class="flex items-center gap-2 px-2 py-1.5 rounded-md bg-background-base cursor-pointer hover:bg-background-stronger transition-colors"
+                        onClick={() => props.onOpenExpDetail ? props.onOpenExpDetail(exp.exp_id) : navigateToExpSession(exp.exp_id)}
+                        title="View experiment detail"
                       >
                         <span
-                          style={{
-                            width: "8px",
-                            height: "8px",
-                            "border-radius": "50%",
-                            background: EXP_STATUS_COLORS[exp.status] ?? "#64748b",
-                            "flex-shrink": "0",
-                          }}
+                          class="w-2 h-2 rounded-full shrink-0"
+                          style={{ background: EXP_STATUS_COLORS[exp.status] ?? "var(--text-weakest)" }}
                         />
-                        <span
-                          style={{
-                            "font-size": "12px",
-                            color: "#e2e8f0",
-                            flex: "1",
-                            "min-width": "0",
-                            overflow: "hidden",
-                            "text-overflow": "ellipsis",
-                            "white-space": "nowrap",
-                          }}
-                        >
+                        <span class="text-xs text-text-base flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
                           {exp.exp_name}
                         </span>
                         <span
-                          style={{
-                            "font-size": "11px",
-                            color: EXP_STATUS_COLORS[exp.status] ?? "#94a3b8",
-                            "flex-shrink": "0",
-                          }}
+                          class="text-[11px] shrink-0"
+                          style={{ color: EXP_STATUS_COLORS[exp.status] ?? "var(--text-weak)" }}
                         >
                           {exp.status}
                         </span>
@@ -542,26 +461,14 @@ export function AtomDetailPanel(props: {
                           onClick={(evt) => handleDeleteExperiment(exp.exp_id, evt)}
                           disabled={deletingExpId() === exp.exp_id}
                           title="Delete experiment"
-                          style={{
-                            display: "flex",
-                            "align-items": "center",
-                            "justify-content": "center",
-                            width: "18px",
-                            height: "18px",
-                            border: "none",
-                            "border-radius": "4px",
-                            background: "transparent",
-                            color: deletingExpId() === exp.exp_id ? "#64748b" : "#64748b",
-                            cursor: deletingExpId() === exp.exp_id ? "not-allowed" : "pointer",
-                            "flex-shrink": "0",
-                            padding: "0",
-                          }}
+                          class="flex items-center justify-center w-[18px] h-[18px] border-none rounded bg-transparent text-text-weakest shrink-0 p-0 hover:text-text-weak transition-colors"
+                          style={{ cursor: deletingExpId() === exp.exp_id ? "not-allowed" : "pointer" }}
                         >
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
                           </svg>
                         </button>
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style={{ "flex-shrink": "0" }}>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0 text-text-weakest">
                           <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
                           <polyline points="15 3 21 3 21 9" />
                           <line x1="10" y1="14" x2="21" y2="3" />
@@ -574,28 +481,68 @@ export function AtomDetailPanel(props: {
             </Show>
           </Section>
 
-          <Section title="Claim" fill>
+          <Section
+            title="Claim"
+            fill
+            action={
+              <Show when={props.onOpenFileDetail && props.atom.atom_claim_path}>
+                <DetailButton onClick={() => props.onOpenFileDetail!(props.atom.atom_claim_path!, "Claim")} />
+              </Show>
+            }
+          >
             <Show when={claimContent()} fallback={<EmptyHint text="No claim yet" />}>
               {(content) => <Markdown text={content()} class="text-12-regular" />}
             </Show>
           </Section>
         </div>
 
-        {/* Right column: Evidence */}
-        <div
-          style={{
-            flex: "1",
-            "min-width": "0",
-            padding: "16px",
-            display: "flex",
-            "flex-direction": "column",
-          }}
-        >
-          <Section title="Evidence" fill>
-            <Show when={evidenceContent()} fallback={<EmptyHint text="No evidence yet" />}>
-              {(content) => <Markdown text={content()} class="text-12-regular" />}
-            </Show>
-          </Section>
+        {/* Right column: Evidence / Assessment */}
+        <div class="flex-1 min-w-0 p-4 flex flex-col">
+          <div class="bg-background-stronger rounded-lg border border-border-base flex flex-col flex-1 min-h-0">
+            <div class="px-3 py-0 border-b border-border-base shrink-0 flex items-center gap-0">
+              <button
+                onClick={() => setEvidenceTab("evidence")}
+                class="px-3 py-2 text-xs font-semibold uppercase tracking-wider border-b-2 bg-transparent cursor-pointer transition-colors"
+                classList={{
+                  "border-accent-base text-accent-base": evidenceTab() === "evidence",
+                  "border-transparent text-text-weak hover:text-text-base": evidenceTab() !== "evidence",
+                }}
+              >
+                Evidence
+              </button>
+              <button
+                onClick={() => setEvidenceTab("assessment")}
+                class="px-3 py-2 text-xs font-semibold uppercase tracking-wider border-b-2 bg-transparent cursor-pointer transition-colors"
+                classList={{
+                  "border-accent-base text-accent-base": evidenceTab() === "assessment",
+                  "border-transparent text-text-weak hover:text-text-base": evidenceTab() !== "assessment",
+                }}
+              >
+                Assessment
+              </button>
+              <Show when={props.onOpenFileDetail}>
+                <div class="flex-1" />
+                <DetailButton onClick={() => {
+                  const path = evidenceTab() === "evidence"
+                    ? props.atom.atom_evidence_path
+                    : props.atom.atom_evidence_assessment_path
+                  if (path) props.onOpenFileDetail!(path, evidenceTab() === "evidence" ? "Evidence" : "Assessment")
+                }} />
+              </Show>
+            </div>
+            <div class="p-3 overflow-y-auto flex-1 min-h-0">
+              <Show when={evidenceTab() === "evidence"}>
+                <Show when={evidenceContent()} fallback={<EmptyHint text="No evidence yet" />}>
+                  {(content) => <Markdown text={content()} class="text-12-regular" />}
+                </Show>
+              </Show>
+              <Show when={evidenceTab() === "assessment"}>
+                <Show when={assessmentContent()} fallback={<EmptyHint text="No assessment yet" />}>
+                  {(content) => <Markdown text={content()} class="text-12-regular" />}
+                </Show>
+              </Show>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -605,39 +552,20 @@ export function AtomDetailPanel(props: {
 function Section(props: { title: string; scrollable?: boolean; fill?: boolean; action?: any; children: any }) {
   return (
     <div
-      style={{
-        background: "#1e293b",
-        "border-radius": "8px",
-        border: "1px solid #334155",
-        display: "flex",
-        "flex-direction": "column",
-        ...(props.fill ? { flex: "1", "min-height": "0" } : {}),
-        ...(props.scrollable ? { "max-height": "340px" } : {}),
+      class="bg-background-stronger rounded-lg border border-border-base flex flex-col"
+      classList={{
+        "flex-1 min-h-0": props.fill,
       }}
+      style={props.scrollable ? { "max-height": "340px" } : undefined}
     >
-      <div
-        style={{
-          padding: "10px 12px",
-          "border-bottom": "1px solid #334155",
-          "font-size": "12px",
-          "font-weight": "600",
-          color: "#94a3b8",
-          "text-transform": "uppercase",
-          "letter-spacing": "0.05em",
-          "flex-shrink": "0",
-          display: "flex",
-          "align-items": "center",
-          "justify-content": "space-between",
-        }}
-      >
+      <div class="px-3 py-2.5 border-b border-border-base text-xs font-semibold text-text-weak uppercase tracking-wider shrink-0 flex items-center justify-between">
         {props.title}
         {props.action}
       </div>
       <div
-        style={{
-          padding: "12px",
-          "overflow-y": props.fill || props.scrollable ? "auto" : "visible",
-          ...(props.fill ? { flex: "1", "min-height": "0" } : {}),
+        class="p-3"
+        classList={{
+          "overflow-y-auto flex-1 min-h-0": props.fill || props.scrollable,
         }}
       >
         {props.children}
@@ -650,26 +578,19 @@ const EVIDENCE_STATUSES = ["pending", "in_progress", "proven", "disproven"] as c
 
 function StatusSelector(props: { current: string; updating: boolean; onSelect: (status: string) => void }) {
   const [open, setOpen] = createSignal(false)
-  const color = () => STATUS_COLORS[props.current] ?? "#64748b"
+  const color = () => STATUS_COLORS[props.current] ?? "var(--text-weakest)"
 
   return (
-    <div style={{ position: "relative" }}>
+    <div class="relative">
       <button
         onClick={() => setOpen(!open())}
         disabled={props.updating}
+        class="text-[11px] font-medium px-2 py-0.5 rounded border-none flex items-center gap-1"
         style={{
-          "font-size": "11px",
-          "font-weight": "500",
-          padding: "2px 8px",
-          "border-radius": "4px",
           background: `${color()}22`,
           color: color(),
-          border: "none",
           cursor: props.updating ? "not-allowed" : "pointer",
           opacity: props.updating ? "0.6" : "1",
-          display: "flex",
-          "align-items": "center",
-          gap: "4px",
         }}
       >
         {props.updating ? "Updating..." : props.current}
@@ -678,53 +599,26 @@ function StatusSelector(props: { current: string; updating: boolean; onSelect: (
         </svg>
       </button>
       <Show when={open()}>
-        <div
-          style={{
-            position: "absolute",
-            top: "100%",
-            left: "0",
-            "margin-top": "4px",
-            "z-index": "50",
-            background: "#1e293b",
-            border: "1px solid #334155",
-            "border-radius": "6px",
-            padding: "4px",
-            "box-shadow": "0 8px 24px rgba(0,0,0,0.4)",
-            "min-width": "120px",
-          }}
-        >
+        <div class="absolute top-full left-0 mt-1 z-50 bg-background-stronger border border-border-base rounded-md p-1 shadow-lg min-w-[120px]">
           <For each={EVIDENCE_STATUSES}>
             {(status) => {
-              const c = () => STATUS_COLORS[status] ?? "#64748b"
+              const c = () => STATUS_COLORS[status] ?? "var(--text-weakest)"
               return (
                 <button
                   onClick={() => {
                     setOpen(false)
                     if (status !== props.current) props.onSelect(status)
                   }}
-                  style={{
-                    display: "flex",
-                    "align-items": "center",
-                    gap: "8px",
-                    width: "100%",
-                    padding: "5px 8px",
-                    border: "none",
-                    "border-radius": "4px",
-                    background: status === props.current ? "#334155" : "transparent",
-                    color: c(),
-                    "font-size": "11px",
-                    cursor: "pointer",
-                    "text-align": "left",
+                  class="flex items-center gap-2 w-full px-2 py-1 border-none rounded text-[11px] cursor-pointer text-left"
+                  classList={{
+                    "bg-background-base": status === props.current,
+                    "bg-transparent hover:bg-background-base": status !== props.current,
                   }}
+                  style={{ color: c() }}
                 >
                   <span
-                    style={{
-                      width: "6px",
-                      height: "6px",
-                      "border-radius": "50%",
-                      background: c(),
-                      "flex-shrink": "0",
-                    }}
+                    class="w-1.5 h-1.5 rounded-full shrink-0"
+                    style={{ background: c() }}
                   />
                   {status}
                 </button>
@@ -739,7 +633,23 @@ function StatusSelector(props: { current: string; updating: boolean; onSelect: (
 
 function EmptyHint(props: { text: string }) {
   return (
-    <div style={{ "font-size": "12px", color: "#64748b" }}>{props.text}</div>
+    <div class="text-xs text-text-weakest">{props.text}</div>
+  )
+}
+
+function DetailButton(props: { onClick: () => void }) {
+  return (
+    <button
+      onClick={props.onClick}
+      title="View detail"
+      class="px-1.5 py-px border border-border-base rounded bg-transparent text-text-weak text-[11px] cursor-pointer whitespace-nowrap hover:text-text-base transition-colors"
+    >
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+        <polyline points="15 3 21 3 21 9" />
+        <line x1="10" y1="14" x2="21" y2="3" />
+      </svg>
+    </button>
   )
 }
 

@@ -1,8 +1,12 @@
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } from "solid-js"
+import { useSDK } from "@/context/sdk"
 import { Portal } from "solid-js/web"
 import type { ResearchAtomsListResponse } from "@opencode-ai/sdk/v2"
 import { AtomDetailView } from "./atom-detail-view"
 import { AtomDetailPanel } from "./atom-detail-panel"
+import { AtomChatPanel } from "./atom-chat-panel"
+import { FileDetailPanel } from "./file-detail-panel"
+import { ExpDetailPanel } from "./exp-detail-panel"
 
 type Atom = ResearchAtomsListResponse["atoms"][number]
 type Relation = ResearchAtomsListResponse["relations"][number]
@@ -33,7 +37,15 @@ export function AtomDetailFullscreen(props: {
   focusAtomId?: string | null
   onClose: () => void
 }) {
+  const sdk = useSDK()
   const [selectedAtomId, setSelectedAtomId] = createSignal<string | null>(null)
+  const [atomSessionId, setAtomSessionId] = createSignal<string | null>(null)
+  const [chatOpen, setChatOpen] = createSignal(false)
+  const [fileDetail, setFileDetail] = createSignal<{ path: string; title: string } | null>(null)
+  const [openExpId, setOpenExpId] = createSignal<string | null>(null)
+  const [expSessionId, setExpSessionId] = createSignal<string | null>(null)
+  const [chatWidth, setChatWidth] = createSignal(0)
+  let chatRef: HTMLDivElement | undefined
   const selectedAtom = createMemo(() => {
     const id = selectedAtomId()
     if (!id) return null
@@ -99,6 +111,10 @@ export function AtomDetailFullscreen(props: {
           from { transform: translateX(100%); }
           to { transform: translateX(0); }
         }
+        @keyframes chat-panel-slide-in {
+          from { transform: translateX(-100%); }
+          to { transform: translateX(0); }
+        }
         .solid-flow {
           --xy-edge-label-background-color: rgba(15, 23, 42, 0.85);
           --xy-edge-label-color: #94a3b8;
@@ -138,13 +154,8 @@ export function AtomDetailFullscreen(props: {
       `}</style>
       <div
         onTransitionEnd={handleTransitionEnd}
+        class="fixed inset-0 z-50 flex flex-col bg-background-base"
         style={{
-          position: "fixed",
-          inset: "0",
-          "z-index": "50",
-          display: "flex",
-          "flex-direction": "column",
-          background: "#0f172a",
           "clip-path": props.visible ? "inset(0)" : collapsedInset(),
           transition: "clip-path 300ms cubic-bezier(0.4, 0, 0.2, 1)",
           visibility: hidden() ? "hidden" : "visible",
@@ -152,52 +163,20 @@ export function AtomDetailFullscreen(props: {
         }}
       >
         {/* Top bar */}
-        <div
-          style={{
-            display: "flex",
-            "align-items": "center",
-            "justify-content": "space-between",
-            height: "44px",
-            "padding-left": "16px",
-            "padding-right": "12px",
-            "border-bottom": "1px solid #1e293b",
-            "flex-shrink": "0",
-          }}
-        >
-          <div style={{ display: "flex", "align-items": "center", gap: "10px" }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <div class="flex items-center justify-between h-11 pl-4 pr-3 border-b border-border-base shrink-0">
+          <div class="flex items-center gap-2.5">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-accent-base">
               <circle cx="12" cy="12" r="3" />
               <line x1="12" y1="3" x2="12" y2="9" />
               <line x1="12" y1="15" x2="12" y2="21" />
               <line x1="3" y1="12" x2="9" y2="12" />
               <line x1="15" y1="12" x2="21" y2="12" />
             </svg>
-            <span style={{ "font-size": "13px", "font-weight": "600", color: "#f1f5f9" }}>Atom Detail</span>
+            <span class="text-sm font-semibold text-text-base">Atom Detail</span>
           </div>
           <button
             onClick={props.onClose}
-            style={{
-              display: "flex",
-              "align-items": "center",
-              "justify-content": "center",
-              width: "30px",
-              height: "30px",
-              border: "1px solid #334155",
-              "border-radius": "6px",
-              background: "transparent",
-              color: "#94a3b8",
-              cursor: "pointer",
-              "font-size": "16px",
-              transition: "background 0.15s, color 0.15s",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = "#1e293b"
-              e.currentTarget.style.color = "#f1f5f9"
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = "transparent"
-              e.currentTarget.style.color = "#94a3b8"
-            }}
+            class="flex items-center justify-center w-[30px] h-[30px] border border-border-base rounded-md bg-transparent text-text-weak cursor-pointer text-base hover:bg-background-stronger hover:text-text-base transition-colors"
             title="Close (Esc)"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -207,8 +186,49 @@ export function AtomDetailFullscreen(props: {
           </button>
         </div>
 
-        {/* Detail area: graph + optional side panel */}
-        <div style={{ flex: "1", "min-height": "0", display: "flex" }}>
+        {/* Detail area */}
+        <div style={{ flex: "1", "min-height": "0", display: "flex", position: "relative" }}>
+          {/* Chat panel: absolute overlay, z-20 (always on top) */}
+          <Show when={chatOpen() && (openExpId() ? expSessionId() : atomSessionId())}>
+            {(sessionId) => (
+              <div
+                ref={(el) => {
+                  chatRef = el
+                  const ro = new ResizeObserver(() => setChatWidth(el.offsetWidth))
+                  ro.observe(el)
+                  onCleanup(() => ro.disconnect())
+                }}
+                style={{
+                  position: "absolute",
+                  left: "0",
+                  top: "0",
+                  bottom: "0",
+                  "z-index": "20",
+                  animation: "chat-panel-slide-in 250ms cubic-bezier(0.4, 0, 0.2, 1) forwards",
+                }}
+              >
+                <AtomChatPanel
+                  atomSessionId={sessionId()}
+                  onClose={() => setChatOpen(false)}
+                  title={openExpId() ? "Experiment Chat" : "Atom Chat"}
+                />
+              </div>
+            )}
+          </Show>
+
+          {/* File detail overlay: absolute, z-10 (above graph/panel, below chat) */}
+          <Show when={fileDetail()}>
+            {(detail) => (
+              <FileDetailPanel
+                path={detail().path}
+                title={detail().title}
+                onClose={() => setFileDetail(null)}
+                leftOffset={chatOpen() ? chatWidth() : 0}
+              />
+            )}
+          </Show>
+
+          {/* Center: Graph (flex layout, never squeezed) */}
           <div style={{ flex: "1", "min-width": "0", position: "relative" }}>
             <AtomDetailView
               atoms={props.atoms}
@@ -216,7 +236,12 @@ export function AtomDetailFullscreen(props: {
               loading={props.loading}
               error={props.error}
               focusAtomId={props.focusAtomId}
-              onAtomClick={(atomId) => setSelectedAtomId(atomId)}
+              onAtomClick={(atomId) => {
+                setOpenExpId(null)
+                setExpSessionId(null)
+                setChatOpen(false)
+                setSelectedAtomId(atomId)
+              }}
               onAtomCreate={props.onAtomCreate}
               onAtomDelete={props.onAtomDelete}
               onRelationCreate={props.onRelationCreate}
@@ -225,13 +250,51 @@ export function AtomDetailFullscreen(props: {
               researchProjectId={props.researchProjectId}
             />
           </div>
+
+          {/* Right: Detail panel */}
           <Show when={selectedAtom()}>
             {(atom) => (
-              <AtomDetailPanel
-                atom={atom()}
-                onClose={() => setSelectedAtomId(null)}
-                onDelete={props.onAtomDelete}
-              />
+              <Show
+                when={openExpId()}
+                fallback={
+                  <AtomDetailPanel
+                    atom={atom()}
+                    onClose={() => {
+                      setSelectedAtomId(null)
+                      setAtomSessionId(null)
+                      setChatOpen(false)
+                      setFileDetail(null)
+                      setOpenExpId(null)
+                    }}
+                    onDelete={props.onAtomDelete}
+                    onAtomSessionId={(id) => {
+                      setAtomSessionId(id)
+                    }}
+                    chatOpen={chatOpen()}
+                    onToggleChat={() => setChatOpen((v) => !v)}
+                    onOpenFileDetail={(path, title) => setFileDetail({ path, title })}
+                    onOpenExpDetail={(expId) => setOpenExpId(expId)}
+                  />
+                }
+              >
+                {(expId) => (
+                  <ExpDetailPanel
+                    expId={expId()}
+                    onClose={() => {
+                      setOpenExpId(null)
+                      setExpSessionId(null)
+                      setChatOpen(false)
+                    }}
+                    onOpenFileDetail={(path, title) => setFileDetail({ path, title })}
+                    onExpSessionId={(id) => setExpSessionId(id)}
+                    chatOpen={chatOpen()}
+                    onToggleChat={() => setChatOpen((v) => !v)}
+                    onDelete={async (eId) => {
+                      await sdk.client.research.experiment.delete({ expId: eId })
+                    }}
+                  />
+                )}
+              </Show>
             )}
           </Show>
         </div>

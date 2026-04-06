@@ -22,7 +22,7 @@ type Data = {
   }
 }
 
-export type NavigateToSessionFn = (sessionID: string) => void
+export type NavigateToSessionFn = (sessionID: string) => boolean | void
 
 export type SessionHrefFn = (sessionID: string) => string
 

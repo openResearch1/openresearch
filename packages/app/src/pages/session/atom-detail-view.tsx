@@ -318,11 +318,13 @@ export function AtomDetailView(props: {
 
   // Delete selected nodes via keyboard
   const handleKeyDown = async (event: KeyboardEvent) => {
-    if (event.key === "Delete" || event.key === "Backspace") {
-      const selected = nodes.filter((n: any) => n.selected)
-      for (const node of selected) {
-        await props.onAtomDelete(node.id)
-      }
+    if (event.key !== "Delete" && event.key !== "Backspace") return
+    const target = event.target as HTMLElement | null
+    const tag = target?.tagName
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target?.isContentEditable) return
+    const selected = nodes.filter((n: any) => n.selected)
+    for (const node of selected) {
+      await props.onAtomDelete(node.id)
     }
   }
 
