@@ -1,0 +1,8 @@
+Convert a document file to Markdown text. Supports PDF, Word (.docx, .doc), Excel (.xlsx, .xls), PowerPoint (.pptx, .ppt), OpenDocument (.odt, .ods, .odp), HTML, CSV, and other common document formats.
+
+Usage:
+- The filePath parameter should be an absolute path to the document.
+- Returns the document content converted to Markdown format.
+- Use this tool as a fallback when the read tool cannot handle a file (e.g. binary Office documents) or when you need a text representation of a PDF.
+- The read tool is preferred for plain text files, images, and when the model supports native PDF reading. Use this convert tool specifically for document-to-markdown conversion.
+- If you are unsure of the correct file path, use the glob tool to look up filenames by glob pattern.

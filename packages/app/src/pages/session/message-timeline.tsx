@@ -140,7 +140,7 @@ export function MessageTimeline(props: {
     return sync.data.message[id] ?? emptyMessages
   })
   const pending = createMemo(() =>
-    sessionMessages().findLast(
+    (sessionMessages() ?? emptyMessages).findLast(
       (item): item is AssistantMessage => item.role === "assistant" && typeof item.time.completed !== "number",
     ),
   )

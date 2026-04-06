@@ -392,6 +392,7 @@ export namespace Agent {
               atom_formula_cleanup: "allow",
             },
             read: "allow",
+            convert: "allow",
             glob: "allow",
             grep: "allow",
             edit: "allow",
