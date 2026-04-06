@@ -15,7 +15,9 @@ OpenResearch 是一个面向 AI/ML 研究的开源系统，目标是支持 **可
 OpenResearch 不把研究看作零散对话、临时代码和最终论文的堆叠，而是把研究过程本身组织成一个 **持久、可检查、可交互的动态系统**。 最终该图谱沉淀为可直接利用的研究资产， 可以由AI 整理成报告、论文等可以对外输出的成果
 
 
-![research_loop.png](aset/research_loop.png)
+
+<img width="2768" height="1520" alt="research_loop" src="https://github.com/user-attachments/assets/0426c847-ca12-49c3-b6d2-b94756097ed9" />
+
 
 ## [Quick Start](./README.quick-start.md)
 
