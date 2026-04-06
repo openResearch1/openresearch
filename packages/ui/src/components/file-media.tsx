@@ -374,12 +374,25 @@ export function FileMedia(props: { media?: FileMediaOptions; fallback: () => JSX
           }
         >
           {(url) => (
-            <div class="h-[calc(100vh-4rem)] w-full">
-              <object data={url()} type="application/pdf" class="h-full w-full border-0" onLoad={onLoad}>
-                <div class="flex min-h-40 items-center justify-center px-6 py-4 text-center text-text-weak">
-                  PDF preview not supported in this browser
-                </div>
-              </object>
+            <div class="flex h-[calc(100vh-4rem)] w-full flex-col">
+              <div class="flex items-center justify-end gap-2 border-b border-border-weak-base bg-background-base px-4 py-2">
+                <Button
+                  size="small"
+                  variant="secondary"
+                  onClick={() => {
+                    window.open(url(), "_blank")
+                  }}
+                >
+                  {i18n.t("ui.fileMedia.openInNewWindow")}
+                </Button>
+              </div>
+              <div class="flex-1">
+                <object data={url()} type="application/pdf" class="h-full w-full border-0" onLoad={onLoad}>
+                  <div class="flex min-h-40 items-center justify-center px-6 py-4 text-center text-text-weak">
+                    PDF preview not supported in this browser
+                  </div>
+                </object>
+              </div>
             </div>
           )}
         </Show>
@@ -416,11 +429,53 @@ export function FileMedia(props: { media?: FileMediaOptions; fallback: () => JSX
               setSaving(false)
             }
           }
+          const openInNewWindow = () => {
+            const win = window.open("", "_blank")
+            if (!win) return
+            win.document.write(`
+              <!DOCTYPE html>
+              <html>
+                <head>
+                  <meta charset="utf-8">
+                  <title>${media.path || "Markdown Preview"}</title>
+                  <style>
+                    body { 
+                      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                      line-height: 1.6;
+                      max-width: 800px;
+                      margin: 0 auto;
+                      padding: 2rem;
+                      color: #333;
+                    }
+                    pre { background: #f5f5f5; padding: 1rem; border-radius: 4px; overflow-x: auto; }
+                    code { background: #f5f5f5; padding: 0.2rem 0.4rem; border-radius: 3px; }
+                    pre code { background: none; padding: 0; }
+                    img { max-width: 100%; height: auto; }
+                    table { border-collapse: collapse; width: 100%; }
+                    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+                    th { background: #f5f5f5; }
+                  </style>
+                </head>
+                <body>
+                  <div id="content"></div>
+                  <script type="module">
+                    import { marked } from 'https://cdn.jsdelivr.net/npm/marked@11.1.1/+esm';
+                    const content = ${JSON.stringify(text)};
+                    document.getElementById('content').innerHTML = marked.parse(content);
+                  </script>
+                </body>
+              </html>
+            `)
+            win.document.close()
+          }
 
           return (
             <div class="flex flex-col gap-3 px-6 py-4 overflow-auto" data-component="file-markdown-preview">
-              <Show when={editable}>
-                <div class="flex items-center justify-end gap-2">
+              <div class="flex items-center justify-end gap-2">
+                <Button size="small" variant="secondary" onClick={openInNewWindow}>
+                  {i18n.t("ui.fileMedia.openInNewWindow")}
+                </Button>
+                <Show when={editable}>
                   <Show
                     when={editing()}
                     fallback={
@@ -436,8 +491,8 @@ export function FileMedia(props: { media?: FileMediaOptions; fallback: () => JSX
                       {i18n.t("ui.common.save")}
                     </Button>
                   </Show>
-                </div>
-              </Show>
+                </Show>
+              </div>
               <Show when={editing()} fallback={<Markdown text={text} />}>
                 <div class="grid min-h-[24rem] grid-cols-1 gap-3 lg:grid-cols-2">
                   <div class="flex min-h-0 flex-col overflow-hidden rounded-lg border border-border-weak-base bg-background-base">
