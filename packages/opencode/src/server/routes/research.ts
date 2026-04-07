@@ -716,6 +716,12 @@ export const ResearchRoutes = new Hono()
       for (const exp of experiments) {
         // Delete experiment watchers
         Database.use((db) => db.delete(ExperimentWatchTable).where(eq(ExperimentWatchTable.exp_id, exp.exp_id)).run())
+        Database.use((db) =>
+          db.delete(LocalDownloadWatchTable).where(eq(LocalDownloadWatchTable.exp_id, exp.exp_id)).run(),
+        )
+        Database.use((db) =>
+          db.delete(ExperimentExecutionWatchTable).where(eq(ExperimentExecutionWatchTable.exp_id, exp.exp_id)).run(),
+        )
         // Delete experiment record
         Database.use((db) => db.delete(ExperimentTable).where(eq(ExperimentTable.exp_id, exp.exp_id)).run())
         // Clean up experiment session
@@ -1925,9 +1931,7 @@ export const ResearchRoutes = new Hono()
         failed: "failed",
         canceled: "idle",
       }
-      const resolvedStatus = executionWatch
-        ? (executionStatusMap[executionWatch.status] ?? "pending")
-        : "pending"
+      const resolvedStatus = executionWatch ? (executionStatusMap[executionWatch.status] ?? "pending") : "pending"
 
       const atom = experiment.atom_id
         ? (Database.use((db) => db.select().from(AtomTable).where(eq(AtomTable.atom_id, experiment.atom_id!)).get()) ??
