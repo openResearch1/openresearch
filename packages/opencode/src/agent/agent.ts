@@ -28,6 +28,8 @@ import PROMPT_EXPERIMENT_SUMMARY from "./prompt/experiment_summary.txt"
 import PROMPT_EXPERIMENT_SUCCESS from "./prompt/experiment_success.txt"
 import PROMPT_EVIDENCE_ASSESSMENT from "./prompt/evidence_assessment.txt"
 import PROMPT_ATOM_FORMULA_CLEANUP from "./prompt/atom_formula_cleanup.txt"
+import PROMPT_RESEARCH_ARTICLE_TREE_BUILD from "./prompt/research_article_tree_build.txt"
+import PROMPT_RESEARCH_TREE_LINK from "./prompt/research_tree_link.txt"
 import { PermissionNext } from "@/permission/next"
 import { mergeDeep, pipe, sortBy, values } from "remeda"
 import { Global } from "@/global"
@@ -377,6 +379,7 @@ export namespace Agent {
             "*": "deny",
             research_info: "allow",
             article_query: "allow",
+            article_status_update: "allow",
             research_background_edit: "allow",
             research_goal_edit: "allow",
             research_macro_edit: "allow",
@@ -389,6 +392,8 @@ export namespace Agent {
             atom_relation_delete: "allow",
             question: "allow",
             task: {
+              research_article_tree_build: "allow",
+              research_tree_link: "allow",
               atom_formula_cleanup: "allow",
             },
             read: "allow",
@@ -399,6 +404,54 @@ export namespace Agent {
             write: "allow",
             apply_patch: "allow",
             research_doc_edit: "ask",
+          }),
+          user,
+        ),
+        options: {},
+        mode: "subagent",
+        native: true,
+      },
+      research_article_tree_build: {
+        name: "research_article_tree_build",
+        description:
+          "Build one article-local atom tree only: create atoms and intra-article relations for exactly one target article.",
+        prompt: PROMPT_RESEARCH_ARTICLE_TREE_BUILD,
+        permission: PermissionNext.merge(
+          defaults,
+          PermissionNext.fromConfig({
+            "*": "deny",
+            research_info: "allow",
+            article_query: "allow",
+            article_status_update: "allow",
+            research_macro_edit: "allow",
+            atom_query: "allow",
+            atom_batch_create: "allow",
+            read: "allow",
+            convert: "allow",
+            glob: "allow",
+            grep: "allow",
+            research_doc_edit: "ask",
+          }),
+          user,
+        ),
+        options: {},
+        mode: "subagent",
+        native: true,
+      },
+      research_tree_link: {
+        name: "research_tree_link",
+        description:
+          "Link already-built article trees by creating only high-confidence cross-article atom relations between the provided article groups.",
+        prompt: PROMPT_RESEARCH_TREE_LINK,
+        permission: PermissionNext.merge(
+          defaults,
+          PermissionNext.fromConfig({
+            "*": "deny",
+            article_query: "allow",
+            atom_query: "allow",
+            atom_relation_query: "allow",
+            atom_relation_create: "allow",
+            read: "allow",
           }),
           user,
         ),
