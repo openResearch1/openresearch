@@ -30,7 +30,7 @@ import { LspTool } from "./lsp"
 import { Truncate } from "./truncation"
 
 import { ApplyPatchTool } from "./apply_patch"
-import { ArticleQueryTool } from "@/tool/article.ts"
+import { ArticleQueryTool, ArticleStatusUpdateTool } from "@/tool/article.ts"
 import {
   AtomCreateTool,
   AtomQueryTool,
@@ -147,6 +147,7 @@ export namespace ToolRegistry {
       SkillTool,
       ApplyPatchTool,
       ArticleQueryTool,
+      ArticleStatusUpdateTool,
       AtomCreateTool,
       AtomQueryTool,
       AtomBatchCreateTool,

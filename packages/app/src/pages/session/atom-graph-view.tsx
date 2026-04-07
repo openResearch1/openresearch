@@ -1083,7 +1083,7 @@ export function AtomGraphView(props: {
 
       setupTooltip()
       const graphState = stateManager?.loadState()
-      if (graphState == null) {
+      if (!graphState || !canRestore(graphState)) {
         graph.render().then(() => {
           saveCurrentState()
         })
@@ -1096,6 +1096,15 @@ export function AtomGraphView(props: {
         graph = undefined
       }
     }
+  }
+
+  const canRestore = (state: GraphState | null) => {
+    if (!state?.positions) return false
+
+    const saved = new Set(Object.keys(state.positions))
+    if (saved.size !== props.atoms.length) return false
+
+    return props.atoms.every((atom) => saved.has(atom.atom_id))
   }
 
   const applySavedPositions = async (savedState: GraphState) => {
@@ -1219,7 +1228,7 @@ export function AtomGraphView(props: {
     try {
       graph.setData(toGraphData())
       const graphState = stateManager.loadState()
-      if (graphState == null) {
+      if (!graphState || !canRestore(graphState)) {
         graph.render().then(() => {
           saveCurrentState()
         })

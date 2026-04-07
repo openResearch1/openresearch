@@ -172,6 +172,10 @@ export const AtomQueryTool = Tool.define("atom_query", {
       .string()
       .optional()
       .describe("The atom ID to query. If provided, returns that specific atom's details directly, bypassing session-based resolution."),
+    articleIds: z
+      .array(z.string())
+      .optional()
+      .describe("Optional list of article IDs. If provided, returns only atoms originating from those articles."),
   }),
   async execute(params, ctx) {
     // 0. If atomId is explicitly provided, query it directly
@@ -193,36 +197,38 @@ export const AtomQueryTool = Tool.define("atom_query", {
       }
     }
 
-    // 1. Check if current session is directly bound to an atom
-    let parentSessionId = await Research.getParentSessionId(ctx.sessionID)
-    if (!parentSessionId) {
-      parentSessionId = ctx.sessionID
-    }
-    const bound = Database.use((db) =>
-      db.select().from(AtomTable).where(eq(AtomTable.session_id, parentSessionId)).get(),
-    )
-
-    if (bound) {
-      return {
-        title: `Atom: ${bound.atom_name}`,
-        output: formatAtom(bound),
-        metadata: { count: 1 },
+    if (!params.articleIds?.length) {
+      // 1. Check if current session is directly bound to an atom
+      let parentSessionId = await Research.getParentSessionId(ctx.sessionID)
+      if (!parentSessionId) {
+        parentSessionId = ctx.sessionID
       }
-    }
-
-    // 2. Check if current session is an experiment session → return the experiment's atom
-    const experiment = Database.use((db) =>
-      db.select().from(ExperimentTable).where(eq(ExperimentTable.exp_session_id, parentSessionId)).get(),
-    )
-    if (experiment?.atom_id) {
-      const expAtom = Database.use((db) =>
-        db.select().from(AtomTable).where(eq(AtomTable.atom_id, experiment.atom_id!)).get(),
+      const bound = Database.use((db) =>
+        db.select().from(AtomTable).where(eq(AtomTable.session_id, parentSessionId)).get(),
       )
-      if (expAtom) {
+
+      if (bound) {
         return {
-          title: `Atom: ${expAtom.atom_name}`,
-          output: formatAtom(expAtom),
+          title: `Atom: ${bound.atom_name}`,
+          output: formatAtom(bound),
           metadata: { count: 1 },
+        }
+      }
+
+      // 2. Check if current session is an experiment session → return the experiment's atom
+      const experiment = Database.use((db) =>
+        db.select().from(ExperimentTable).where(eq(ExperimentTable.exp_session_id, parentSessionId)).get(),
+      )
+      if (experiment?.atom_id) {
+        const expAtom = Database.use((db) =>
+          db.select().from(AtomTable).where(eq(AtomTable.atom_id, experiment.atom_id!)).get(),
+        )
+        if (expAtom) {
+          return {
+            title: `Atom: ${expAtom.atom_name}`,
+            output: formatAtom(expAtom),
+            metadata: { count: 1 },
+          }
         }
       }
     }
@@ -240,20 +246,23 @@ export const AtomQueryTool = Tool.define("atom_query", {
     const atoms = Database.use((db) =>
       db.select().from(AtomTable).where(eq(AtomTable.research_project_id, researchProjectId)).all(),
     )
+    const items = params.articleIds?.length ? atoms.filter((atom) => atom.article_id && params.articleIds?.includes(atom.article_id)) : atoms
 
-    if (atoms.length === 0) {
+    if (items.length === 0) {
       return {
         title: "No atoms",
-        output: "No atoms found in this research project.",
+        output: params.articleIds?.length
+          ? `No atoms found for article IDs: ${params.articleIds.join(", ")}`
+          : "No atoms found in this research project.",
         metadata: { count: 0 },
       }
     }
 
-    const output = atoms.map((a, i) => `--- Atom ${i + 1} ---\n${formatAtom(a)}`).join("\n\n")
+    const output = items.map((a, i) => `--- Atom ${i + 1} ---\n${formatAtom(a)}`).join("\n\n")
     return {
-      title: `${atoms.length} atom(s)`,
+      title: `${items.length} atom(s)`,
       output,
-      metadata: { count: atoms.length },
+      metadata: { count: items.length },
     }
   },
 })

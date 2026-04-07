@@ -3,6 +3,8 @@ import { createStore } from "solid-js/store"
 import { createMediaQuery } from "@solid-primitives/media"
 import { useNavigate, useParams } from "@solidjs/router"
 import { base64Encode } from "@opencode-ai/util/encode"
+import { Button } from "@opencode-ai/ui/button"
+import { Dialog } from "@opencode-ai/ui/dialog"
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { TooltipKeybind } from "@opencode-ai/ui/tooltip"
@@ -36,6 +38,44 @@ import { ServersTab } from "@/pages/session/servers-tab"
 import { WatchesTab } from "@/pages/session/watches-tab"
 import { CodesTab } from "@/pages/session/codes-tab"
 import { setSessionHandoff } from "@/pages/session/handoff"
+
+function DialogArticleImport(props: {
+  count: number
+  onSkip: () => void
+  onParse: () => void
+}) {
+  const dialog = useDialog()
+
+  return (
+    <Dialog title="Parse Added Articles" fit class="w-full max-w-[420px] mx-auto">
+      <div class="px-6 py-5 flex flex-col gap-4">
+        <p class="text-13-regular text-text-weak">
+          Added {props.count} article{props.count > 1 ? "s" : ""}. Parse the new article
+          {props.count > 1 ? "s" : ""} into the research graph now?
+        </p>
+        <div class="flex justify-end gap-2">
+          <Button
+            variant="secondary"
+            onClick={() => {
+              dialog.close()
+              props.onSkip()
+            }}
+          >
+            Later
+          </Button>
+          <Button
+            onClick={() => {
+              dialog.close()
+              props.onParse()
+            }}
+          >
+            Parse Now
+          </Button>
+        </div>
+      </div>
+    </Dialog>
+  )
+}
 
 export function SessionSidePanel(props: {
   reviewPanel: () => JSX.Element
@@ -135,6 +175,10 @@ export function SessionSidePanel(props: {
     const rpId = atomSession()?.research_project_id ?? experimentSession()?.research_project_id
     if (!rpId) return
     return sessionStorage.getItem(`research-project-main-session-${rpId}`) ?? undefined
+  })
+  const mainSessionId = createMemo(() => {
+    if (params.id && !isAtomSession() && !isExpSession()) return params.id
+    return atomGraphSessionId()
   })
 
   const openAtomGraphSession = () => {
@@ -886,12 +930,14 @@ export function SessionSidePanel(props: {
                                     // Add all articles
                                     let successCount = 0
                                     let errorCount = 0
+                                    const articleIds: string[] = []
                                     for (const path of selectedPaths) {
                                       try {
-                                        await sdk.client.research.article.create({
+                                        const res = await sdk.client.research.article.create({
                                           researchProjectId: rpId,
                                           sourcePath: path,
                                         })
+                                        if (res.data?.article_id) articleIds.push(res.data.article_id)
                                         successCount++
                                       } catch (error: any) {
                                         errorCount++
@@ -911,6 +957,57 @@ export function SessionSidePanel(props: {
                                         description: `Successfully added ${successCount} article(s)`,
                                         variant: "success",
                                       })
+                                      if (articleIds.length > 0) {
+                                        dialog.show(() => (
+                                          <DialogArticleImport
+                                            count={successCount}
+                                            onSkip={() => {}}
+                                            onParse={() => {
+                                              const sessionID = mainSessionId()
+                                              if (!sessionID) {
+                                                showToast({
+                                                  title: "Parse Not Started",
+                                                  description: "Open a main research session to start incremental parsing.",
+                                                  variant: "error",
+                                                })
+                                                return
+                                              }
+
+                                              const prompt = [
+                                                "Incrementally process only these newly added article IDs.",
+                                                `Target article IDs: ${articleIds.join(", ")}`,
+                                                "Build each target article's local atom tree separately.",
+                                                "After local trees are built, link the target trees among themselves and against already parsed article trees.",
+                                                "Do not rebuild existing article-local trees.",
+                                                "Do not rewrite background.md or goal.md unless they are currently missing.",
+                                              ].join("\n")
+
+                                              void sdk.client.session
+                                                .promptAsync({
+                                                  sessionID,
+                                                  agent: "research_project_init",
+                                                  parts: [{ type: "text", text: prompt }],
+                                                })
+                                                .then(() => {
+                                                  showToast({
+                                                    title: "Incremental Parse Started",
+                                                    description: `Started parsing ${articleIds.length} article(s)`,
+                                                    variant: "success",
+                                                  })
+                                                })
+                                                .catch((error) => {
+                                                  console.error("Failed to start incremental parse:", error)
+                                                  showToast({
+                                                    title: "Parse Start Failed",
+                                                    description:
+                                                      error instanceof Error ? error.message : "Failed to start incremental parse",
+                                                    variant: "error",
+                                                  })
+                                                })
+                                            }}
+                                          />
+                                        ))
+                                      }
                                     }
                                     if (errorCount > 0) {
                                       showToast({
