@@ -99,6 +99,7 @@ export namespace Agent {
           PermissionNext.fromConfig({
             question: "allow",
             plan_enter: "allow",
+            experiment_git_readonly: "allow",
           }),
           user,
         ),
@@ -243,6 +244,7 @@ export namespace Agent {
             question: "allow",
             plan_enter: "allow",
             bash: "ask",
+            experiment_git_readonly: "allow",
             edit: {
               "*": "deny",
               "*.md": "allow",

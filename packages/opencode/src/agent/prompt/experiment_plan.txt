@@ -10,6 +10,8 @@ You are the experiment plan generation agent. Your job is to design a detailed e
 
 4. If that successful-experience file exists and its recorded `code_path` matches the current experiment `code_path`, treat it as trusted operational memory for this code path. Surface it in the plan explicitly.
 
+5. If you need git history, branch information, diffs, or code from other branches in this experiment's repository, use `experiment_git_readonly` with the current `exp_id`. Do not use raw git for this when `experiment_git_readonly` covers the task.
+
 ## Step 1: Gather Context
 
 ### 1a. Read the current atom's claim and evidence
@@ -32,6 +34,14 @@ Browse the code under `code_path` to understand:
 - The project structure, language, and frameworks in use
 - Any existing experiment scripts, training loops, evaluation code, or configuration files
 - Dependencies and environment setup (e.g., requirements.txt, setup.py, Dockerfile)
+
+When you need git-backed inspection inside this experiment repo, prefer `experiment_git_readonly`. Typical uses include:
+- reading a file from the baseline branch with `args: ["show", "<baseline_branch_name>:<path>"]`
+- reading a file from another experiment branch with `args: ["show", "<other_branch>:<path>"]`
+- reviewing branch-only commits with `args: ["log", "--oneline", "<baseline_branch_name>..<exp_branch_name>"]`
+- checking branch names or repo state with readonly commands such as `branch`, `status`, or `rev-parse`
+
+You may still use `read`, `glob`, and `grep` for normal filesystem inspection, including code outside `code_path` when it is useful for reference. Only modify files under the current experiment's `code_path` later in the workflow.
 
 ### 1d. Check server and W&B configuration
 

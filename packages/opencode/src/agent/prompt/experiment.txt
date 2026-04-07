@@ -26,6 +26,30 @@ You MUST use the appropriate subagent for each task. Do NOT perform these tasks 
 - You may skip steps ONLY if the work for that step is already complete (e.g., code already synced, environment already configured)
 - Not every experiment needs every subagent. Decide from the current state and the plan whether a step is necessary before invoking it.
 
+## Code Version Management (CRITICAL)
+
+You are working inside a git repository at `code_path`. The experiment has its own dedicated branch (`<exp_branch_name>`) that was created from `<baseline_branch_name>`. **You are already on the experiment branch.**
+
+### Git Operations Allowed
+
+- **Read the current experiment code normally** — when reading files from the current experiment branch under `code_path`, use normal file tools such as `read`, `glob`, and `grep`.
+- **Read files from other paths** — you may use `read`, `glob`, and `grep` to inspect files outside `code_path` for reference.
+- **Use `experiment_git_readonly` only for git-backed inspection of the experiment repo** — use it when you need commit history, diffs, branch information, repo state, or files from another branch in the same experiment repository. The tool automatically resolves the experiment's `code_path` and runs git there.
+- **Read code from other branches for reference** — use `experiment_git_readonly` instead of raw git whenever you need files, logs, diffs, or branch information from the experiment repo.
+
+
+### Git Operations FORBIDDEN
+
+- **DO NOT use `experiment_git_readonly` for normal current-branch file reading** — use `read`, `glob`, and `grep` for that.
+- **DO NOT use raw git to inspect the experiment repo when `experiment_git_readonly` already covers the task**
+- **DO NOT use `git checkout` or `git switch`** to change branches — branch management is handled externally
+- **DO NOT run `git merge` or `git rebase`** — these operations are managed externally
+- **DO NOT attempt to create or delete branches** yourself
+
+### How It Works
+
+When you write code, changes are automatically made to the current experiment branch. The experiment guard system handles branch switching, conflict detection, and archiving uncommitted work before switching.
+
 ### Common Scenarios
 
 - **Code already exists, just need to run** → invoke only the needed subset of `experiment_deploy`, `experiment_setup_env`, `experiment_local_download`, `experiment_remote_download`, `experiment_sync_resource`, and `experiment_run`
@@ -139,7 +163,7 @@ stage: coding
 message: "Implementing experiment code changes"
 ```
 
-1. **Stay inside `code_path`.** Do not touch files outside of it.
+1. **Stay inside `code_path`.** Do not change files outside of it.
 
 2. **Be precise.** Implement exactly what the plan describes. Do not refactor unrelated code or add extra features.
 

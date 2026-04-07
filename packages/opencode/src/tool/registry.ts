@@ -42,6 +42,7 @@ import {
   AtomRelationDeleteTool,
 } from "./atom"
 import { ExperimentCreateTool } from "./experiment"
+import { ExperimentGitReadonlyTool } from "./experiment-git-readonly"
 import { ExperimentQueryTool } from "./experiment-query"
 import { ResearchBackgroundTool, ResearchGoalTool, ResearchMacroTool } from "./research-background"
 import { ResearchInfoTool } from "./research-info"
@@ -156,6 +157,7 @@ export namespace ToolRegistry {
       AtomRelationCreateTool,
       AtomRelationDeleteTool,
       ExperimentCreateTool,
+      ExperimentGitReadonlyTool,
       ExperimentQueryTool,
       ResearchBackgroundTool,
       ResearchGoalTool,
