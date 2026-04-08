@@ -46,6 +46,7 @@ import { iife } from "@/util/iife"
 import { Shell } from "@/shell/shell"
 import { Truncate } from "@/tool/truncation"
 import { assertExperimentReady, setExperimentStatus } from "./experiment-guard"
+import { Workflow } from "@/workflow"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -203,6 +204,15 @@ export namespace SessionPrompt {
     }
 
     const message = await createUserMessage(input)
+    const text = input.parts
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("\n\n")
+    Workflow.autoResume({
+      sessionID: input.sessionID,
+      userMessageID: message.info.id,
+      userMessage: text,
+    })
     await Session.touch(input.sessionID)
 
     // this is backwards compatibility for allowing `tools` to be specified when
@@ -361,7 +371,9 @@ export namespace SessionPrompt {
       }
 
       if (!lastUser) throw new Error("No user message found in stream. This should never happen.")
+      const activeWorkflow = Workflow.active(sessionID)
       if (
+        !activeWorkflow &&
         lastAssistant?.finish &&
         !["tool-calls", "unknown"].includes(lastAssistant.finish) &&
         lastUser.id < lastAssistant.id
@@ -696,6 +708,14 @@ export namespace SessionPrompt {
 
       // Build system prompt, adding structured output instruction if needed
       const system = [...(await SystemPrompt.environment(model)), ...(await InstructionPrompt.system())]
+      if (activeWorkflow?.status === "running") {
+        system.push(
+          [
+            "There is an active workflow in running state for this session.",
+            "Do not stop naturally until the workflow either enters wait_interaction or reaches completed.",
+          ].join(" "),
+        )
+      }
       const format = lastUser.format ?? { type: "text" }
       if (format.type === "json_schema") {
         system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
@@ -734,6 +754,30 @@ export namespace SessionPrompt {
 
       // Check if model finished (finish reason is not "tool-calls" or "unknown")
       const modelFinished = processor.message.finish && !["tool-calls", "unknown"].includes(processor.message.finish)
+      const latestWorkflow = Workflow.latest(sessionID)
+      const workflowState =
+        latestWorkflow && latestWorkflow.updated_at >= lastUser.time.created ? latestWorkflow.status : undefined
+
+      if (workflowState === "waiting_interaction") {
+        break
+      }
+
+      if (workflowState === "failed" || workflowState === "completed") {
+        break
+      }
+
+      if (workflowState === "running") {
+        if (result === "compact") {
+          await SessionCompaction.create({
+            sessionID,
+            agent: lastUser.agent,
+            model: lastUser.model,
+            auto: true,
+            overflow: !processor.message.finish,
+          })
+        }
+        continue
+      }
 
       if (modelFinished && !processor.message.error) {
         if (format.type === "json_schema") {

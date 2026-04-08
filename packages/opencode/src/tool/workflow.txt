@@ -1,0 +1,52 @@
+Use this tool to manage a linear, editable workflow for multi-step execution.
+
+Use it when you need to:
+- Start a predefined workflow template
+- Read the current step details before acting
+- Explicitly advance to the next step
+- Insert or delete future steps based on runtime results
+- Pause for free-form user input
+- Stop the workflow with an unrecoverable failure reason
+
+Rules:
+- You must not assume workflow progress without calling this tool
+- Only future steps can be edited
+- When the workflow is waiting for user input, stop and wait for the user's next message. The system will automatically resume the waiting step.
+- If the workflow cannot be solved, call `fail` with a clear user-facing reason.
+- If the current step receives a value needed by later steps, such as `net_can`, write it when finishing the current step.
+- Use `workflow.next` with `context_patch` to persist that value in the same turn that completes the step.
+- Do not postpone required workflow state writes to a later step or later turn.
+- Use `result` to record what happened in the current step, and use `context_patch` to persist values that later steps need.
+- Example: when finishing a step after receiving `net_can`, call `workflow.next` with `context_patch: { "net_can": <value> }`.
+
+Important schema reminders:
+- `instance_id` is returned by `start` and must be reused in later calls
+- `edit.ops` must be an array, never a string
+- `insert_after_current` must reference predefined step kinds from the template, not custom step content
+- Valid edit examples:
+
+```json
+{
+  "action": "edit",
+  "instance_id": "wf_123",
+  "ops": [
+    {
+      "type": "insert_after_current",
+      "kinds": ["setup_env_retry", "run_experiment_retry"]
+    }
+  ]
+}
+```
+
+```json
+{
+  "action": "edit",
+  "instance_id": "wf_123",
+  "ops": [
+    {
+      "type": "delete_future",
+      "step_ids": ["wfs_123", "wfs_456"]
+    }
+  ]
+}
+```

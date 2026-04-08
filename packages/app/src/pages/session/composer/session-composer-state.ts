@@ -1,6 +1,7 @@
 import { createEffect, createMemo, on, onCleanup } from "solid-js"
 import { createStore } from "solid-js/store"
 import type { PermissionRequest, QuestionRequest, Todo } from "@opencode-ai/sdk/v2"
+import type { Part } from "@opencode-ai/sdk/v2/client"
 import { useSessionID } from "@/context/session-id"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useGlobalSync } from "@/context/global-sync"
@@ -59,6 +60,60 @@ export function createSessionComposerState(options?: { closeMs?: number | (() =>
     return globalSync.data.session_todo[id] ?? []
   })
 
+  const workflow = createMemo(() => {
+    const id = params.id
+    if (!id) return
+    const msgs = sync.data.message[id] ?? []
+    let found:
+      | {
+          action: string
+          flow_summary?: string
+          instance: {
+            id: string
+            title: string
+            flow_title: string
+            status: "running" | "waiting_interaction" | "completed" | "failed" | "cancelled"
+            current_index: number
+            current_step?: {
+              title: string
+              summary: string
+              interaction?: {
+                reason?: string
+                message?: string
+              }
+            }
+            steps: Array<{
+              id: string
+              title: string
+              summary: string
+              status: "pending" | "active" | "done" | "waiting_interaction" | "skipped"
+            }>
+          }
+        }
+      | undefined
+
+    for (const msg of msgs) {
+      const parts = sync.data.part[msg.id] ?? []
+      for (const part of parts) {
+        const item = part as Part & {
+          type: string
+          tool?: string
+          state?: {
+            metadata?: unknown
+          }
+        }
+        if (item.type !== "tool" || item.tool !== "workflow") continue
+        const meta = item.state?.metadata
+        if (!meta || typeof meta !== "object") continue
+        const value = meta as typeof found
+        if (!value?.instance?.id) continue
+        found = value
+      }
+    }
+
+    return found
+  })
+
   const [store, setStore] = createStore({
     responding: undefined as string | undefined,
     dock: todos().length > 0,
@@ -93,6 +148,12 @@ export function createSessionComposerState(options?: { closeMs?: number | (() =>
     () => todos().length > 0 && todos().every((todo) => todo.status === "completed" || todo.status === "cancelled"),
   )
 
+  const workflowDone = createMemo(() => {
+    const item = workflow()
+    if (!item) return true
+    return ["completed", "failed", "cancelled"].includes(item.instance.status)
+  })
+
   let timer: number | undefined
   let raf: number | undefined
 
@@ -113,19 +174,22 @@ export function createSessionComposerState(options?: { closeMs?: number | (() =>
 
   createEffect(
     on(
-      () => [todos().length, done()] as const,
+      () => [todos().length, done(), workflow()?.instance.status] as const,
       ([count, complete], prev) => {
         if (raf) cancelAnimationFrame(raf)
         raf = undefined
 
-        if (count === 0) {
+        const show = count > 0 || !!workflow()
+        const settled = (count === 0 || complete) && workflowDone()
+
+        if (!show) {
           if (timer) window.clearTimeout(timer)
           timer = undefined
           setStore({ dock: false, closing: false, opening: false })
           return
         }
 
-        if (!complete) {
+        if (!settled) {
           if (timer) window.clearTimeout(timer)
           timer = undefined
           const hidden = !store.dock || store.closing
@@ -142,7 +206,7 @@ export function createSessionComposerState(options?: { closeMs?: number | (() =>
           return
         }
 
-        if (prev && prev[1]) {
+        if (prev && prev[1] && workflowDone()) {
           if (store.closing && !timer) scheduleClose()
           return
         }
@@ -170,6 +234,7 @@ export function createSessionComposerState(options?: { closeMs?: number | (() =>
     permissionResponding,
     decide,
     todos,
+    workflow,
     dock: () => store.dock,
     closing: () => store.closing,
     opening: () => store.opening,

@@ -238,6 +238,12 @@ export function getToolInfo(tool: string, input: any = {}): ToolInfo {
         icon: "bubble-5",
         title: i18n.t("ui.tool.questions"),
       }
+    case "workflow":
+      return {
+        icon: "checklist",
+        title: i18n.t("ui.tool.workflow"),
+        subtitle: typeof input.action === "string" ? input.action : undefined,
+      }
     case "skill":
       return {
         icon: "brain",
@@ -1523,6 +1529,201 @@ ToolRegistry.register({
         }}
       >
         <ExaOutput output={props.output} />
+      </ToolCall>
+    )
+  },
+})
+
+ToolRegistry.register({
+  name: "workflow",
+  render(props) {
+    const i18n = useI18n()
+    const pending = createMemo(() => busy(props.status))
+    let stepsRef: HTMLDivElement | undefined
+    const stepRefs: Array<HTMLDivElement | undefined> = []
+    const meta = createMemo(
+      () =>
+        props.metadata as {
+          action?: string
+          flow_summary?: string
+          instance?: {
+            title: string
+            flow_title: string
+            status: "running" | "waiting_interaction" | "completed" | "failed" | "cancelled"
+            current_index: number
+            current_step?: {
+              title: string
+              summary: string
+              result?: Record<string, unknown>
+              interaction?: {
+                reason?: string
+                message?: string
+                last_user_message?: string
+              }
+            }
+            steps: Array<{
+              id: string
+              title: string
+              summary: string
+              status: "pending" | "active" | "done" | "waiting_interaction" | "skipped"
+              result?: Record<string, unknown>
+            }>
+          }
+          diff?: {
+            inserted?: Array<{ id: string; title: string }>
+            deleted?: string[]
+          }
+        },
+    )
+
+    const action = createMemo(() => {
+      const value = meta().action
+      const code = meta().instance?.current_step?.result?.code
+      if (value === "start") return i18n.t("ui.workflow.action.start")
+      if (value === "enter") return i18n.t("ui.workflow.action.enter")
+      if (value === "inspect") return i18n.t("ui.workflow.action.inspect")
+      if (value === "next") return i18n.t("ui.workflow.action.next")
+      if (value === "edit") return i18n.t("ui.workflow.action.edit")
+      if (value === "wait_interaction") return i18n.t("ui.workflow.action.wait")
+      if (value === "fail") {
+        return code === "STEP_KIND_LIMIT_EXCEEDED"
+          ? i18n.t("ui.workflow.action.auto_fail")
+          : i18n.t("ui.workflow.action.fail")
+      }
+      return undefined
+    })
+    const failLabel = createMemo(() => {
+      const code = meta().instance?.current_step?.result?.code
+      if (code === "STEP_KIND_LIMIT_EXCEEDED") return i18n.t("ui.workflow.failed.auto")
+      return i18n.t("ui.workflow.failed.manual")
+    })
+    const failText = createMemo(() => {
+      const result = meta().instance?.current_step?.result
+      if (!result) return i18n.t("ui.workflow.status.failed")
+      if (result.code === "STEP_KIND_LIMIT_EXCEEDED") {
+        return String(result.message ?? i18n.t("ui.workflow.failed.autoMessage"))
+      }
+      return String(result.message ?? result.code ?? i18n.t("ui.workflow.failed.manualMessage"))
+    })
+    const trigger = createMemo(() => {
+      const inst = meta().instance
+      if (!inst) return { title: i18n.t("ui.tool.workflow") }
+      const state =
+        inst.status === "waiting_interaction"
+          ? i18n.t("ui.workflow.status.waiting")
+          : inst.status === "completed"
+            ? i18n.t("ui.workflow.status.completed")
+            : inst.status === "failed"
+              ? i18n.t("ui.workflow.status.failed")
+              : inst.status === "cancelled"
+                ? i18n.t("ui.workflow.status.cancelled")
+                : i18n.t("ui.workflow.status.running")
+      return {
+        title: i18n.t("ui.tool.workflow"),
+        subtitle: `${action() ?? i18n.t("ui.tool.workflow")} · ${inst.title} · ${state}`,
+        args: [
+          `${i18n.t("ui.workflow.step")} ${Math.max(0, Math.min(inst.current_index + 1, inst.steps.length))}/${inst.steps.length}`,
+        ],
+      }
+    })
+
+    createEffect(() => {
+      const inst = meta().instance
+      const list = stepsRef
+      if (!inst || !list) return
+      const target = stepRefs[inst.current_index]
+      if (!target) return
+      queueMicrotask(() => {
+        const top = target.offsetTop - list.clientHeight / 2 + target.clientHeight / 2
+        list.scrollTo({ top: Math.max(0, top), behavior: "smooth" })
+      })
+    })
+
+    return (
+      <ToolCall variant="panel" {...props} icon="checklist" trigger={trigger()}>
+        <Show when={meta().instance}>
+          {(inst) => (
+            <div class="flex flex-col gap-3 text-13-regular">
+              <div class="flex flex-col gap-1">
+                <Show when={action()}>
+                  {(value) => <div class="text-12-medium text-text-weak uppercase tracking-wide">{value()}</div>}
+                </Show>
+                <Show when={inst().current_step?.title}>
+                  {(title) => <div class="text-text-strong text-13-medium">{title()}</div>}
+                </Show>
+                <Show when={!inst().current_step}>
+                  <div class="text-text-strong text-13-medium">{inst().flow_title}</div>
+                </Show>
+                <Show when={inst().current_step?.summary}>
+                  {(summary) => <div class="text-text-base">{summary()}</div>}
+                </Show>
+                <Show when={!inst().current_step}>
+                  <div class="text-text-base">{i18n.t("ui.workflow.flowSummaryHint")}</div>
+                </Show>
+                <Show when={!inst().current_step && meta().flow_summary}>
+                  <div class="text-text-base whitespace-pre-wrap">{meta().flow_summary}</div>
+                </Show>
+                {inst().status === "failed" && inst().current_step?.result ? (
+                  <div class="rounded-md border border-border-weak bg-background-panel px-3 py-2 text-text-strong whitespace-pre-wrap">
+                    <div class="text-12-medium text-text-weak mb-1">{failLabel()}</div>
+                    {failText()}
+                  </div>
+                ) : null}
+                <Show when={inst().current_step?.interaction?.message && inst().status === "waiting_interaction"}>
+                  {(message) => (
+                    <div class="rounded-md border border-border-weak bg-background-panel px-3 py-2 text-text-strong">
+                      {message()}
+                    </div>
+                  )}
+                </Show>
+              </div>
+              <Show when={meta().diff?.inserted?.length || meta().diff?.deleted?.length}>
+                <div class="flex flex-col gap-1">
+                  <Show when={meta().diff?.inserted?.length}>
+                    <div class="text-text-base">
+                      {i18n.t("ui.workflow.inserted")}:{" "}
+                      {meta()
+                        .diff?.inserted?.map((item) => item.title)
+                        .join(", ")}
+                    </div>
+                  </Show>
+                  <Show when={meta().diff?.deleted?.length}>
+                    <div class="text-text-base">
+                      {i18n.t("ui.workflow.deleted")}: {meta().diff?.deleted?.join(", ")}
+                    </div>
+                  </Show>
+                </div>
+              </Show>
+
+              <div ref={stepsRef} class="flex flex-col gap-1.5 max-h-44 overflow-y-auto no-scrollbar pr-1">
+                <For each={inst().steps}>
+                  {(step, idx) => (
+                    <div ref={(el) => (stepRefs[idx()] = el)} class="flex items-start gap-2">
+                      <div
+                        class="mt-1.5 h-2.5 w-2.5 rounded-full shrink-0"
+                        style={{
+                          background:
+                            step.status === "done"
+                              ? "var(--text-weak)"
+                              : step.status === "waiting_interaction"
+                                ? "var(--warning)"
+                                : idx() === inst().current_index
+                                  ? "var(--text-strong)"
+                                  : "var(--border-strong)",
+                          opacity: step.status === "pending" ? 0.6 : 1,
+                        }}
+                      />
+                      <div class="min-w-0 flex-1">
+                        <div class="text-text-strong truncate">{step.title}</div>
+                        <div class="text-12-regular text-text-weak truncate">{step.summary}</div>
+                      </div>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </div>
+          )}
+        </Show>
       </ToolCall>
     )
   },

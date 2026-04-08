@@ -50,6 +50,7 @@ import { ExperimentWatchTool } from "./experiment-watch"
 import { ExperimentExecutionWatchInitTool, ExperimentExecutionWatchUpdateTool } from "./experiment-execution-watch"
 import { ExperimentResourceJobStartTool } from "./experiment-resource-job"
 import { ConvertTool } from "./convert"
+import { WorkflowTool } from "./workflow"
 import {
   ExperimentLocalDownloadWatchInitTool,
   ExperimentLocalDownloadWatchRefreshTool,
@@ -170,6 +171,7 @@ export namespace ToolRegistry {
       ExperimentLocalDownloadWatchUpdateTool,
       ExperimentLocalDownloadWatchRefreshTool,
       ConvertTool,
+      WorkflowTool,
       ...(Flag.OPENCODE_EXPERIMENTAL_LSP_TOOL ? [LspTool] : []),
       ...(config.experimental?.batch_tool === true ? [BatchTool] : []),
       ...(Flag.OPENCODE_EXPERIMENTAL_PLAN_MODE && Flag.OPENCODE_CLIENT === "cli" ? [PlanExitTool] : []),
