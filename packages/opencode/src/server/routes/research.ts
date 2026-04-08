@@ -1895,20 +1895,6 @@ export const ResearchRoutes = new Hono()
             },
           },
         },
-        409: {
-          description: "Another experiment is already running on the same article",
-          content: {
-            "application/json": {
-              schema: resolver(
-                z.object({
-                  ready: z.literal(false),
-                  message: z.string(),
-                  conflicts: z.array(z.object({ exp_id: z.string(), exp_session_id: z.string().nullable() })),
-                }),
-              ),
-            },
-          },
-        },
         500: {
           description: "Git or branch operation failed",
           content: {
@@ -1930,8 +1916,6 @@ export const ResearchRoutes = new Hono()
       switch (result.reason) {
         case "not_found":
           return c.json({ ready: false as const, message: result.message }, 404)
-        case "conflict":
-          return c.json({ ready: false as const, message: result.message, conflicts: result.conflicts }, 409)
         case "git_error":
           return c.json({ ready: false as const, message: result.message }, 500)
       }
