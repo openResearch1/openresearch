@@ -38,7 +38,7 @@ Browse the code under `code_path` to understand:
 From the `experiment_query` result, check `remote_server_config` for server details. The experiment will run on a remote server via SSH. All experiment results MUST be collected via W&B (Weights & Biases).
 
 If server configuration or W&B configuration is not available in the context, ask the user for:
-- Server: address, port, user, password
+- Server: either direct SSH (`address`, `port`, `user`, optional `password`) or SSH config (`host_alias`, optional `ssh_config_path`, optional `user`, optional `password`)
 - Remote resource storage: `resource_root`
 - W&B: project name, API key
 

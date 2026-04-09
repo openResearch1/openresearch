@@ -5,6 +5,7 @@ import { Tool } from "./tool"
 import { Database, eq } from "../storage/db"
 import { AtomTable, ExperimentTable, RemoteServerTable } from "../research/research.sql"
 import { Research } from "../research/research"
+import { normalizeRemoteServerConfig } from "../research/remote-server"
 
 type ExpRow = typeof ExperimentTable.$inferSelect
 
@@ -52,7 +53,7 @@ function queryExpWithJoins(expId: string): ExpResult | undefined {
     const server = Database.use((db) =>
       db.select().from(RemoteServerTable).where(eq(RemoteServerTable.id, exp.remote_server_id!)).get(),
     )
-    remoteServerConfig = server?.config ?? null
+    remoteServerConfig = server ? JSON.stringify(normalizeRemoteServerConfig(JSON.parse(server.config))) : null
   }
 
   const runs = scanResultRuns(exp.exp_result_path)

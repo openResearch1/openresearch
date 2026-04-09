@@ -1,15 +1,33 @@
 import { createSignal, For, Match, onMount, Show, Switch } from "solid-js"
 import { useSDK } from "@/context/sdk"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { DialogPathPicker } from "@/components/dialog-new-research-project"
 
-interface ServerConfig {
+type DirectServerConfig = {
+  mode: "direct"
   address: string
   port: number
   user: string
-  password: string
+  password?: string
   resource_root?: string
   wandb_api_key?: string
   wandb_project_name?: string
 }
+
+type SshConfigServerConfig = {
+  mode: "ssh_config"
+  host_alias: string
+  ssh_config_path?: string
+  user?: string
+  password?: string
+  resource_root?: string
+  wandb_api_key?: string
+  wandb_project_name?: string
+}
+
+type LegacyDirectServerConfig = Omit<DirectServerConfig, "mode">
+
+type ServerConfig = DirectServerConfig | SshConfigServerConfig | LegacyDirectServerConfig
 
 interface ServerRow {
   id: string
@@ -20,6 +38,7 @@ interface ServerRow {
 
 export function ServersTab() {
   const sdk = useSDK()
+  const dialog = useDialog()
   const [servers, setServers] = createSignal<ServerRow[]>([])
   const [loading, setLoading] = createSignal(true)
   const [error, setError] = createSignal(false)
@@ -60,19 +79,20 @@ export function ServersTab() {
 
   const handleAdd = async () => {
     const port = parseInt(formPort(), 10)
-    if (!formAddress() || isNaN(port) || !formUser() || !formPassword()) return
+    if (!formAddress() || isNaN(port) || !formUser()) return
 
     try {
       const res = await sdk.client.research.server.create({
         config: {
+          mode: "direct",
           address: formAddress(),
           port,
           user: formUser(),
-          password: formPassword(),
+          ...(formPassword() ? { password: formPassword() } : {}),
           ...(formResourceRoot() ? { resource_root: formResourceRoot() } : {}),
           ...(formWandbApiKey() ? { wandb_api_key: formWandbApiKey() } : {}),
           ...(formWandbProject() ? { wandb_project_name: formWandbProject() } : {}),
-        },
+        } as any,
       })
       if (res.data) {
         await fetchServers()
@@ -94,16 +114,66 @@ export function ServersTab() {
     setFormWandbProject("")
   }
 
+  const describe = (config: ServerConfig) => {
+    if ("mode" in config && config.mode === "ssh_config") {
+      const user = config.user ? `${config.user}@` : ""
+      return `${user}${config.host_alias}`
+    }
+    return `${config.user}@${config.address}:${config.port}`
+  }
+
+  const handleImport = () => {
+    dialog.show(() => (
+      <DialogPathPicker
+        title="Select SSH Config"
+        mode="files"
+        multiple={false}
+        startDir={() => "/Users/hg/.ssh"}
+        onClose={() => dialog.close()}
+        onSelect={async (value) => {
+          const file = Array.isArray(value) ? value[0] : value
+          if (!file) return
+          dialog.close()
+          try {
+            const res = await fetch(`${sdk.url}/research/server/import-ssh-config`, {
+              method: "POST",
+              headers: {
+                "content-type": "application/json",
+                "x-opencode-directory": sdk.directory,
+              },
+              body: JSON.stringify({ path: file }),
+            })
+            if (!res.ok) {
+              const text = await res.text()
+              throw new Error(text || `Import failed: ${res.status}`)
+            }
+            await fetchServers()
+          } catch (error) {
+            console.error("Failed to import SSH config", error)
+          }
+        }}
+      />
+    ))
+  }
+
   return (
     <div class="relative flex-1 min-h-0 overflow-hidden h-full flex flex-col">
       <div class="px-3 pt-3 pb-1 flex items-center justify-between">
         <div class="text-12-semibold text-text-weak uppercase tracking-wider">Remote Servers</div>
-        <button
-          class="px-2 py-1 rounded text-11-regular bg-background-stronger text-text-base hover:text-text-strong transition-colors"
-          onClick={() => setAdding(!adding())}
-        >
-          {adding() ? "Cancel" : "+ Add"}
-        </button>
+        <div class="flex items-center gap-2">
+          <button
+            class="px-2 py-1 rounded text-11-regular bg-background-stronger text-text-base hover:text-text-strong transition-colors"
+            onClick={handleImport}
+          >
+            Import SSH Config
+          </button>
+          <button
+            class="px-2 py-1 rounded text-11-regular bg-background-stronger text-text-base hover:text-text-strong transition-colors"
+            onClick={() => setAdding(!adding())}
+          >
+            {adding() ? "Cancel" : "+ Add"}
+          </button>
+        </div>
       </div>
 
       <div class="flex-1 min-h-0 overflow-auto px-3 pb-3">
@@ -194,21 +264,21 @@ export function ServersTab() {
           <Match when={true}>
             <div class="flex flex-col gap-2">
               {/* Table header */}
-              <div class="grid grid-cols-[1fr_60px_70px_minmax(120px,1fr)_40px] gap-2 px-2 py-1 text-11-regular text-text-weak uppercase tracking-wider">
-                <div>Address</div>
-                <div>Port</div>
+              <div class="grid grid-cols-[1fr_80px_80px_minmax(120px,1fr)_40px] gap-2 px-2 py-1 text-11-regular text-text-weak uppercase tracking-wider">
+                <div>Target</div>
+                <div>Mode</div>
                 <div>User</div>
                 <div>Resource Root</div>
                 <div />
               </div>
               <For each={servers()}>
                 {(server) => (
-                  <div class="grid grid-cols-[1fr_60px_70px_minmax(120px,1fr)_40px] gap-2 items-center rounded-md border border-border-weak-base bg-background-base px-2 py-2 text-12-regular text-text-base">
-                    <div class="truncate" title={server.config.address}>
-                      {server.config.address}
+                  <div class="grid grid-cols-[1fr_80px_80px_minmax(120px,1fr)_40px] gap-2 items-center rounded-md border border-border-weak-base bg-background-base px-2 py-2 text-12-regular text-text-base">
+                    <div class="truncate" title={describe(server.config)}>
+                      {describe(server.config)}
                     </div>
-                    <div>{server.config.port}</div>
-                    <div class="truncate">{server.config.user}</div>
+                    <div>{"mode" in server.config && server.config.mode === "ssh_config" ? "config" : "direct"}</div>
+                    <div class="truncate">{server.config.user ?? "-"}</div>
                     <div class="truncate" title={server.config.resource_root ?? ""}>
                       {server.config.resource_root ?? "-"}
                     </div>

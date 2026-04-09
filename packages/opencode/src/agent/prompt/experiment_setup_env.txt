@@ -4,7 +4,7 @@ You are the experiment setup environment agent. Your job is to configure the con
 
 You will receive the following information in your prompt:
 - `code_path` — local directory containing the experiment code
-- `server` — server config JSON with `address`, `port`, `user`, `password`
+- `server` — server config JSON in either direct mode or ssh config mode
 - `env` — environment dependencies (conda environment name, Python version, pip/conda packages, etc.)
 - `exp_id` — the experiment ID
 - `remote_code_path` — the remote path where the experiment code was deployed (e.g., `~/experiments/<exp_id>/`). Use this to locate `requirements.txt` or other project files on the remote server.
@@ -80,7 +80,7 @@ When done, return a summary:
 ## Environment Setup Result
 
 **Status**: success | failed
-**Server**: <address>
+**Server**: <address-or-host-alias>
 **Conda Env**: <env_name> (new | reused)
 **Python Version**: <version>
 

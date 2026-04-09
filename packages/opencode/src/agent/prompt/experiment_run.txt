@@ -3,7 +3,7 @@ You are the experiment run agent. Your job is to launch the experiment on a remo
 ## Input
 
 You will receive the following information in your prompt:
-- `server` — server config JSON with `address`, `port`, `user`, `password`
+- `server` — server config JSON in either direct mode or ssh config mode
 - `env` — conda environment name to use
 - `exp_id` — the experiment ID (used as the remote folder name)
 - `wandb_project` — W&B project name
@@ -71,7 +71,7 @@ When done, return a summary:
 ## Experiment Run Result
 
 **Status**: success | failed | running
-**Server**: <address>
+**Server**: <address-or-host-alias>
 **Remote Path**: <remote_path>
 **Conda Env**: <env_name>
 **PID**: <process_id if available>

@@ -36,6 +36,13 @@ import { checkExperimentReadyByExpId } from "@/session/experiment-guard"
 import { forceRefreshWatch } from "@/research/experiment-watcher"
 import { forceRefreshLocalDownload } from "@/research/experiment-local-download-watcher"
 import { ExperimentExecutionWatch } from "@/research/experiment-execution-watch"
+import {
+  normalizeRemoteServerConfig,
+  type RemoteServerConfig,
+  RemoteServerConfigSchema,
+  RemoteServerInputSchema,
+} from "@/research/remote-server"
+import { parseSshConfig } from "@/research/ssh-config"
 
 const createSchema = z.object({
   name: z.string().min(1, "name required"),
@@ -73,16 +80,6 @@ const atomSchema = z.object({
   time_updated: z.number(),
 })
 
-const remoteServerConfigSchema = z.object({
-  address: z.string(),
-  port: z.number(),
-  user: z.string(),
-  password: z.string(),
-  resource_root: z.string().optional(),
-  wandb_api_key: z.string().optional(),
-  wandb_project_name: z.string().optional(),
-})
-
 const experimentSchema = z.object({
   exp_id: z.string(),
   research_project_id: z.string(),
@@ -95,7 +92,7 @@ const experimentSchema = z.object({
   exp_result_summary_path: z.string().nullable(),
   exp_plan_path: z.string().nullable(),
   remote_server_id: z.string().nullable(),
-  remote_server_config: remoteServerConfigSchema.nullable(),
+  remote_server_config: RemoteServerConfigSchema.nullable(),
   code_path: z.string(),
   status: z.enum(["pending", "running", "done", "idle", "failed"]),
   started_at: z.number().nullable(),
@@ -162,8 +159,6 @@ const codeSchema = z.object({
 const VALID_CODE_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/
 const GITHUB_URL_RE = /^https?:\/\/(www\.)?github\.com\/.+\/.+/
 
-type RemoteServerConfig = z.infer<typeof remoteServerConfigSchema>
-
 function resolveRemoteServerConfig(remoteServerId: string | null): RemoteServerConfig | null {
   if (!remoteServerId) return null
   const server = Database.use((db) =>
@@ -171,7 +166,7 @@ function resolveRemoteServerConfig(remoteServerId: string | null): RemoteServerC
   )
   if (!server) return null
   try {
-    return JSON.parse(server.config) as RemoteServerConfig
+    return normalizeRemoteServerConfig(JSON.parse(server.config))
   } catch {
     return null
   }
@@ -2206,7 +2201,7 @@ export const ResearchRoutes = new Hono()
                 z.array(
                   z.object({
                     id: z.string(),
-                    config: remoteServerConfigSchema,
+                    config: RemoteServerConfigSchema,
                     time_created: z.number(),
                     time_updated: z.number(),
                   }),
@@ -2222,11 +2217,108 @@ export const ResearchRoutes = new Hono()
       return c.json(
         servers.map((s) => ({
           id: s.id,
-          config: JSON.parse(s.config),
+          config: normalizeRemoteServerConfig(JSON.parse(s.config)),
           time_created: s.time_created,
           time_updated: s.time_updated,
         })),
       )
+    },
+  )
+  .post(
+    "/server/import-ssh-config",
+    describeRoute({
+      summary: "Import remote servers from SSH config",
+      operationId: "research.server.importSshConfig",
+      responses: {
+        200: {
+          description: "Imported remote servers",
+          content: {
+            "application/json": {
+              schema: resolver(
+                z.object({
+                  imported: z.array(
+                    z.object({
+                      id: z.string(),
+                      config: RemoteServerConfigSchema,
+                    }),
+                  ),
+                  skipped: z.array(z.string()),
+                }),
+              ),
+            },
+          },
+        },
+        ...errors(400),
+      },
+    }),
+    validator(
+      "json",
+      z.object({
+        path: z.string(),
+      }),
+    ),
+    async (c) => {
+      const body = c.req.valid("json")
+      if (!(await Filesystem.exists(body.path))) {
+        return c.json({ success: false, message: `ssh config not found: ${body.path}` }, 400)
+      }
+
+      const text = await Filesystem.readText(body.path)
+      const hosts = parseSshConfig(text)
+      const rows = Database.use((db) => db.select().from(RemoteServerTable).all())
+      const imported: { id: string; config: RemoteServerConfig }[] = []
+      const skipped: string[] = []
+
+      for (const host of hosts) {
+        const config = normalizeRemoteServerConfig({
+          mode: "ssh_config",
+          host_alias: host.alias,
+          ssh_config_path: body.path,
+          user: host.user,
+        })
+        if (config.mode !== "ssh_config") continue
+
+        const dup = rows.find((row) => {
+          try {
+            const item = normalizeRemoteServerConfig(JSON.parse(row.config))
+            return (
+              item.mode === "ssh_config" &&
+              item.host_alias === config.host_alias &&
+              item.ssh_config_path === config.ssh_config_path
+            )
+          } catch {
+            return false
+          }
+        })
+
+        if (dup) {
+          skipped.push(host.alias)
+          continue
+        }
+
+        const id = uniqueID()
+        const now = Date.now()
+        Database.use((db) =>
+          db
+            .insert(RemoteServerTable)
+            .values({
+              id,
+              config: JSON.stringify(config),
+              time_created: now,
+              time_updated: now,
+            })
+            .run(),
+        )
+        rows.push({
+          id,
+          config: JSON.stringify(config),
+          time_created: now,
+          time_updated: now,
+        })
+        imported.push({ id, config })
+      }
+
+      return c.json({ imported, skipped })
     },
   )
   .post(
@@ -2242,7 +2334,7 @@ export const ResearchRoutes = new Hono()
               schema: resolver(
                 z.object({
                   id: z.string(),
-                  config: remoteServerConfigSchema,
+                  config: RemoteServerConfigSchema,
                 }),
               ),
             },
@@ -2253,11 +2345,12 @@ export const ResearchRoutes = new Hono()
     validator(
       "json",
       z.object({
-        config: remoteServerConfigSchema,
+        config: RemoteServerInputSchema,
       }),
     ),
     async (c) => {
       const body = c.req.valid("json")
+      const config = normalizeRemoteServerConfig(body.config)
       const id = uniqueID()
       const now = Date.now()
       Database.use((db) =>
@@ -2265,13 +2358,13 @@ export const ResearchRoutes = new Hono()
           .insert(RemoteServerTable)
           .values({
             id,
-            config: JSON.stringify(body.config),
+            config: JSON.stringify(config),
             time_created: now,
             time_updated: now,
           })
           .run(),
       )
-      return c.json({ id, config: body.config })
+      return c.json({ id, config })
     },
   )
   .delete(

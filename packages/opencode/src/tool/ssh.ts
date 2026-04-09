@@ -3,23 +3,17 @@ import { spawn } from "child_process"
 import { Tool } from "./tool"
 import DESCRIPTION from "./ssh.txt"
 import { Log } from "../util/log"
+import { remoteServerLabel, resolveSshConfigPath, RemoteServerConfigSchema } from "../research/remote-server"
 
 const log = Log.create({ service: "ssh-tool" })
 
 const DEFAULT_TIMEOUT = 2 * 60 * 1000
 
-const ServerConfigSchema = z.object({
-  address: z.string().describe("The server hostname or IP address"),
-  port: z.number().describe("The SSH port number"),
-  user: z.string().describe("The SSH username"),
-  password: z.string().describe("The SSH password"),
-})
-
 export const SshTool = Tool.define("ssh", {
   description: DESCRIPTION,
   parameters: z.object({
-    server: ServerConfigSchema.describe(
-      'Server connection config as JSON, e.g. {"address":"example.com","port":22,"user":"root","password":"xxx"}',
+    server: RemoteServerConfigSchema.describe(
+      'Server connection config. Supports direct mode {"mode":"direct","address":"example.com","port":22,"user":"root","password":"xxx"} and ssh config mode {"mode":"ssh_config","host_alias":"target-dev-machine","ssh_config_path":"~/.ssh/config"}',
     ),
     command: z.string().describe("The bash command to execute on the remote server"),
     timeout: z.number().optional().describe("Optional timeout in milliseconds (default: 120000)"),
@@ -33,26 +27,41 @@ export const SshTool = Tool.define("ssh", {
     }
 
     log.info("ssh executing", {
-      address: server.address,
-      port: server.port,
-      user: server.user,
+      server: remoteServerLabel(server),
       command,
     })
 
-    const sshArgs = [
-      "-p",
-      String(server.port),
-      "-o",
-      "StrictHostKeyChecking=no",
-      "-o",
-      "UserKnownHostsFile=/dev/null",
-      "-o",
-      "LogLevel=ERROR",
-      `${server.user}@${server.address}`,
-      command,
-    ]
+    const sshArgs =
+      server.mode === "ssh_config"
+        ? [
+            "-F",
+            resolveSshConfigPath(server.ssh_config_path),
+            ...(server.user ? ["-l", server.user] : []),
+            "-o",
+            "StrictHostKeyChecking=no",
+            "-o",
+            "UserKnownHostsFile=/dev/null",
+            "-o",
+            "LogLevel=ERROR",
+            server.host_alias,
+            command,
+          ]
+        : [
+            "-p",
+            String(server.port),
+            "-o",
+            "StrictHostKeyChecking=no",
+            "-o",
+            "UserKnownHostsFile=/dev/null",
+            "-o",
+            "LogLevel=ERROR",
+            `${server.user}@${server.address}`,
+            command,
+          ]
 
-    const proc = spawn("sshpass", ["-p", server.password, "ssh", ...sshArgs], {
+    const args = server.password ? ["-p", server.password, "ssh", ...sshArgs] : ["ssh", ...sshArgs]
+    const cmd = server.password ? "sshpass" : "ssh"
+    const proc = spawn(cmd, args, {
       stdio: ["ignore", "pipe", "pipe"],
       env: {
         ...process.env,
@@ -66,7 +75,7 @@ export const SshTool = Tool.define("ssh", {
     ctx.metadata({
       metadata: {
         output: "",
-        description: `SSH ${server.user}@${server.address}:${server.port}`,
+        description: `SSH ${remoteServerLabel(server)}`,
       },
     })
 
@@ -77,7 +86,7 @@ export const SshTool = Tool.define("ssh", {
       ctx.metadata({
         metadata: {
           output: output.length > MAX_METADATA_LENGTH ? output.slice(0, MAX_METADATA_LENGTH) + "\n\n..." : output,
-          description: `SSH ${server.user}@${server.address}:${server.port}`,
+          description: `SSH ${remoteServerLabel(server)}`,
         },
       })
     }
@@ -147,11 +156,11 @@ export const SshTool = Tool.define("ssh", {
     }
 
     return {
-      title: `SSH ${server.user}@${server.address}:${server.port}`,
+      title: `SSH ${remoteServerLabel(server)}`,
       metadata: {
         output: output.length > MAX_METADATA_LENGTH ? output.slice(0, MAX_METADATA_LENGTH) + "\n\n..." : output,
         exit: proc.exitCode,
-        description: `SSH ${server.user}@${server.address}:${server.port}`,
+        description: `SSH ${remoteServerLabel(server)}`,
       },
       output,
     }

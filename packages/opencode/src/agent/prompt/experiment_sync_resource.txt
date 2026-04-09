@@ -7,7 +7,7 @@ All real local-to-remote transfer commands in this agent MUST be launched throug
 ## Input
 
 You may receive:
-- `server` — server config JSON with `address`, `port`, `user`, `password`
+- `server` — server config JSON in either direct mode or ssh config mode
 - `exp_id` — experiment ID
 - `resource_root` — remote resource root directory
 - `resources` — one or more locally prepared resources
@@ -102,7 +102,7 @@ After transfer:
 ## Resource Sync Result
 
 **Status**: success | partial | failed
-**Server**: <address>
+**Server**: <address-or-host-alias>
 **Resource Root**: <resource_root>
 
 ### Resources

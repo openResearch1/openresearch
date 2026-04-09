@@ -5,7 +5,7 @@ You only handle remote-side download, remote-side extraction or organization whe
 ## Input
 
 You may receive:
-- `server` — server config JSON with `address`, `port`, `user`, `password`
+- `server` — server config JSON in either direct mode or ssh config mode
 - `exp_id` — experiment ID
 - `resource_root` — remote resource root directory
 - `resources` — one or more resources that should be downloaded directly on the remote server
@@ -79,7 +79,7 @@ After remote download or reuse:
 ## Remote Resource Download Result
 
 **Status**: success | partial | failed
-**Server**: <address>
+**Server**: <address-or-host-alias>
 **Resource Root**: <resource_root>
 
 ### Resources

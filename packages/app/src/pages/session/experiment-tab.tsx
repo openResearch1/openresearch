@@ -11,15 +11,31 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import type { FileDiff } from "@opencode-ai/sdk/v2"
 
-interface ServerConfig {
+type DirectServerConfig = {
+  mode: "direct"
   address: string
   port: number
   user: string
-  password: string
+  password?: string
   resource_root?: string
   wandb_api_key?: string
   wandb_project_name?: string
 }
+
+type SshConfigServerConfig = {
+  mode: "ssh_config"
+  host_alias: string
+  ssh_config_path?: string
+  user?: string
+  password?: string
+  resource_root?: string
+  wandb_api_key?: string
+  wandb_project_name?: string
+}
+
+type LegacyDirectServerConfig = Omit<DirectServerConfig, "mode">
+
+type ServerConfig = DirectServerConfig | SshConfigServerConfig | LegacyDirectServerConfig
 
 interface ServerRow {
   id: string
@@ -487,6 +503,10 @@ export function ExpProgressTab(props: ExperimentTabProps & { onUpdated?: () => v
     props.experiment.remote_server_config ?? null,
   )
   const codePath = createMemo(() => props.experiment.code_path)
+  const describeServer = (cfg: ServerConfig) =>
+    "mode" in cfg && cfg.mode === "ssh_config"
+      ? `${cfg.user ? `${cfg.user}@` : ""}${cfg.host_alias}`
+      : `${cfg.user}@${cfg.address}:${cfg.port}`
 
   const navigateToSession = async (expId: string) => {
     try {
@@ -626,7 +646,7 @@ export function ExpProgressTab(props: ExperimentTabProps & { onUpdated?: () => v
                     {(cfg) => (
                       <div class="flex flex-col gap-1">
                         <div class="text-14-regular font-mono">
-                          {cfg().user}@{cfg().address}:{cfg().port}
+                          {describeServer(cfg())}
                         </div>
                         <Show when={cfg().resource_root}>
                           <div class="text-12-regular text-text-weak font-mono">
@@ -659,7 +679,7 @@ export function ExpProgressTab(props: ExperimentTabProps & { onUpdated?: () => v
                   <For each={serverList()}>
                     {(server) => (
                       <option value={server.id}>
-                        {server.config.user}@{server.config.address}:{server.config.port}
+                        {describeServer(server.config)}
                       </option>
                     )}
                   </For>

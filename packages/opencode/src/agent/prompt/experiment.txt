@@ -79,14 +79,12 @@ Use `experiment_execution_watch_update` whenever the workflow enters a real exec
 You MUST have ALL of the following before proceeding. If anything is missing, ask the user to provide it.
 
 ### Server Configuration
-- `address` — server IP or hostname
-- `port` — SSH port
-- `user` — SSH username
-- `password` — SSH password
+- direct mode: `address`, `port`, `user`, optional `password`
+- ssh config mode: `host_alias`, optional `ssh_config_path`, optional `user`, optional `password`
 - `resource_root` — remote absolute root directory for large resources such as models and datasets
 - `local_resource_root` — local cache/staging root when large resources must be prepared locally before upload
 
-`address`, `port`, `user`, `password`, and `resource_root` may be in `remote_server_config`. If anything required by the plan is missing or empty, ask the user.
+The server fields and `resource_root` may be in `remote_server_config`. If anything required by the plan is missing or empty, ask the user.
 
 ### W&B Configuration
 - `wandb_project` — W&B project name
