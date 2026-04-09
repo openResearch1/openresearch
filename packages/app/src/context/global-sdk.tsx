@@ -79,15 +79,28 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
       staleDeltas.clear()
 
       last = Date.now()
-      batch(() => {
-        for (const event of events) {
-          if (skip && event.payload.type === "message.part.delta") {
-            const props = event.payload.properties
-            if (skip.has(deltaKey(event.directory, props.messageID, props.partID))) continue
+      try {
+        batch(() => {
+          for (const event of events) {
+            if (skip && event.payload.type === "message.part.delta") {
+              const props = event.payload.properties
+              if (skip.has(deltaKey(event.directory, props.messageID, props.partID))) continue
+            }
+            emitter.emit(event.directory, event.payload)
           }
-          emitter.emit(event.directory, event.payload)
-        }
-      })
+        })
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        const stack = err instanceof Error ? err.stack : undefined
+        const authHeader = currentServer.http.password
+          ? { Authorization: `Basic ${btoa(`${currentServer.http.username ?? "opencode"}:${currentServer.http.password}`)}` }
+          : undefined
+        fetch(`${currentServer.http.url}/global/log-client`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...(authHeader ?? {}) } as HeadersInit,
+          body: JSON.stringify({ level: "error", message, stack, url: location.href, extra: { source: "global-sdk:flush" } }),
+        }).catch(() => {})
+      }
 
       buffer.length = 0
     }
