@@ -728,6 +728,73 @@ export type EventResearchAtomsUpdated = {
   }
 }
 
+export type WorkflowStepPolicy = {
+  can_next?: Array<string>
+  can_wait_interaction?: boolean
+  can_edit_future?: boolean
+  allowed_edit_ops?: Array<"insert" | "delete">
+}
+
+export type WorkflowMetadata = {
+  action: "start" | "enter" | "next" | "edit" | "wait_interaction" | "fail" | "inspect"
+  instance: {
+    id: string
+    template_id: string
+    flow_id: string
+    flow_title: string
+    title: string
+    status: "running" | "waiting_interaction" | "completed" | "failed" | "cancelled"
+    current_index: number
+    context: {
+      [key: string]: unknown
+    }
+    current_step?: {
+      id: string
+      kind: string
+      title: string
+      summary: string
+      prompt: string
+      policy: WorkflowStepPolicy
+      status: "pending" | "active" | "done" | "waiting_interaction" | "skipped"
+      result?: {
+        [key: string]: unknown
+      }
+      interaction?: {
+        reason?: string
+        message?: string
+        last_user_message?: string
+        wait_after_user_message_id?: string
+        resumed_user_message_id?: string
+      }
+    }
+    steps: Array<{
+      id: string
+      kind: string
+      title: string
+      summary: string
+      status: "pending" | "active" | "done" | "waiting_interaction" | "skipped"
+      result?: {
+        [key: string]: unknown
+      }
+    }>
+  }
+  diff?: {
+    inserted?: Array<{
+      id: string
+      title: string
+    }>
+    deleted?: Array<string>
+  }
+}
+
+export type EventWorkflowUpdated = {
+  type: "workflow.updated"
+  properties: {
+    sessionID: string
+    workflow: WorkflowMetadata
+  }
+}
+
 export type EventTuiPromptAppend = {
   type: "tui.prompt.append"
   properties: {
@@ -996,6 +1063,7 @@ export type Event =
   | EventFileWatcherUpdated
   | EventTodoUpdated
   | EventResearchAtomsUpdated
+  | EventWorkflowUpdated
   | EventTuiPromptAppend
   | EventTuiCommandExecute
   | EventTuiToastShow
@@ -3055,6 +3123,43 @@ export type SessionTodoResponses = {
 
 export type SessionTodoResponse = SessionTodoResponses[keyof SessionTodoResponses]
 
+export type SessionWorkflowData = {
+  body?: never
+  path: {
+    /**
+     * Session ID
+     */
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/workflow"
+}
+
+export type SessionWorkflowErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionWorkflowError = SessionWorkflowErrors[keyof SessionWorkflowErrors]
+
+export type SessionWorkflowResponses = {
+  /**
+   * Workflow state
+   */
+  200: WorkflowMetadata | null
+}
+
+export type SessionWorkflowResponse = SessionWorkflowResponses[keyof SessionWorkflowResponses]
+
 export type SessionInitData = {
   body?: {
     modelID: string
@@ -4752,25 +4857,14 @@ export type ResearchExperimentReadyData = {
 
 export type ResearchExperimentReadyErrors = {
   /**
-   * Experiment, atom, or article not found
+   * Experiment not found
    */
   404: {
     ready: false
     message: string
   }
   /**
-   * Another experiment is already running on the same article
-   */
-  409: {
-    ready: false
-    message: string
-    conflicts: Array<{
-      exp_id: string
-      exp_session_id: string | null
-    }>
-  }
-  /**
-   * Git or branch operation failed
+   * Worktree directory does not exist
    */
   500: {
     ready: false

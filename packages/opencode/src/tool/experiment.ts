@@ -76,10 +76,10 @@ export const ExperimentCreateTool = Tool.define("experiment_create", {
     }
 
     const worktreePath = path.join(params.codePath, ".openresearch_worktrees", expId)
-    const createWorktree = await git(
-      ["worktree", "add", worktreePath, params.baselineBranch, "-b", expId],
-      { cwd: params.codePath, env: GIT_ENV },
-    )
+    const createWorktree = await git(["worktree", "add", worktreePath, params.baselineBranch, "-b", expId], {
+      cwd: params.codePath,
+      env: GIT_ENV,
+    })
     if (createWorktree.exitCode !== 0) {
       return {
         title: "Failed",

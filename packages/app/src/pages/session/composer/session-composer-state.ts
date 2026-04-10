@@ -1,7 +1,6 @@
 import { createEffect, createMemo, on, onCleanup } from "solid-js"
 import { createStore } from "solid-js/store"
 import type { PermissionRequest, QuestionRequest, Todo } from "@opencode-ai/sdk/v2"
-import type { Part } from "@opencode-ai/sdk/v2/client"
 import { useSessionID } from "@/context/session-id"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useGlobalSync } from "@/context/global-sync"
@@ -63,55 +62,7 @@ export function createSessionComposerState(options?: { closeMs?: number | (() =>
   const workflow = createMemo(() => {
     const id = params.id
     if (!id) return
-    const msgs = sync.data.message[id] ?? []
-    let found:
-      | {
-          action: string
-          flow_summary?: string
-          instance: {
-            id: string
-            title: string
-            flow_title: string
-            status: "running" | "waiting_interaction" | "completed" | "failed" | "cancelled"
-            current_index: number
-            current_step?: {
-              title: string
-              summary: string
-              interaction?: {
-                reason?: string
-                message?: string
-              }
-            }
-            steps: Array<{
-              id: string
-              title: string
-              summary: string
-              status: "pending" | "active" | "done" | "waiting_interaction" | "skipped"
-            }>
-          }
-        }
-      | undefined
-
-    for (const msg of msgs) {
-      const parts = sync.data.part[msg.id] ?? []
-      for (const part of parts) {
-        const item = part as Part & {
-          type: string
-          tool?: string
-          state?: {
-            metadata?: unknown
-          }
-        }
-        if (item.type !== "tool" || item.tool !== "workflow") continue
-        const meta = item.state?.metadata
-        if (!meta || typeof meta !== "object") continue
-        const value = meta as typeof found
-        if (!value?.instance?.id) continue
-        found = value
-      }
-    }
-
-    return found
+    return sync.data.workflow[id] ?? globalSync.data.session_workflow[id]
   })
 
   const [store, setStore] = createStore({

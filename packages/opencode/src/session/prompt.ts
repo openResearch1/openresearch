@@ -21,6 +21,7 @@ import { Plugin } from "../plugin"
 import PROMPT_PLAN from "../session/prompt/plan.txt"
 import BUILD_SWITCH from "../session/prompt/build-switch.txt"
 import MAX_STEPS from "../session/prompt/max-steps.txt"
+import WORKFLOW_NUDGE from "../session/prompt/workflow-nudge.txt"
 import { defer } from "../util/defer"
 import { ToolRegistry } from "../tool/registry"
 import { MCP } from "../mcp"
@@ -346,6 +347,7 @@ export namespace SessionPrompt {
     let structuredOutput: unknown | undefined
 
     let step = 0
+    let workflowNudge = false
     const session = await Session.get(sessionID)
     while (true) {
       SessionStatus.set(sessionID, { type: "busy" })
@@ -708,18 +710,16 @@ export namespace SessionPrompt {
 
       // Build system prompt, adding structured output instruction if needed
       const system = [...(await SystemPrompt.environment(model)), ...(await InstructionPrompt.system())]
-      if (activeWorkflow?.status === "running") {
-        system.push(
-          [
-            "There is an active workflow in running state for this session.",
-            "Do not stop naturally until the workflow either enters wait_interaction or reaches completed.",
-          ].join(" "),
-        )
+      if (activeWorkflow) {
+        system.push(workflowSystemPrompt(activeWorkflow))
       }
       const format = lastUser.format ?? { type: "text" }
       if (format.type === "json_schema") {
         system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
       }
+
+      const nudge = workflowNudge
+      workflowNudge = false
 
       const result = await processor.process({
         user: lastUser,
@@ -734,6 +734,14 @@ export namespace SessionPrompt {
                 {
                   role: "assistant" as const,
                   content: MAX_STEPS,
+                },
+              ]
+            : []),
+          ...(nudge
+            ? [
+                {
+                  role: "assistant" as const,
+                  content: WORKFLOW_NUDGE,
                 },
               ]
             : []),
@@ -767,6 +775,9 @@ export namespace SessionPrompt {
       }
 
       if (workflowState === "running") {
+        if (modelFinished) {
+          workflowNudge = true
+        }
         if (result === "compact") {
           await SessionCompaction.create({
             sessionID,
@@ -2048,4 +2059,45 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       return Session.setTitle({ sessionID: input.session.id, title })
     }
   }
+}
+
+function workflowSystemPrompt(instance: Workflow.Instance): string {
+  const step = instance.current_index >= 0 ? instance.steps[instance.current_index] : undefined
+  const progress = step
+    ? `Step ${instance.current_index + 1}/${instance.steps.length}: "${step.title}" (${step.kind})`
+    : `Not yet entered first step (${instance.steps.length} steps total)`
+
+  if (instance.status === "waiting_interaction") {
+    return [
+      "## Active Workflow — Waiting for User",
+      "",
+      `Workflow "${instance.title}" (instance_id: ${instance.id}) is paused waiting for user input.`,
+      step?.interaction?.message ? `Reason: ${step.interaction.message}` : "",
+      "",
+      "The user has now replied. Resume executing the current step from where it paused, then call `workflow.next` when done.",
+    ]
+      .filter(Boolean)
+      .join("\n")
+  }
+
+  return [
+    "## Active Workflow Protocol",
+    "",
+    `Workflow "${instance.title}" is running. instance_id: ${instance.id}`,
+    `Progress: ${progress}`,
+    "",
+    "You MUST follow these workflow transition rules:",
+    "",
+    "1. **Advancing (workflow.next)**: When you have completed ALL required actions and context writes for the current step, call `workflow.next` with `result` (what happened) and `context_patch` (values later steps need) to advance. This is the ONLY way to move the workflow forward.",
+    "2. **Pausing for user input (workflow.wait_interaction)**: When the step requires user confirmation or you need information only the user can provide, call `workflow.wait_interaction` with a clear message, then STOP and wait for the user to reply.",
+    "3. **Editing future steps (workflow.edit)**: When runtime results require changing the remaining plan (e.g., inserting recovery steps after a failure), call `workflow.edit` to insert or delete future steps.",
+    "4. **Failing (workflow.fail)**: When an unrecoverable error occurs and the workflow cannot continue, call `workflow.fail` with a clear code and message.",
+    "5. **Inspecting (workflow.inspect)**: When you need to review the overall workflow state — all steps, their statuses, and the accumulated context — call `workflow.inspect`. This is read-only and does not change any state.",
+    "",
+    "Critical rules:",
+    "- Do NOT stop generating until the workflow reaches `wait_interaction`, `completed`, or `failed`.",
+    "- Do NOT assume progress without calling `workflow.next` — no other action advances the workflow.",
+    "- After each `workflow.next` or `workflow.start`, carefully read the returned step instructions and policy before acting.",
+    "- Each step's policy in the tool response tells you which actions are allowed (wait_interaction, edit). Respect these constraints.",
+  ].join("\n")
 }

@@ -179,17 +179,17 @@ export function SessionComposerRegion(props: {
             <Show when={dock()}>
               <div
                 classList={{
-                  "overflow-hidden": true,
+                  "overflow-hidden": value() < 0.98,
                   "pointer-events-none": value() < 0.98,
                 }}
                 style={{
-                  "max-height": `${full() * value()}px`,
+                  "max-height": value() >= 0.98 ? "none" : `${full() * value()}px`,
                 }}
               >
-                <div ref={setContentRef}>
+                <div ref={setContentRef} class="pb-9">
                   <Show when={props.state.workflow()} keyed>
                     {(workflow) => (
-                      <div class="mb-2">
+                      <div class="mb-3">
                         <SessionWorkflowDock
                           workflow={workflow}
                           title={language.t("session.workflow.title")}

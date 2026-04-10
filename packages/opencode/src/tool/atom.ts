@@ -171,14 +171,14 @@ export const AtomQueryTool = Tool.define("atom_query", {
     atomId: z
       .string()
       .optional()
-      .describe("The atom ID to query. If provided, returns that specific atom's details directly, bypassing session-based resolution."),
+      .describe(
+        "The atom ID to query. If provided, returns that specific atom's details directly, bypassing session-based resolution.",
+      ),
   }),
   async execute(params, ctx) {
     // 0. If atomId is explicitly provided, query it directly
     if (params.atomId) {
-      const atom = Database.use((db) =>
-        db.select().from(AtomTable).where(eq(AtomTable.atom_id, params.atomId!)).get(),
-      )
+      const atom = Database.use((db) => db.select().from(AtomTable).where(eq(AtomTable.atom_id, params.atomId!)).get())
       if (!atom) {
         return {
           title: "Not found",

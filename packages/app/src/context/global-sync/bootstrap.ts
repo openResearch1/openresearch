@@ -8,6 +8,7 @@ import type {
   ProviderListResponse,
   QuestionRequest,
   Todo,
+  WorkflowMetadata,
 } from "@opencode-ai/sdk/v2/client"
 import { showToast } from "@opencode-ai/ui/toast"
 import { getFilename } from "@opencode-ai/util/path"
@@ -24,6 +25,9 @@ type GlobalStore = {
   project: Project[]
   session_todo: {
     [sessionID: string]: Todo[]
+  }
+  session_workflow: {
+    [sessionID: string]: WorkflowMetadata
   }
   provider: ProviderListResponse
   provider_auth: ProviderAuthResponse

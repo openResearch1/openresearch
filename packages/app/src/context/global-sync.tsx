@@ -6,6 +6,7 @@ import type {
   ProviderAuthResponse,
   ProviderListResponse,
   Todo,
+  WorkflowMetadata,
 } from "@opencode-ai/sdk/v2/client"
 import { showToast } from "@opencode-ai/ui/toast"
 import { getFilename } from "@opencode-ai/util/path"
@@ -44,6 +45,9 @@ type GlobalStore = {
   session_todo: {
     [sessionID: string]: Todo[]
   }
+  session_workflow: {
+    [sessionID: string]: WorkflowMetadata
+  }
   provider: ProviderListResponse
   provider_auth: ProviderAuthResponse
   config: Config
@@ -71,6 +75,7 @@ function createGlobalSync() {
     path: { state: "", config: "", worktree: "", directory: "", home: "" },
     project: projectCache.value,
     session_todo: {},
+    session_workflow: {},
     provider: { all: [], connected: [], default: {} },
     provider_auth: {},
     config: {},
@@ -142,6 +147,20 @@ function createGlobalSync() {
     setGlobalStore("session_todo", sessionID, reconcile(todos, { key: "id" }))
   }
 
+  const setSessionWorkflow = (sessionID: string, workflow: WorkflowMetadata | undefined) => {
+    if (!sessionID) return
+    if (!workflow) {
+      setGlobalStore(
+        "session_workflow",
+        produce((draft) => {
+          delete draft[sessionID]
+        }),
+      )
+      return
+    }
+    setGlobalStore("session_workflow", sessionID, reconcile(workflow))
+  }
+
   const paused = () => untrack(() => globalStore.reload) !== undefined
 
   const queue = createRefreshQueue({
@@ -189,7 +208,7 @@ function createGlobalSync() {
       })
       if (next.length !== store.session.length) {
         setStore("session", reconcile(next, { key: "id" }))
-        cleanupDroppedSessionCaches(store, setStore, next, setSessionTodo)
+        cleanupDroppedSessionCaches(store, setStore, next, setSessionTodo, setSessionWorkflow)
       }
       children.unpin(directory)
       return
@@ -302,6 +321,7 @@ function createGlobalSync() {
       setStore,
       push: queue.push,
       setSessionTodo,
+      setSessionWorkflow,
       vcsCache: children.vcsCache.get(directory),
       loadLsp: () => {
         sdkFor(directory)
@@ -383,6 +403,9 @@ function createGlobalSync() {
     project: projectApi,
     todo: {
       set: setSessionTodo,
+    },
+    workflow: {
+      set: setSessionWorkflow,
     },
   }
 }

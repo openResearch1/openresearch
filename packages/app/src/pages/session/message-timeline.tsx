@@ -1,14 +1,4 @@
-import {
-  For,
-  Index,
-  createEffect,
-  createMemo,
-  createSignal,
-  on,
-  onCleanup,
-  Show,
-  type JSX,
-} from "solid-js"
+import { For, Index, createEffect, createMemo, createSignal, on, onCleanup, Show, type JSX } from "solid-js"
 import { useSessionID } from "@/context/session-id"
 import { Button } from "@opencode-ai/ui/button"
 import { FileIcon } from "@opencode-ai/ui/file-icon"

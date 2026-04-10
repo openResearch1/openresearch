@@ -113,16 +113,15 @@ export function SessionWorkflowDock(props: {
   const value = createMemo(() => Math.max(0, Math.min(1, collapse())))
   const hide = createMemo(() => Math.max(0, Math.min(1, value())))
   const off = createMemo(() => hide() > 0.98)
-  const [height, setHeight] = createSignal(280)
-  const full = createMemo(() => Math.max(78, height()))
-  let contentRef: HTMLDivElement | undefined
+  let bodyRef: HTMLDivElement | undefined
   let stepsRef: HTMLDivElement | undefined
   const stepRefs: Array<HTMLDivElement | undefined> = []
+  const [bodyHeight, setBodyHeight] = createSignal(200)
 
   createEffect(() => {
-    const el = contentRef
+    const el = bodyRef
     if (!el) return
-    const update = () => setHeight(el.getBoundingClientRect().height)
+    const update = () => setBodyHeight(el.scrollHeight)
     update()
     const observer = new ResizeObserver(update)
     observer.observe(el)
@@ -150,15 +149,8 @@ export function SessionWorkflowDock(props: {
   } satisfies Record<Meta["instance"]["status"], string>
 
   return (
-    <DockTray
-      data-component="session-workflow-dock"
-      style={{
-        "overflow-x": "visible",
-        "overflow-y": "hidden",
-        "max-height": `${Math.max(78, full() - value() * (full() - 78))}px`,
-      }}
-    >
-      <div ref={contentRef}>
+    <DockTray data-component="session-workflow-dock">
+      <div>
         <div
           class="pl-3 pr-2 py-2 flex items-center gap-2 overflow-visible"
           role="button"
@@ -221,12 +213,13 @@ export function SessionWorkflowDock(props: {
             "pointer-events-none": hide() > 0.1,
           }}
           style={{
-            visibility: off() ? "hidden" : "visible",
+            "max-height": `${Math.max(0, bodyHeight() * (1 - hide()))}px`,
+            overflow: "hidden",
             opacity: `${Math.max(0, Math.min(1, 1 - hide()))}`,
             filter: `blur(${Math.max(0, Math.min(1, hide())) * 2}px)`,
           }}
         >
-          <div class="px-3 pb-3 flex flex-col gap-2">
+          <div ref={bodyRef} class="px-3 pb-3 flex flex-col gap-2">
             <Show when={props.workflow.instance.current_step?.summary}>
               {(summary) => <div class="text-13-regular text-text-base">{summary()}</div>}
             </Show>
@@ -260,7 +253,7 @@ export function SessionWorkflowDock(props: {
               )}
             </Show>
 
-            <div ref={stepsRef} class="flex flex-col gap-1.5 max-h-42 overflow-y-auto no-scrollbar pr-1">
+            <div ref={stepsRef} class="flex flex-col gap-1.5 max-h-48 overflow-y-auto no-scrollbar pr-1 pb-1">
               <For each={props.workflow.instance.steps}>
                 {(step, idx) => {
                   const active = () => idx() === props.workflow.instance.current_index

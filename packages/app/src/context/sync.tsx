@@ -109,6 +109,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
     const inflight = new Map<string, Promise<void>>()
     const inflightDiff = new Map<string, Promise<void>>()
     const inflightTodo = new Map<string, Promise<void>>()
+    const inflightWorkflow = new Map<string, Promise<void>>()
     const maxDirs = 30
     const seen = new Map<string, Set<string>>()
     const [meta, setMeta] = createStore({
@@ -362,6 +363,35 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
               const list = todo.data ?? []
               setStore("todo", sessionID, reconcile(list, { key: "id" }))
               globalSync.todo.set(sessionID, list)
+            }),
+          )
+        },
+        async workflow(sessionID: string) {
+          const directory = sdk.directory
+          const client = sdk.client
+          const [store, setStore] = globalSync.child(directory)
+          touch(directory, setStore, sessionID)
+          const existing = store.workflow[sessionID]
+          const cached = globalSync.data.session_workflow[sessionID]
+          if (existing !== undefined) {
+            if (cached === undefined) {
+              globalSync.workflow.set(sessionID, existing)
+            }
+            return
+          }
+
+          if (cached !== undefined) {
+            setStore("workflow", sessionID, reconcile(cached))
+          }
+
+          const key = keyFor(directory, sessionID)
+          return runInflight(inflightWorkflow, key, () =>
+            retry(() => client.session.workflow({ sessionID })).then((res) => {
+              if (!tracked(directory, sessionID)) return
+              const data = res.data ?? undefined
+              if (!data) return
+              setStore("workflow", sessionID, reconcile(data))
+              globalSync.workflow.set(sessionID, data)
             }),
           )
         },

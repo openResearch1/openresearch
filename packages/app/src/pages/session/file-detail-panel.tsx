@@ -3,12 +3,7 @@ import { useFile } from "@/context/file"
 import { useSDK } from "@/context/sdk"
 import { Markdown } from "@opencode-ai/ui/markdown"
 
-export function FileDetailPanel(props: {
-  path: string
-  title: string
-  onClose: () => void
-  leftOffset?: number
-}) {
+export function FileDetailPanel(props: { path: string; title: string; onClose: () => void; leftOffset?: number }) {
   const file = useFile()
   const sdk = useSDK()
   const [editing, setEditing] = createSignal(false)
@@ -33,7 +28,10 @@ export function FileDetailPanel(props: {
         file.load(path, { force: true }).catch(console.error)
       }
     })
-    onCleanup(() => { mounted = false; unsub() })
+    onCleanup(() => {
+      mounted = false
+      unsub()
+    })
   })
 
   const content = createMemo(() => {
@@ -115,7 +113,16 @@ export function FileDetailPanel(props: {
             class="flex items-center justify-center w-7 h-7 rounded-md bg-transparent text-text-weak cursor-pointer hover:text-text-base hover:bg-background-stronger transition-colors shrink-0"
             title="Back"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
               <polyline points="15 18 9 12 15 6" />
             </svg>
           </button>
