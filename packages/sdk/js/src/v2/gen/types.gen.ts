@@ -4752,25 +4752,14 @@ export type ResearchExperimentReadyData = {
 
 export type ResearchExperimentReadyErrors = {
   /**
-   * Experiment, atom, or article not found
+   * Experiment not found
    */
   404: {
     ready: false
     message: string
   }
   /**
-   * Another experiment is already running on the same article
-   */
-  409: {
-    ready: false
-    message: string
-    conflicts: Array<{
-      exp_id: string
-      exp_session_id: string | null
-    }>
-  }
-  /**
-   * Git or branch operation failed
+   * Worktree directory does not exist
    */
   500: {
     ready: false
@@ -5322,6 +5311,74 @@ export type ResearchExperimentUpdateResponses = {
 
 export type ResearchExperimentUpdateResponse =
   ResearchExperimentUpdateResponses[keyof ResearchExperimentUpdateResponses]
+
+export type ResearchProjectExportData = {
+  body?: never
+  path: {
+    researchProjectId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/research/project/{researchProjectId}/export"
+}
+
+export type ResearchProjectExportErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ResearchProjectExportError = ResearchProjectExportErrors[keyof ResearchProjectExportErrors]
+
+export type ResearchProjectExportResponses = {
+  /**
+   * Export successful
+   */
+  200: {
+    zip_path: string
+    zip_name: string
+    size: number
+  }
+}
+
+export type ResearchProjectExportResponse = ResearchProjectExportResponses[keyof ResearchProjectExportResponses]
+
+export type ResearchProjectImportData = {
+  body?: {
+    zipPath: string
+    targetDirectory: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/research/import-project"
+}
+
+export type ResearchProjectImportErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type ResearchProjectImportError = ResearchProjectImportErrors[keyof ResearchProjectImportErrors]
+
+export type ResearchProjectImportResponses = {
+  /**
+   * Import successful
+   */
+  200: {
+    project_id: string
+    research_project_id: string
+  }
+}
+
+export type ResearchProjectImportResponse = ResearchProjectImportResponses[keyof ResearchProjectImportResponses]
 
 export type PermissionReplyData = {
   body?: {

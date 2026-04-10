@@ -901,4 +901,27 @@ export const dict = {
   "research.new.create.error": "创建失败",
   "research.new.picker.location": "选择创建位置",
   "research.new.picker.papers": "选择论文 (PDF 或 LaTeX 源码文件夹，可多选)",
+
+  "research.export.button": "导出项目",
+  "research.export.tooltip": "导出科研项目为 zip 文件",
+  "research.export.success": "项目导出成功",
+  "research.export.failed": "导出失败",
+
+  "research.import.title": "导入科研项目",
+  "research.import.entry.title": "导入科研项目",
+  "research.import.entry.description": "导入之前导出的科研项目",
+  "research.import.zip.label": "Zip 文件",
+  "research.import.zip.placeholder": "选择导出的项目 zip 文件",
+  "research.import.zip.picker": "选择 zip 文件",
+  "research.import.name.label": "项目名称",
+  "research.import.name.placeholder": "输入项目名称",
+  "research.import.location.label": "父目录",
+  "research.import.location.placeholder": "选择项目存放位置",
+  "research.import.location.picker": "选择父目录",
+  "research.import.target.preview": "导入到：",
+  "research.import.button": "导入",
+  "research.import.failed": "导入科研项目失败",
+  "research.import.error": "导入失败",
+
+  "sidebar.research.project": "项目",
 } satisfies Partial<Record<Keys, string>>

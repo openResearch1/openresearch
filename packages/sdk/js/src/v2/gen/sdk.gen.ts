@@ -156,8 +156,12 @@ import type {
   ResearchExperimentWatchRefreshResponses,
   ResearchProjectCreateErrors,
   ResearchProjectCreateResponses,
+  ResearchProjectExportErrors,
+  ResearchProjectExportResponses,
   ResearchProjectGetErrors,
   ResearchProjectGetResponses,
+  ResearchProjectImportErrors,
+  ResearchProjectImportResponses,
   ResearchProjectSessionTreeErrors,
   ResearchProjectSessionTreeResponses,
   ResearchRelationCreateErrors,
@@ -2596,6 +2600,85 @@ export class Project2 extends HeyApiClient {
       url: "/research/project/{researchProjectId}/session-tree",
       ...options,
       ...params,
+    })
+  }
+
+  /**
+   * Export research project
+   *
+   * Export research project to a zip file containing all data and files.
+   */
+  public export<ThrowOnError extends boolean = false>(
+    parameters: {
+      researchProjectId: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "researchProjectId" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      ResearchProjectExportResponses,
+      ResearchProjectExportErrors,
+      ThrowOnError
+    >({
+      url: "/research/project/{researchProjectId}/export",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Import research project
+   *
+   * Import research project from a zip file.
+   */
+  public import<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      zipPath?: string
+      targetDirectory?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "zipPath" },
+            { in: "body", key: "targetDirectory" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      ResearchProjectImportResponses,
+      ResearchProjectImportErrors,
+      ThrowOnError
+    >({
+      url: "/research/import-project",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
     })
   }
 }

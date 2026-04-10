@@ -6,6 +6,7 @@ import {
   For,
   on,
   onCleanup,
+  onMount,
   Show,
   type Accessor,
   type JSX,
@@ -21,6 +22,7 @@ import { useGlobalSDK } from "@/context/global-sdk"
 import { useLanguage } from "@/context/language"
 import { NewSessionItem, SessionItem, SessionSkeleton } from "./sidebar-items"
 import type { WorkspaceSidebarContext } from "./sidebar-workspace"
+import { showToast } from "@opencode-ai/ui/toast"
 
 type TreeAtom = ResearchProjectSessionTreeResponse["atoms"][number]
 
@@ -113,8 +115,52 @@ export function ResearchSessionTree(props: {
   // Reset user override when active atom changes
   createEffect(on(activeAtomId, () => setAtomsUserOpen(undefined), { defer: true }))
 
+  const [exporting, setExporting] = createSignal(false)
+
+  const handleExport = async () => {
+    if (exporting()) return
+    setExporting(true)
+    try {
+      const res = await client().research.project.export({ researchProjectId: props.researchProjectId } as any)
+      const data = res.data as { zip_path: string; zip_name: string; size: number } | undefined
+      if (data) {
+        showToast({
+          title: language.t("research.export.success"),
+          description: `${data.zip_name} (${(data.size / 1024 / 1024).toFixed(2)} MB)`,
+          variant: "success",
+        })
+      }
+    } catch (err) {
+      showToast({
+        title: language.t("research.export.failed"),
+        description: err instanceof Error ? err.message : String(err),
+        variant: "error",
+      })
+    } finally {
+      setExporting(false)
+    }
+  }
+
   return (
     <nav class="flex flex-col gap-1 px-3">
+      {/* Export button */}
+      <div class="flex items-center justify-between px-2 pt-2 pb-1">
+        <div class="text-11-regular text-text-weak uppercase tracking-wider">
+          {language.t("sidebar.research.project")}
+        </div>
+        <Tooltip value={language.t("research.export.tooltip")} placement="top">
+          <IconButton
+            icon="download"
+            variant="ghost"
+            size="small"
+            class="size-5"
+            onClick={handleExport}
+            disabled={exporting()}
+            aria-label={language.t("research.export.button")}
+          />
+        </Tooltip>
+      </div>
+
       <Show when={props.showNew()}>
         <NewSessionItem
           slug={props.slug()}

@@ -924,4 +924,27 @@ export const dict = {
   "research.new.create.error": "Creation failed",
   "research.new.picker.location": "Select location",
   "research.new.picker.papers": "Select papers (PDF or LaTeX source folders, multi-select)",
+
+  "research.export.button": "Export Project",
+  "research.export.tooltip": "Export research project to zip file",
+  "research.export.success": "Project exported successfully",
+  "research.export.failed": "Export failed",
+
+  "research.import.title": "Import Research Project",
+  "research.import.entry.title": "Import Research Project",
+  "research.import.entry.description": "Import a previously exported research project",
+  "research.import.zip.label": "Zip file",
+  "research.import.zip.placeholder": "Select exported project zip file",
+  "research.import.zip.picker": "Select zip file",
+  "research.import.name.label": "Project name",
+  "research.import.name.placeholder": "Enter project name",
+  "research.import.location.label": "Parent directory",
+  "research.import.location.placeholder": "Select where to place the project",
+  "research.import.location.picker": "Select parent directory",
+  "research.import.target.preview": "Import to:",
+  "research.import.button": "Import",
+  "research.import.failed": "Failed to import research project",
+  "research.import.error": "Import failed",
+
+  "sidebar.research.project": "Project",
 }
