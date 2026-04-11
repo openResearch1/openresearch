@@ -119,7 +119,6 @@ export const dict = {
   "ui.workflow.status.cancelled": "已取消",
   "ui.workflow.step": "步骤",
   "ui.workflow.action.start": "启动",
-  "ui.workflow.action.enter": "进入",
   "ui.workflow.action.inspect": "查看",
   "ui.workflow.action.next": "下一步",
   "ui.workflow.action.edit": "编辑",

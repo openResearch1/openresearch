@@ -60,9 +60,7 @@ export function gitErr(result: { stderr?: Buffer; text?: () => string }, fallbac
  * If not initialised, runs git init, ensures .gitignore, and creates an initial commit.
  * If already initialised, ensures .gitignore has required rules.
  */
-export async function ensureRepoInitialized(
-  codePath: string,
-): Promise<{ ok: true } | { ok: false; message: string }> {
+export async function ensureRepoInitialized(codePath: string): Promise<{ ok: true } | { ok: false; message: string }> {
   const hasGit = await Filesystem.exists(path.join(codePath, ".git"))
   if (!hasGit) {
     const init = await git(["init", "--quiet"], { cwd: codePath })

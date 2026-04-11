@@ -1580,7 +1580,6 @@ ToolRegistry.register({
       const value = meta().action
       const code = meta().instance?.current_step?.result?.code
       if (value === "start") return i18n.t("ui.workflow.action.start")
-      if (value === "enter") return i18n.t("ui.workflow.action.enter")
       if (value === "inspect") return i18n.t("ui.workflow.action.inspect")
       if (value === "next") return i18n.t("ui.workflow.action.next")
       if (value === "edit") return i18n.t("ui.workflow.action.edit")

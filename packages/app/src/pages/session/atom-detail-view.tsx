@@ -119,7 +119,9 @@ function relationsToEdges(relations: Relation[]) {
   }))
 }
 
-function ScreenToFlowBridge(props: { onReady: (fn: (pos: { x: number; y: number }) => { x: number; y: number }) => void }) {
+function ScreenToFlowBridge(props: {
+  onReady: (fn: (pos: { x: number; y: number }) => { x: number; y: number }) => void
+}) {
   const { screenToFlowPosition } = useSolidFlow()
   props.onReady(screenToFlowPosition)
   return null
@@ -157,7 +159,12 @@ export function AtomDetailView(props: {
   onAtomCreate: (input: { name: string; type: AtomKind }) => Promise<Atom>
   onAtomDelete: (atomId: string) => Promise<void>
   onRelationCreate: (input: { sourceAtomId: string; targetAtomId: string; relationType: string }) => Promise<void>
-  onRelationUpdate: (input: { sourceAtomId: string; targetAtomId: string; relationType: string; nextRelationType: string }) => Promise<void>
+  onRelationUpdate: (input: {
+    sourceAtomId: string
+    targetAtomId: string
+    relationType: string
+    nextRelationType: string
+  }) => Promise<void>
   onRelationDelete: (input: { sourceAtomId: string; targetAtomId: string; relationType: string }) => Promise<void>
   researchProjectId: string
 }) {
@@ -198,11 +205,20 @@ export function AtomDetailView(props: {
   )
 
   // Relation type picker state
-  const [pendingConnection, setPendingConnection] = createSignal<{ source: string; target: string; edgeId: string } | null>(null)
+  const [pendingConnection, setPendingConnection] = createSignal<{
+    source: string
+    target: string
+    edgeId: string
+  } | null>(null)
   const [pickerPos, setPickerPos] = createSignal<{ x: number; y: number }>({ x: 0, y: 0 })
 
   // Edge click for editing/deleting relations
-  const [selectedEdge, setSelectedEdge] = createSignal<{ id: string; source: string; target: string; relationType: string } | null>(null)
+  const [selectedEdge, setSelectedEdge] = createSignal<{
+    id: string
+    source: string
+    target: string
+    relationType: string
+  } | null>(null)
   const [edgeMenuPos, setEdgeMenuPos] = createSignal<{ x: number; y: number }>({ x: 0, y: 0 })
 
   // Create atom form
@@ -346,13 +362,35 @@ export function AtomDetailView(props: {
   return (
     <div ref={containerRef} style={{ width: "100%", height: "100%", position: "relative" }}>
       <Show when={props.loading && props.atoms.length === 0}>
-        <div style={{ position: "absolute", inset: "0", display: "flex", "align-items": "center", "justify-content": "center", "z-index": "10", color: "#94a3b8", "font-size": "13px" }}>
+        <div
+          style={{
+            position: "absolute",
+            inset: "0",
+            display: "flex",
+            "align-items": "center",
+            "justify-content": "center",
+            "z-index": "10",
+            color: "#94a3b8",
+            "font-size": "13px",
+          }}
+        >
           Loading...
         </div>
       </Show>
 
       <Show when={props.error}>
-        <div style={{ position: "absolute", inset: "0", display: "flex", "align-items": "center", "justify-content": "center", "z-index": "10", color: "#f87171", "font-size": "13px" }}>
+        <div
+          style={{
+            position: "absolute",
+            inset: "0",
+            display: "flex",
+            "align-items": "center",
+            "justify-content": "center",
+            "z-index": "10",
+            color: "#f87171",
+            "font-size": "13px",
+          }}
+        >
           Failed to load atoms
         </div>
       </Show>
@@ -375,7 +413,11 @@ export function AtomDetailView(props: {
         <MiniMap />
         <Background variant={"dots" as any} />
         <FocusHandler focusAtomId={props.focusAtomId} nodes={nodes} />
-        <ScreenToFlowBridge onReady={(fn) => { screenToFlowRef = fn }} />
+        <ScreenToFlowBridge
+          onReady={(fn) => {
+            screenToFlowRef = fn
+          }}
+        />
       </SolidFlow>
 
       {/* Relation Type Picker (on connect) */}
@@ -394,7 +436,9 @@ export function AtomDetailView(props: {
             "min-width": "160px",
           }}
         >
-          <div style={{ "font-size": "11px", color: "#94a3b8", "margin-bottom": "6px", padding: "0 4px" }}>Select relation type</div>
+          <div style={{ "font-size": "11px", color: "#94a3b8", "margin-bottom": "6px", padding: "0 4px" }}>
+            Select relation type
+          </div>
           <For each={RELATION_TYPE_OPTIONS}>
             {(type) => (
               <button
@@ -416,7 +460,15 @@ export function AtomDetailView(props: {
                 onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                 onClick={() => handleRelationTypeSelect(type)}
               >
-                <span style={{ width: "8px", height: "8px", "border-radius": "50%", background: RELATION_COLORS[type], "flex-shrink": "0" }} />
+                <span
+                  style={{
+                    width: "8px",
+                    height: "8px",
+                    "border-radius": "50%",
+                    background: RELATION_COLORS[type],
+                    "flex-shrink": "0",
+                  }}
+                />
                 {RELATION_LABELS[type]}
               </button>
             )}
@@ -441,7 +493,9 @@ export function AtomDetailView(props: {
               "min-width": "160px",
             }}
           >
-            <div style={{ "font-size": "11px", color: "#94a3b8", "margin-bottom": "6px", padding: "0 4px" }}>Change type or delete</div>
+            <div style={{ "font-size": "11px", color: "#94a3b8", "margin-bottom": "6px", padding: "0 4px" }}>
+              Change type or delete
+            </div>
             <For each={RELATION_TYPE_OPTIONS}>
               {(type) => (
                 <button
@@ -460,10 +514,20 @@ export function AtomDetailView(props: {
                     "text-align": "left",
                   }}
                   onMouseEnter={(e) => (e.currentTarget.style.background = "#334155")}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = type === edge().relationType ? "#334155" : "transparent")}
+                  onMouseLeave={(e) =>
+                    (e.currentTarget.style.background = type === edge().relationType ? "#334155" : "transparent")
+                  }
                   onClick={() => handleEdgeTypeChange(type)}
                 >
-                  <span style={{ width: "8px", height: "8px", "border-radius": "50%", background: RELATION_COLORS[type], "flex-shrink": "0" }} />
+                  <span
+                    style={{
+                      width: "8px",
+                      height: "8px",
+                      "border-radius": "50%",
+                      background: RELATION_COLORS[type],
+                      "flex-shrink": "0",
+                    }}
+                  />
                   {RELATION_LABELS[type]}
                   <Show when={type === edge().relationType}>
                     <span style={{ "margin-left": "auto", color: "#60a5fa", "font-size": "11px" }}>current</span>
@@ -515,7 +579,9 @@ export function AtomDetailView(props: {
           }}
           onClick={(e) => e.stopPropagation()}
         >
-          <div style={{ "font-size": "12px", "font-weight": "600", color: "#f1f5f9", "margin-bottom": "8px" }}>Create Atom</div>
+          <div style={{ "font-size": "12px", "font-weight": "600", color: "#f1f5f9", "margin-bottom": "8px" }}>
+            Create Atom
+          </div>
           <input
             type="text"
             placeholder="Atom name"
@@ -592,7 +658,6 @@ export function AtomDetailView(props: {
           </div>
         </div>
       </Show>
-
     </div>
   )
 }

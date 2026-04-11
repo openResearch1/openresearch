@@ -468,7 +468,9 @@ export function ExpResultTab(props: ExperimentTabProps & { onOpenFile?: (filePat
   )
 }
 
-export function ExpProgressTab(props: ExperimentTabProps & { onUpdated?: () => void; hideStatus?: boolean; hideAtom?: boolean }) {
+export function ExpProgressTab(
+  props: ExperimentTabProps & { onUpdated?: () => void; hideStatus?: boolean; hideAtom?: boolean },
+) {
   const language = useLanguage()
   const sdk = useSDK()
   const navigate = useNavigate()

@@ -10,6 +10,7 @@ import { SessionRevert } from "../../session/revert"
 import { SessionStatus } from "@/session/status"
 import { SessionSummary } from "@/session/summary"
 import { Todo } from "../../session/todo"
+import { Workflow } from "../../workflow"
 import { Agent } from "../../agent/agent"
 import { Snapshot } from "@/snapshot"
 import { Log } from "../../util/log"
@@ -180,6 +181,40 @@ export const SessionRoutes = lazy(() =>
         const sessionID = c.req.valid("param").sessionID
         const todos = await Todo.get(sessionID)
         return c.json(todos)
+      },
+    )
+    .get(
+      "/:sessionID/workflow",
+      describeRoute({
+        summary: "Get session workflow",
+        description: "Retrieve the latest workflow state for a session.",
+        operationId: "session.workflow",
+        responses: {
+          200: {
+            description: "Workflow state",
+            content: {
+              "application/json": {
+                schema: resolver(Workflow.Meta.nullable()),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: z.string().meta({ description: "Session ID" }),
+        }),
+      ),
+      async (c) => {
+        const sessionID = c.req.valid("param").sessionID
+        const inst = Workflow.latest(sessionID)
+        if (!inst) return c.json(null)
+        return c.json({
+          action: "inspect" as const,
+          instance: Workflow.summary(inst),
+        })
       },
     )
     .post(

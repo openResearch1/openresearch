@@ -112,7 +112,10 @@ export function AtomDetailPanel(props: {
         file.load(path, { force: true }).catch(console.error)
       }
     })
-    onCleanup(() => { mounted = false; unsub() })
+    onCleanup(() => {
+      mounted = false
+      unsub()
+    })
   })
 
   // Load & watch evidence file
@@ -130,7 +133,10 @@ export function AtomDetailPanel(props: {
         file.load(path, { force: true }).catch(console.error)
       }
     })
-    onCleanup(() => { mounted = false; unsub() })
+    onCleanup(() => {
+      mounted = false
+      unsub()
+    })
   })
 
   // Load & watch evidence assessment file
@@ -148,7 +154,10 @@ export function AtomDetailPanel(props: {
         file.load(path, { force: true }).catch(console.error)
       }
     })
-    onCleanup(() => { mounted = false; unsub() })
+    onCleanup(() => {
+      mounted = false
+      unsub()
+    })
   })
 
   const claimContent = createMemo(() => {
@@ -309,8 +318,12 @@ export function AtomDetailPanel(props: {
           background: dragging() ? "var(--accent-base)" : "transparent",
           transition: dragging() ? "none" : "background 0.15s",
         }}
-        onMouseEnter={(e) => { if (!dragging()) e.currentTarget.style.background = "var(--border-base)" }}
-        onMouseLeave={(e) => { if (!dragging()) e.currentTarget.style.background = "transparent" }}
+        onMouseEnter={(e) => {
+          if (!dragging()) e.currentTarget.style.background = "var(--border-base)"
+        }}
+        onMouseLeave={(e) => {
+          if (!dragging()) e.currentTarget.style.background = "transparent"
+        }}
       />
       {/* Header */}
       <div class="flex items-start justify-between p-4 border-b border-border-base shrink-0">
@@ -330,7 +343,16 @@ export function AtomDetailPanel(props: {
                     "border-border-base bg-transparent text-text-weak hover:text-text-base": !props.chatOpen,
                   }}
                 >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
                     <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
                   </svg>
                   Chat
@@ -341,7 +363,16 @@ export function AtomDetailPanel(props: {
                 title="Go to atom session"
                 class="flex items-center gap-1 px-2 py-0.5 rounded border border-border-base bg-transparent text-accent-base text-[11px] cursor-pointer shrink-0 whitespace-nowrap hover:bg-background-stronger transition-colors"
               >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
                   <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
                   <polyline points="15 3 21 3 21 9" />
                   <line x1="10" y1="14" x2="21" y2="3" />
@@ -379,7 +410,16 @@ export function AtomDetailPanel(props: {
                   title="Delete atom"
                   class="flex items-center gap-1 px-2 py-0.5 rounded border border-border-base bg-transparent text-red-400 text-[11px] cursor-pointer shrink-0 whitespace-nowrap hover:border-red-400 transition-colors"
                 >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
                     <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6M10 11v6M14 11v6" />
                   </svg>
                   Delete
@@ -411,7 +451,16 @@ export function AtomDetailPanel(props: {
           onClick={props.onClose}
           class="flex items-center justify-center w-7 h-7 border border-border-base rounded-md bg-transparent text-text-weak cursor-pointer shrink-0 ml-3 hover:text-text-base hover:bg-background-stronger transition-colors"
         >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
             <line x1="18" y1="6" x2="6" y2="18" />
             <line x1="6" y1="6" x2="18" y2="18" />
           </svg>
@@ -441,7 +490,9 @@ export function AtomDetailPanel(props: {
                     {(exp) => (
                       <div
                         class="flex items-center gap-2 px-2 py-1.5 rounded-md bg-background-base cursor-pointer hover:bg-background-stronger transition-colors"
-                        onClick={() => props.onOpenExpDetail ? props.onOpenExpDetail(exp.exp_id) : navigateToExpSession(exp.exp_id)}
+                        onClick={() =>
+                          props.onOpenExpDetail ? props.onOpenExpDetail(exp.exp_id) : navigateToExpSession(exp.exp_id)
+                        }
                         title="View experiment detail"
                       >
                         <span
@@ -464,11 +515,30 @@ export function AtomDetailPanel(props: {
                           class="flex items-center justify-center w-[18px] h-[18px] border-none rounded bg-transparent text-text-weakest shrink-0 p-0 hover:text-text-weak transition-colors"
                           style={{ cursor: deletingExpId() === exp.exp_id ? "not-allowed" : "pointer" }}
                         >
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <svg
+                            width="12"
+                            height="12"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                          >
                             <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
                           </svg>
                         </button>
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0 text-text-weakest">
+                        <svg
+                          width="12"
+                          height="12"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          class="shrink-0 text-text-weakest"
+                        >
                           <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
                           <polyline points="15 3 21 3 21 9" />
                           <line x1="10" y1="14" x2="21" y2="3" />
@@ -522,12 +592,15 @@ export function AtomDetailPanel(props: {
               </button>
               <Show when={props.onOpenFileDetail}>
                 <div class="flex-1" />
-                <DetailButton onClick={() => {
-                  const path = evidenceTab() === "evidence"
-                    ? props.atom.atom_evidence_path
-                    : props.atom.atom_evidence_assessment_path
-                  if (path) props.onOpenFileDetail!(path, evidenceTab() === "evidence" ? "Evidence" : "Assessment")
-                }} />
+                <DetailButton
+                  onClick={() => {
+                    const path =
+                      evidenceTab() === "evidence"
+                        ? props.atom.atom_evidence_path
+                        : props.atom.atom_evidence_assessment_path
+                    if (path) props.onOpenFileDetail!(path, evidenceTab() === "evidence" ? "Evidence" : "Assessment")
+                  }}
+                />
               </Show>
             </div>
             <div class="p-3 overflow-y-auto flex-1 min-h-0">
@@ -594,7 +667,16 @@ function StatusSelector(props: { current: string; updating: boolean; onSelect: (
         }}
       >
         {props.updating ? "Updating..." : props.current}
-        <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+        <svg
+          width="8"
+          height="8"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="3"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
           <polyline points="6 9 12 15 18 9" />
         </svg>
       </button>
@@ -616,10 +698,7 @@ function StatusSelector(props: { current: string; updating: boolean; onSelect: (
                   }}
                   style={{ color: c() }}
                 >
-                  <span
-                    class="w-1.5 h-1.5 rounded-full shrink-0"
-                    style={{ background: c() }}
-                  />
+                  <span class="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: c() }} />
                   {status}
                 </button>
               )
@@ -632,9 +711,7 @@ function StatusSelector(props: { current: string; updating: boolean; onSelect: (
 }
 
 function EmptyHint(props: { text: string }) {
-  return (
-    <div class="text-xs text-text-weakest">{props.text}</div>
-  )
+  return <div class="text-xs text-text-weakest">{props.text}</div>
 }
 
 function DetailButton(props: { onClick: () => void }) {
@@ -644,7 +721,16 @@ function DetailButton(props: { onClick: () => void }) {
       title="View detail"
       class="px-1.5 py-px border border-border-base rounded bg-transparent text-text-weak text-[11px] cursor-pointer whitespace-nowrap hover:text-text-base transition-colors"
     >
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <svg
+        width="12"
+        height="12"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
         <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
         <polyline points="15 3 21 3 21 9" />
         <line x1="10" y1="14" x2="21" y2="3" />

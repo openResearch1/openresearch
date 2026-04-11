@@ -19,5 +19,4 @@ Execution outline:
 Rules:
 
 - `start` does not enter step 1.
-- Do not call `enter` before the first `next`.
 - The first `next` is the transition from flow summary into the first step.

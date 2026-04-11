@@ -1,6 +1,8 @@
 import { ulid } from "ulid"
 import z from "zod"
 import { and, asc, eq, inArray, Database } from "@/storage/db"
+import { BusEvent } from "@/bus/bus-event"
+import { Bus } from "@/bus"
 import { WorkflowSchema } from "./schema"
 import { WorkflowTemplates } from "./templates"
 import { WorkflowInstanceTable } from "./workflow.sql"
@@ -65,7 +67,7 @@ export namespace Workflow {
 
   export const Meta = z
     .object({
-      action: z.enum(["start", "enter", "next", "edit", "wait_interaction", "fail", "inspect"]),
+      action: z.enum(["start", "next", "edit", "wait_interaction", "fail", "inspect"]),
       instance: z.object({
         id: z.string(),
         template_id: z.string(),
@@ -117,6 +119,16 @@ export namespace Workflow {
     .meta({ ref: "WorkflowMetadata" })
   export type Meta = z.infer<typeof Meta>
 
+  export const Event = {
+    Updated: BusEvent.define(
+      "workflow.updated",
+      z.object({
+        sessionID: z.string(),
+        workflow: Meta,
+      }),
+    ),
+  }
+
   export class Error extends globalThis.Error {
     code: string
     constructor(code: string, message: string) {
@@ -167,7 +179,7 @@ export namespace Workflow {
     return inst.steps[inst.current_index]
   }
 
-  function summary(inst: Instance): Meta["instance"] {
+  export function summary(inst: Instance): Meta["instance"] {
     const step = current(inst)
     return {
       id: inst.id,
@@ -218,6 +230,7 @@ export namespace Workflow {
       }
     }
     write(inst)
+    publish("fail", inst)
     return build("fail", inst)
   }
 
@@ -243,6 +256,13 @@ export namespace Workflow {
       instance: summary(inst),
       diff: input?.diff,
     }
+  }
+
+  function publish(action: Meta["action"], inst: Instance, diff?: Meta["diff"]) {
+    Bus.publish(Event.Updated, {
+      sessionID: inst.session_id,
+      workflow: { action, instance: summary(inst), diff },
+    })
   }
 
   function getPath(ctx: Record<string, unknown>, key: string): unknown {
@@ -446,17 +466,8 @@ export namespace Workflow {
       flowID,
       context: input.context,
     })
+    publish("start", inst)
     return build("start", inst)
-  }
-
-  export function enter(input: { sessionID: string; instanceID: string }) {
-    const inst = load(input.instanceID)
-    owns(inst, input.sessionID)
-    if (inst.current_index < 0) {
-      raise("ENTER_NOT_ALLOWED", "Workflow has not entered the first step yet. Call next to enter the first step.")
-    }
-    write(inst)
-    return build("enter", inst)
   }
 
   export function inspect(input: { sessionID: string; instanceID: string }) {
@@ -479,12 +490,14 @@ export namespace Workflow {
       if (!first) {
         inst.status = "completed"
         write(inst)
+        publish("next", inst)
         return build("next", inst)
       }
       inst.current_index = 0
       first.status = "active"
       inst.context = patch(inst.context, input.context)
       write(inst)
+      publish("next", inst)
       return build("next", inst)
     }
     const step = current(inst)
@@ -506,6 +519,7 @@ export namespace Workflow {
     }
 
     write(inst)
+    publish("next", inst)
     return build("next", inst)
   }
 
@@ -545,13 +559,13 @@ export namespace Workflow {
     const blocked = guard(inst)
     if (blocked) return blocked
 
+    const diff = {
+      inserted: inserted.length ? inserted : undefined,
+      deleted: deleted.length ? deleted : undefined,
+    }
     write(inst)
-    return build("edit", inst, {
-      diff: {
-        inserted: inserted.length ? inserted : undefined,
-        deleted: deleted.length ? deleted : undefined,
-      },
-    })
+    publish("edit", inst, diff)
+    return build("edit", inst, { diff })
   }
 
   export function wait(input: {
@@ -580,6 +594,7 @@ export namespace Workflow {
     }
 
     write(inst)
+    publish("wait_interaction", inst)
     return build("wait_interaction", inst)
   }
 

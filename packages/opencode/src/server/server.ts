@@ -569,7 +569,10 @@ export namespace Server {
           // Serve embedded web assets if available (built with build-web.ts)
           if (typeof OPENCODE_EMBEDDED_WEB !== "undefined" && OPENCODE_EMBEDDED_WEB) {
             const { webAssets } = await import("./web-assets.gen")
-            const asset = webAssets.get(reqPath) || (reqPath.endsWith("/") ? webAssets.get(reqPath + "index.html") : null) || (reqPath === "" ? webAssets.get("/index.html") : null)
+            const asset =
+              webAssets.get(reqPath) ||
+              (reqPath.endsWith("/") ? webAssets.get(reqPath + "index.html") : null) ||
+              (reqPath === "" ? webAssets.get("/index.html") : null)
             const resolved = asset || webAssets.get("/index.html")
             if (resolved) {
               const body = resolved.encoding === "base64" ? Buffer.from(resolved.data, "base64") : resolved.data

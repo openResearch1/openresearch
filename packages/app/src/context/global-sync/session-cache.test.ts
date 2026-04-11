@@ -7,6 +7,7 @@ import type {
   QuestionRequest,
   SessionStatus,
   Todo,
+  WorkflowMetadata,
 } from "@opencode-ai/sdk/v2/client"
 import { dropSessionCaches, pickSessionCacheEvictions } from "./session-cache"
 
@@ -35,6 +36,7 @@ describe("app session cache", () => {
       session_status: Record<string, SessionStatus | undefined>
       session_diff: Record<string, FileDiff[] | undefined>
       todo: Record<string, Todo[] | undefined>
+      workflow: Record<string, WorkflowMetadata | undefined>
       message: Record<string, Message[] | undefined>
       part: Record<string, Part[] | undefined>
       permission: Record<string, PermissionRequest[] | undefined>
@@ -47,6 +49,7 @@ describe("app session cache", () => {
       part: { msg_1: [part("prt_1", "ses_1", "msg_1")] },
       permission: { ses_1: [] as PermissionRequest[] },
       question: { ses_1: [] as QuestionRequest[] },
+      workflow: {},
     }
 
     dropSessionCaches(store, ["ses_1"])
@@ -66,6 +69,7 @@ describe("app session cache", () => {
       session_status: Record<string, SessionStatus | undefined>
       session_diff: Record<string, FileDiff[] | undefined>
       todo: Record<string, Todo[] | undefined>
+      workflow: Record<string, WorkflowMetadata | undefined>
       message: Record<string, Message[] | undefined>
       part: Record<string, Part[] | undefined>
       permission: Record<string, PermissionRequest[] | undefined>
@@ -78,6 +82,7 @@ describe("app session cache", () => {
       part: { [m.id]: [part("prt_1", "ses_1", m.id)] },
       permission: {},
       question: {},
+      workflow: {},
     }
 
     dropSessionCaches(store, ["ses_1"])

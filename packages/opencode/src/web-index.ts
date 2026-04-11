@@ -95,7 +95,7 @@ function healthCheck() {
     { name: "SSH", commands: ["ssh"] },
     { name: "sshpass", commands: ["sshpass"] },
     { name: "rsync", commands: ["rsync"] },
-    { name: "conda", commands: ["conda"]}
+    { name: "conda", commands: ["conda"] },
   ]
 
   const missing: string[] = []

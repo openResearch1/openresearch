@@ -116,7 +116,6 @@ export const dict: Record<string, string> = {
   "ui.workflow.status.cancelled": "Cancelled",
   "ui.workflow.step": "Step",
   "ui.workflow.action.start": "Start",
-  "ui.workflow.action.enter": "Enter",
   "ui.workflow.action.inspect": "Inspect",
   "ui.workflow.action.next": "Next",
   "ui.workflow.action.edit": "Edit",

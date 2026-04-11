@@ -81,7 +81,7 @@ export async function generateWebAssets(distDir: string, outputPath: string) {
     "export interface WebAsset {",
     "  data: string",
     "  type: string",
-    "  encoding: \"utf8\" | \"base64\"",
+    '  encoding: "utf8" | "base64"',
     "}",
     "",
     "export const webAssets = new Map<string, WebAsset>()",
@@ -95,11 +95,15 @@ export async function generateWebAssets(distDir: string, outputPath: string) {
     if (isTextFile(filePath)) {
       const content = await Bun.file(filePath).text()
       const escaped = JSON.stringify(content)
-      lines.push(`webAssets.set(${JSON.stringify(relativePath)}, { data: ${escaped}, type: ${JSON.stringify(mimeType)}, encoding: "utf8" })`)
+      lines.push(
+        `webAssets.set(${JSON.stringify(relativePath)}, { data: ${escaped}, type: ${JSON.stringify(mimeType)}, encoding: "utf8" })`,
+      )
     } else {
       const content = await Bun.file(filePath).arrayBuffer()
       const base64 = Buffer.from(content).toString("base64")
-      lines.push(`webAssets.set(${JSON.stringify(relativePath)}, { data: ${JSON.stringify(base64)}, type: ${JSON.stringify(mimeType)}, encoding: "base64" })`)
+      lines.push(
+        `webAssets.set(${JSON.stringify(relativePath)}, { data: ${JSON.stringify(base64)}, type: ${JSON.stringify(mimeType)}, encoding: "base64" })`,
+      )
     }
   }
 

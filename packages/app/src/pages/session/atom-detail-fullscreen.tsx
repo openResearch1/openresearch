@@ -14,8 +14,8 @@ type AtomKind = "fact" | "method" | "theorem" | "verification"
 
 function computeInset(rect: { x: number; y: number; width: number; height: number }) {
   const top = (rect.y / window.innerHeight) * 100
-  const right = ((1 - (rect.x + rect.width) / window.innerWidth) * 100)
-  const bottom = ((1 - (rect.y + rect.height) / window.innerHeight) * 100)
+  const right = (1 - (rect.x + rect.width) / window.innerWidth) * 100
+  const bottom = (1 - (rect.y + rect.height) / window.innerHeight) * 100
   const left = (rect.x / window.innerWidth) * 100
   return `inset(${top}% ${right}% ${bottom}% ${left}%)`
 }
@@ -29,7 +29,12 @@ export function AtomDetailFullscreen(props: {
   onAtomCreate: (input: { name: string; type: AtomKind }) => Promise<Atom>
   onAtomDelete: (atomId: string) => Promise<void>
   onRelationCreate: (input: { sourceAtomId: string; targetAtomId: string; relationType: string }) => Promise<void>
-  onRelationUpdate: (input: { sourceAtomId: string; targetAtomId: string; relationType: string; nextRelationType: string }) => Promise<void>
+  onRelationUpdate: (input: {
+    sourceAtomId: string
+    targetAtomId: string
+    relationType: string
+    nextRelationType: string
+  }) => Promise<void>
   onRelationDelete: (input: { sourceAtomId: string; targetAtomId: string; relationType: string }) => Promise<void>
   researchProjectId: string
   originRect: { x: number; y: number; width: number; height: number }
@@ -170,7 +175,17 @@ export function AtomDetailFullscreen(props: {
         {/* Top bar */}
         <div class="flex items-center justify-between h-11 pl-4 pr-3 border-b border-border-base shrink-0">
           <div class="flex items-center gap-2.5">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-accent-base">
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              class="text-accent-base"
+            >
               <circle cx="12" cy="12" r="3" />
               <line x1="12" y1="3" x2="12" y2="9" />
               <line x1="12" y1="15" x2="12" y2="21" />
@@ -184,7 +199,16 @@ export function AtomDetailFullscreen(props: {
             class="flex items-center justify-center w-[30px] h-[30px] border border-border-base rounded-md bg-transparent text-text-weak cursor-pointer text-base hover:bg-background-stronger hover:text-text-base transition-colors"
             title="Close (Esc)"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>

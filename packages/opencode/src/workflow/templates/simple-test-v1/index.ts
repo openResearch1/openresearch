@@ -6,7 +6,7 @@ export const SimpleTestWorkflowTemplate = WorkflowSchema.Template.parse({
   id: "simple_test_v1",
   name: "Simple Test Workflow",
   version: "1.0",
-  description: "Minimal workflow for validating start, enter, next, edit, wait, and resume behavior.",
+  description: "Minimal workflow for validating start, next, edit, wait, fail, and inspect behavior.",
   defs: {
     prepare: {
       kind: "prepare",

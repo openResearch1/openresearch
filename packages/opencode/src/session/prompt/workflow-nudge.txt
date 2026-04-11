@@ -1,0 +1,10 @@
+WORKFLOW ACTIVE — ACTION REQUIRED
+
+The workflow is still running but you stopped without calling a workflow transition tool.
+
+You MUST call one of the following workflow actions before stopping:
+- workflow.next — to advance to the next step (with result and context_patch)
+- workflow.wait_interaction — to pause and wait for user input
+- workflow.fail — if you cannot continue due to an unrecoverable error (with code and message)
+
+Do NOT generate text-only responses while the workflow is running. Call the appropriate workflow action NOW.

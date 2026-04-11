@@ -10,6 +10,7 @@ import type {
   Session,
   SessionStatus,
   Todo,
+  WorkflowMetadata,
 } from "@opencode-ai/sdk/v2/client"
 import type { State, VcsCache } from "./types"
 import { trimSessions } from "./session-trim"
@@ -69,12 +70,14 @@ export function cleanupDroppedSessionCaches(
   setStore: SetStoreFunction<State>,
   next: Session[],
   setSessionTodo?: (sessionID: string, todos: Todo[] | undefined) => void,
+  setSessionWorkflow?: (sessionID: string, workflow: WorkflowMetadata | undefined) => void,
 ) {
   const keep = new Set(next.map((item) => item.id))
   const stale = [
     ...Object.keys(store.message),
     ...Object.keys(store.session_diff),
     ...Object.keys(store.todo),
+    ...Object.keys(store.workflow),
     ...Object.keys(store.permission),
     ...Object.keys(store.question),
     ...Object.keys(store.session_status),
@@ -85,6 +88,7 @@ export function cleanupDroppedSessionCaches(
   if (stale.length === 0) return
   for (const sessionID of stale) {
     setSessionTodo?.(sessionID, undefined)
+    setSessionWorkflow?.(sessionID, undefined)
   }
   setStore(
     produce((draft) => {
@@ -102,6 +106,7 @@ export function applyDirectoryEvent(input: {
   loadLsp: () => void
   vcsCache?: VcsCache
   setSessionTodo?: (sessionID: string, todos: Todo[] | undefined) => void
+  setSessionWorkflow?: (sessionID: string, workflow: WorkflowMetadata | undefined) => void
 }) {
   const event = input.event
   switch (event.type) {
@@ -120,7 +125,7 @@ export function applyDirectoryEvent(input: {
       next.splice(result.index, 0, info)
       const trimmed = trimSessions(next, { limit: input.store.limit, permission: input.store.permission })
       input.setStore("session", reconcile(trimmed, { key: "id" }))
-      cleanupDroppedSessionCaches(input.store, input.setStore, trimmed, input.setSessionTodo)
+      cleanupDroppedSessionCaches(input.store, input.setStore, trimmed, input.setSessionTodo, input.setSessionWorkflow)
       if (!info.parentID) input.setStore("sessionTotal", (value) => value + 1)
       break
     }
@@ -149,7 +154,7 @@ export function applyDirectoryEvent(input: {
       next.splice(result.index, 0, info)
       const trimmed = trimSessions(next, { limit: input.store.limit, permission: input.store.permission })
       input.setStore("session", reconcile(trimmed, { key: "id" }))
-      cleanupDroppedSessionCaches(input.store, input.setStore, trimmed, input.setSessionTodo)
+      cleanupDroppedSessionCaches(input.store, input.setStore, trimmed, input.setSessionTodo, input.setSessionWorkflow)
       break
     }
     case "session.deleted": {
@@ -177,6 +182,12 @@ export function applyDirectoryEvent(input: {
       const props = event.properties as { sessionID: string; todos: Todo[] }
       input.setStore("todo", props.sessionID, reconcile(props.todos, { key: "id" }))
       input.setSessionTodo?.(props.sessionID, props.todos)
+      break
+    }
+    case "workflow.updated": {
+      const props = event.properties as { sessionID: string; workflow: WorkflowMetadata }
+      input.setStore("workflow", props.sessionID, reconcile(props.workflow))
+      input.setSessionWorkflow?.(props.sessionID, props.workflow)
       break
     }
     case "session.status": {

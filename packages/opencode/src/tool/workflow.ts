@@ -15,7 +15,7 @@ function latestUserMessageID(messages: Tool.Context["messages"]) {
 const action = z
   .object({
     action: z
-      .enum(["start", "enter", "inspect", "next", "edit", "wait_interaction", "fail"])
+      .enum(["start", "inspect", "next", "edit", "wait_interaction", "fail"])
       .describe("Workflow action to execute."),
     template_id: z.string().optional().describe("Template id to start, for example simple_test_v1."),
     flow: z
@@ -76,7 +76,6 @@ function title(meta: Workflow.Meta) {
   if (meta.action === "fail") return `Failed ${step?.title ?? meta.instance.title}`
   if (meta.action === "next") return `Advanced to ${step?.title ?? meta.instance.flow_title ?? "completed"}`
   if (meta.action === "edit") return `Updated workflow steps`
-  if (meta.action === "enter") return `Entered ${step?.title ?? meta.instance.title}`
   if (meta.action === "inspect") return `Inspected ${meta.instance.title}`
   return `Started ${meta.instance.title}`
 }
@@ -146,9 +145,6 @@ async function output(meta: Workflow.Meta, content: Awaited<ReturnType<typeof do
   if (meta.action === "start") {
     return `Workflow ${meta.instance.title} started on flow '${content.flow?.title ?? meta.instance.flow_id}'. Review the flow summary before entering the first step.\n\n${state}`
   }
-  if (meta.action === "enter") {
-    return `Workflow current step reloaded.\n\n${state}`
-  }
   if (meta.action === "next") {
     return meta.instance.status === "completed"
       ? `Workflow ${meta.instance.title} is completed.\n\n${state}`
@@ -193,47 +189,42 @@ export const WorkflowTool = Tool.define("workflow", {
               flowID: params.flow,
               context: params.input,
             })
-          : params.action === "enter"
-            ? Workflow.enter({
+          : params.action === "inspect"
+            ? Workflow.inspect({
                 sessionID: ctx.sessionID,
                 instanceID: params.instance_id!,
               })
-            : params.action === "inspect"
-              ? Workflow.inspect({
+            : params.action === "next"
+              ? Workflow.next({
                   sessionID: ctx.sessionID,
                   instanceID: params.instance_id!,
+                  result: params.result,
+                  context: params.context_patch,
                 })
-              : params.action === "next"
-                ? Workflow.next({
+              : params.action === "edit"
+                ? Workflow.edit({
                     sessionID: ctx.sessionID,
                     instanceID: params.instance_id!,
-                    result: params.result,
-                    context: params.context_patch,
+                    ops: params.ops!,
                   })
-                : params.action === "edit"
-                  ? Workflow.edit({
+                : params.action === "fail"
+                  ? Workflow.fail({
                       sessionID: ctx.sessionID,
                       instanceID: params.instance_id!,
-                      ops: params.ops!,
+                      code: params.code!,
+                      message: params.message!,
+                      detail: params.detail,
+                      context: params.context_patch,
                     })
-                  : params.action === "fail"
-                    ? Workflow.fail({
+                  : params.action === "wait_interaction"
+                    ? Workflow.wait({
                         sessionID: ctx.sessionID,
                         instanceID: params.instance_id!,
-                        code: params.code!,
-                        message: params.message!,
-                        detail: params.detail,
-                        context: params.context_patch,
+                        userMessageID: latestUserMessageID(ctx.messages),
+                        reason: params.reason,
+                        message: params.message,
                       })
-                    : params.action === "wait_interaction"
-                      ? Workflow.wait({
-                          sessionID: ctx.sessionID,
-                          instanceID: params.instance_id!,
-                          userMessageID: latestUserMessageID(ctx.messages),
-                          reason: params.reason,
-                          message: params.message,
-                        })
-                      : undefined
+                    : undefined
 
       if (!meta) {
         throw new globalThis.Error("INVALID_WORKFLOW_ACTION: Workflow action is not supported.")

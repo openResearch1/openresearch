@@ -7,9 +7,7 @@ import { Instance } from "../project/instance"
 import { assertExternalDirectory } from "./external-directory"
 import { Filesystem } from "../util/filesystem"
 
-const SUPPORTED_EXTENSIONS = new Set([
-  ".pdf",
-])
+const SUPPORTED_EXTENSIONS = new Set([".pdf"])
 
 export const ConvertTool = Tool.define("convert", {
   description: DESCRIPTION,
@@ -47,9 +45,7 @@ export const ConvertTool = Tool.define("convert", {
 
     const ext = path.extname(filepath).toLowerCase()
     if (!SUPPORTED_EXTENSIONS.has(ext)) {
-      throw new Error(
-        `Unsupported file format: ${ext}. Supported formats: ${[...SUPPORTED_EXTENSIONS].join(", ")}`,
-      )
+      throw new Error(`Unsupported file format: ${ext}. Supported formats: ${[...SUPPORTED_EXTENSIONS].join(", ")}`)
     }
 
     // pdfjs-dist expects these from @napi-rs/canvas which isn't available
@@ -57,14 +53,31 @@ export const ConvertTool = Tool.define("convert", {
     const g = globalThis as any
     if (typeof g.DOMMatrix === "undefined") {
       g.DOMMatrix = class DOMMatrix {
-        a = 1; b = 0; c = 0; d = 1; e = 0; f = 0
+        a = 1
+        b = 0
+        c = 0
+        d = 1
+        e = 0
+        f = 0
         constructor(_init?: any) {}
-        static fromMatrix() { return new g.DOMMatrix() }
-        inverse() { return new g.DOMMatrix() }
-        multiply() { return new g.DOMMatrix() }
-        translate() { return new g.DOMMatrix() }
-        scale() { return new g.DOMMatrix() }
-        transformPoint() { return { x: 0, y: 0, z: 0, w: 1 } }
+        static fromMatrix() {
+          return new g.DOMMatrix()
+        }
+        inverse() {
+          return new g.DOMMatrix()
+        }
+        multiply() {
+          return new g.DOMMatrix()
+        }
+        translate() {
+          return new g.DOMMatrix()
+        }
+        scale() {
+          return new g.DOMMatrix()
+        }
+        transformPoint() {
+          return { x: 0, y: 0, z: 0, w: 1 }
+        }
       }
     }
     if (typeof g.ImageData === "undefined") {

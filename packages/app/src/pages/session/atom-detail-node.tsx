@@ -66,7 +66,16 @@ export function AtomNode(props: NodeProps<AtomNodeData, "atom">) {
         }}
       />
 
-      <div style={{ "font-size": "12px", "font-weight": "600", color: "#f1f5f9", "margin-bottom": "6px", "line-height": "1.3", "word-break": "break-word" }}>
+      <div
+        style={{
+          "font-size": "12px",
+          "font-weight": "600",
+          color: "#f1f5f9",
+          "margin-bottom": "6px",
+          "line-height": "1.3",
+          "word-break": "break-word",
+        }}
+      >
         {props.data.label}
       </div>
 

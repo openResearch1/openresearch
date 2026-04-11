@@ -18,11 +18,7 @@ const CHAT_MIN_WIDTH = 360
 const CHAT_MAX_WIDTH = 900
 const CHAT_DEFAULT_WIDTH = 520
 
-export function AtomChatPanel(props: {
-  atomSessionId: string
-  onClose: () => void
-  title?: string
-}) {
+export function AtomChatPanel(props: { atomSessionId: string; onClose: () => void; title?: string }) {
   const sdk = useSDK()
   const sync = useSync()
   const [panelWidth, setPanelWidth] = createSignal(CHAT_DEFAULT_WIDTH)
@@ -82,8 +78,7 @@ export function AtomChatPanel(props: {
     document.addEventListener("mouseup", onMouseUp)
   }
 
-  const sessionHref = (sessionID: string) =>
-    `/${base64Encode(sdk.directory)}/session/${sessionID}`
+  const sessionHref = (sessionID: string) => `/${base64Encode(sdk.directory)}/session/${sessionID}`
 
   return (
     <div
@@ -106,20 +101,31 @@ export function AtomChatPanel(props: {
           background: dragging() ? undefined : "transparent",
           transition: dragging() ? "none" : "background 0.15s",
         }}
-        onMouseEnter={(e) => { if (!dragging()) e.currentTarget.style.background = "var(--border-base)" }}
-        onMouseLeave={(e) => { if (!dragging()) e.currentTarget.style.background = "transparent" }}
+        onMouseEnter={(e) => {
+          if (!dragging()) e.currentTarget.style.background = "var(--border-base)"
+        }}
+        onMouseLeave={(e) => {
+          if (!dragging()) e.currentTarget.style.background = "transparent"
+        }}
       />
 
       {/* Header */}
       <div class="flex items-center justify-between px-4 py-2.5 border-b border-border-base shrink-0">
-        <span class="text-sm font-semibold text-text-base">
-          {props.title ?? "Atom Chat"}
-        </span>
+        <span class="text-sm font-semibold text-text-base">{props.title ?? "Atom Chat"}</span>
         <button
           onClick={props.onClose}
           class="flex items-center justify-center w-6 h-6 border border-border-base rounded-md bg-transparent text-text-weak cursor-pointer hover:text-text-base hover:bg-background-stronger transition-colors"
         >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
             <line x1="18" y1="6" x2="6" y2="18" />
             <line x1="6" y1="6" x2="18" y2="18" />
           </svg>
@@ -134,22 +140,14 @@ export function AtomChatPanel(props: {
           onNavigateToSession={navigateToChildSession}
           onSessionHref={sessionHref}
         >
-          <AtomChatInner
-            sessionID={currentSessionID()}
-            canGoBack={canGoBack()}
-            onGoBack={goBack}
-          />
+          <AtomChatInner sessionID={currentSessionID()} canGoBack={canGoBack()} onGoBack={goBack} />
         </DataProvider>
       </SessionIDProvider>
     </div>
   )
 }
 
-function AtomChatInner(props: {
-  sessionID: string
-  canGoBack: boolean
-  onGoBack: () => void
-}) {
+function AtomChatInner(props: { sessionID: string; canGoBack: boolean; onGoBack: () => void }) {
   const settings = useSettings()
   const sync = useSync()
   const composer = createSessionComposerState()
@@ -157,17 +155,14 @@ function AtomChatInner(props: {
 
   const emptyMessages: Message[] = []
   const messages = createMemo(() => sync.data.message[props.sessionID] ?? emptyMessages)
-  const userMessages = createMemo(() =>
-    messages().filter((m): m is UserMessage => m.role === "user"),
-  )
+  const userMessages = createMemo(() => messages().filter((m): m is UserMessage => m.role === "user"))
   const sessionStatus = createMemo(() => sync.data.session_status[props.sessionID]?.type ?? "idle")
   const working = createMemo(() => sessionStatus() === "busy")
 
   // Find the last incomplete assistant message (still streaming/thinking)
   const pending = createMemo(() =>
     messages().findLast(
-      (item): item is AssistantMessage =>
-        item.role === "assistant" && typeof item.time.completed !== "number",
+      (item): item is AssistantMessage => item.role === "assistant" && typeof item.time.completed !== "number",
     ),
   )
 
@@ -256,7 +251,16 @@ function AtomChatInner(props: {
             onClick={props.onGoBack}
             class="flex items-center gap-1.5 text-xs text-text-weak hover:text-text-base transition-colors cursor-pointer bg-transparent border-none p-0"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
               <path d="M19 12H5" />
               <polyline points="12 19 5 12 12 5" />
             </svg>

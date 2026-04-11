@@ -385,6 +385,7 @@ export default function Page() {
       untrack(() => {
         void sync.session.sync(id)
         void sync.session.todo(id)
+        void sync.session.workflow(id)
       })
     }),
   )
