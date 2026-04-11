@@ -54,6 +54,41 @@ rsync -avz \
   <code_path>/ <host_alias>:<remote_path>/
 ```
 
+If ssh config mode also provides an explicit `user`, prefer a command that keeps the config file but overrides the remote login user, for example:
+```bash
+rsync -avz \
+  --exclude '.git' \
+  --exclude '.gitignore' \
+  --exclude '.gitattributes' \
+  --exclude '.gitmodules' \
+  --exclude '.DS_Store' \
+  --exclude '__pycache__' \
+  --exclude '*.pyc' \
+  -e 'ssh -F <ssh_config_path> -l <user>' \
+  <code_path>/ <host_alias>:<remote_path>/
+```
+
+If ssh config mode also provides a `password`, you may wrap the same SSH command with `sshpass`, for example:
+```bash
+sshpass -p '<password>' rsync -avz \
+  --exclude '.git' \
+  --exclude '.gitignore' \
+  --exclude '.gitattributes' \
+  --exclude '.gitmodules' \
+  --exclude '.DS_Store' \
+  --exclude '__pycache__' \
+  --exclude '*.pyc' \
+  -e 'ssh -F <ssh_config_path> -l <user>' \
+  <code_path>/ <host_alias>:<remote_path>/
+```
+
+Command construction rules:
+- In direct mode, use `address`, `port`, and `user`.
+- In ssh config mode, use `host_alias` and optional `ssh_config_path`.
+- In ssh config mode, if `user` is provided separately from the config file, explicitly pass it in the SSH command instead of assuming the alias already defines it.
+- In either mode, if `password` is present, you may use `sshpass`; otherwise prefer plain `rsync`/`scp`.
+- Do not drop `-F <ssh_config_path>` when using ssh config mode.
+
 ## Return Format
 
 When done, return a summary:
