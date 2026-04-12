@@ -36,7 +36,7 @@ async function seedTestGraph(
   rpId: string,
   atomListDir: string,
   atoms: TestAtom[],
-  relations: Array<{ source: string; target: string; type: string }>,
+  relations: Array<{ source: string; target: string; type: "motivates" | "formalizes" | "derives" | "analyzes" | "validates" | "contradicts" | "other" }>,
 ) {
   const now = Date.now()
 
@@ -370,7 +370,7 @@ test("should apply token budget to hybrid results", async () => {
       const relations = atoms.slice(0, -1).map((a, i) => ({
         source: a.id,
         target: atoms[i + 1].id,
-        type: "derives",
+        type: "derives" as const,
       }))
       await seedTestGraph(rpId, dir, atoms, relations)
 

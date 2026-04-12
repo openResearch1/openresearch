@@ -39,7 +39,7 @@ async function seedGraph(
   rpId: string,
   dir: string,
   atoms: SeedAtom[],
-  relations: Array<{ source: string; target: string; type: string }>,
+  relations: Array<{ source: string; target: string; type: "motivates" | "formalizes" | "derives" | "analyzes" | "validates" | "contradicts" | "other" }>,
 ) {
   const now = Date.now()
   Database.use((db) => {
