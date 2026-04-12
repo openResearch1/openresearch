@@ -60,6 +60,19 @@ async function copyFile(src: string, dest: string) {
   await fs.promises.cp(src, dest, { force: false, recursive: await Filesystem.isDir(src) })
 }
 
+/**
+ * Check whether a directory looks like a single article source (e.g. LaTeX project)
+ * rather than a container that holds multiple articles.
+ *
+ * A directory is considered an article if it contains at least one `.tex` file at
+ * the top level.  A directory that only contains `.pdf` files or sub-directories
+ * (but no `.tex` files) is treated as a container folder — not a single article.
+ */
+async function isArticleDirectory(dir: string): Promise<boolean> {
+  const entries = await fs.promises.readdir(dir, { withFileTypes: true })
+  return entries.some((e) => !e.isDirectory() && e.name.endsWith(".tex"))
+}
+
 const uniqueID = () => crypto.randomUUID()
 
 function gitError(result: { stderr?: Buffer; text?: () => string }, fallback: string) {
@@ -932,7 +945,19 @@ export const ResearchRoutes = new Hono()
         if (!(await Filesystem.exists(src))) {
           return c.json({ success: false, message: `paper not found: ${src}` }, 400)
         }
-        if (!(await Filesystem.isDir(src)) && path.extname(src).toLowerCase() !== ".pdf") {
+        if (await Filesystem.isDir(src)) {
+          if (!(await isArticleDirectory(src))) {
+            return c.json(
+              {
+                success: false,
+                message:
+                  `"${path.basename(src)}" looks like a folder containing articles, not a single article. ` +
+                  `Please select individual PDF files or LaTeX source folders instead.`,
+              },
+              400,
+            )
+          }
+        } else if (path.extname(src).toLowerCase() !== ".pdf") {
           return c.json({ success: false, message: `unsupported article source: ${src}` }, 400)
         }
       }
@@ -1189,7 +1214,19 @@ export const ResearchRoutes = new Hono()
       if (!(await Filesystem.exists(sourcePath))) {
         return c.json({ success: false, message: `source file not found: ${body.sourcePath}` }, 400)
       }
-      if (!(await Filesystem.isDir(sourcePath)) && path.extname(sourcePath).toLowerCase() !== ".pdf") {
+      if (await Filesystem.isDir(sourcePath)) {
+        if (!(await isArticleDirectory(sourcePath))) {
+          return c.json(
+            {
+              success: false,
+              message:
+                `"${path.basename(sourcePath)}" looks like a folder containing articles, not a single article. ` +
+                `Please select individual PDF files or LaTeX source folders instead.`,
+            },
+            400,
+          )
+        }
+      } else if (path.extname(sourcePath).toLowerCase() !== ".pdf") {
         return c.json({ success: false, message: `unsupported article source: ${body.sourcePath}` }, 400)
       }
 
