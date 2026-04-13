@@ -5627,6 +5627,111 @@ export type ResearchProjectImportResponses = {
 
 export type ResearchProjectImportResponse = ResearchProjectImportResponses[keyof ResearchProjectImportResponses]
 
+export type SyncPushData = {
+  body?: {
+    message?: string
+    remote?: string
+    remoteUrl?: string
+    branch?: string
+    force?: boolean
+    commitMessages?: {
+      [key: string]: string
+    }
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/sync/push"
+}
+
+export type SyncPushResponses = {
+  /**
+   * Push result
+   */
+  200: {
+    ok: boolean
+    message?: string
+    needsRemoteUrl?: boolean
+    needsMessage?: boolean
+    defaultMessage?: string
+    needsCommitMessages?: boolean
+    dirtyExperiments?: Array<{
+      expId: string
+      expName: string
+      codeName: string
+    }>
+  }
+}
+
+export type SyncPushResponse = SyncPushResponses[keyof SyncPushResponses]
+
+export type SyncPullData = {
+  body?: {
+    remote?: string
+    branch?: string
+    commitMessages?: {
+      [key: string]: string
+    }
+    localCommitMessage?: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/sync/pull"
+}
+
+export type SyncPullResponses = {
+  /**
+   * Pull result
+   */
+  200: {
+    ok: boolean
+    message?: string
+    reconciled?: string
+    mergeResults?: string
+    needsCommitMessages?: boolean
+    dirtyExperiments?: Array<{
+      expId: string
+      expName: string
+      codeName: string
+    }>
+    needsLocalCommitMessage?: boolean
+  }
+}
+
+export type SyncPullResponse = SyncPullResponses[keyof SyncPullResponses]
+
+export type SyncCloneData = {
+  body?: {
+    url: string
+    directory?: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/sync/clone"
+}
+
+export type SyncCloneResponses = {
+  /**
+   * Clone result
+   */
+  200: {
+    ok: boolean
+    message: string
+    directory?: string
+    reconciled?: string
+  }
+}
+
+export type SyncCloneResponse = SyncCloneResponses[keyof SyncCloneResponses]
+
 export type PermissionReplyData = {
   body?: {
     reply: "once" | "always" | "reject"

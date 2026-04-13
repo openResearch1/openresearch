@@ -78,6 +78,7 @@ import { Global } from "@/global"
 import { PermissionPrompt } from "./permission"
 import { QuestionPrompt } from "./question"
 import { DialogExportOptions } from "../../ui/dialog-export-options"
+import { DialogPrompt } from "../../ui/dialog-prompt"
 import { formatTranscript } from "../../util/transcript"
 import { UI } from "@/cli/ui.ts"
 import { useTuiConfig } from "../../context/tui-config"
@@ -904,6 +905,102 @@ export function Session() {
         } catch (error) {
           toast.show({ message: "Failed to export session", variant: "error" })
         }
+        dialog.clear()
+      },
+    },
+    {
+      title: "Push to remote",
+      value: "sync.push",
+      category: "Sync",
+      slash: {
+        name: "push",
+      },
+      onSelect: async (dialog) => {
+        toast.show({ message: "Pushing to remote...", variant: "info", duration: 60000 })
+        const res = await sdk.client.sync.push({}).catch(() => null)
+        if (!res) {
+          toast.show({ message: "Failed to push", variant: "error" })
+          dialog.clear()
+          return
+        }
+        if (res.data?.needsRemoteUrl) {
+          const remoteUrl = await DialogPrompt.show(dialog, "Set Remote Repository", {
+            placeholder: "git@github.com:user/repo.git",
+          })
+          if (!remoteUrl) return
+          toast.show({ message: "Pushing to remote...", variant: "info", duration: 60000 })
+          await sdk.client.sync
+            .push({ remoteUrl })
+            .then((r) => {
+              if (r.data?.ok) {
+                toast.show({ message: r.data.message ?? "Push complete", variant: "success" })
+              } else {
+                toast.show({ message: r.data?.message ?? "Push failed", variant: "error" })
+              }
+            })
+            .catch(() => toast.show({ message: "Failed to push", variant: "error" }))
+          dialog.clear()
+          return
+        }
+        if (res.data?.ok) {
+          toast.show({ message: res.data.message ?? "Push complete", variant: "success" })
+        } else {
+          toast.show({ message: res.data?.message ?? "Push failed", variant: "error" })
+        }
+        dialog.clear()
+      },
+    },
+    {
+      title: "Pull from remote",
+      value: "sync.pull",
+      category: "Sync",
+      slash: {
+        name: "pull",
+      },
+      onSelect: async (dialog) => {
+        toast.show({ message: "Pulling from remote...", variant: "info", duration: 60000 })
+        await sdk.client.sync
+          .pull({})
+          .then((res) => {
+            if (res.data?.ok) {
+              const parts = [res.data.message]
+              if (res.data.reconciled) parts.push(res.data.reconciled)
+              if (res.data.mergeResults) parts.push(res.data.mergeResults)
+              toast.show({ message: parts.join(" | "), variant: "success" })
+            } else {
+              toast.show({ message: res.data?.message ?? "Pull failed", variant: "error" })
+            }
+          })
+          .catch(() => toast.show({ message: "Failed to pull", variant: "error" }))
+        dialog.clear()
+      },
+    },
+    {
+      title: "Clone research project",
+      value: "sync.clone",
+      category: "Sync",
+      slash: {
+        name: "clone",
+      },
+      onSelect: async (dialog) => {
+        const url = await DialogPrompt.show(dialog, "Clone Research Project", {
+          placeholder: "git@github.com:user/repo.git",
+        })
+        if (!url) return
+        toast.show({ message: `Cloning ${url}...`, variant: "info", duration: 120000 })
+        await sdk.client.sync
+          .clone({ url })
+          .then((res) => {
+            if (res.data?.ok) {
+              const parts = [res.data.message]
+              if (res.data.directory) parts.push(res.data.directory)
+              if (res.data.reconciled) parts.push(res.data.reconciled)
+              toast.show({ message: parts.join(" | "), variant: "success" })
+            } else {
+              toast.show({ message: res.data?.message ?? "Clone failed", variant: "error" })
+            }
+          })
+          .catch(() => toast.show({ message: "Failed to clone", variant: "error" }))
         dialog.clear()
       },
     },

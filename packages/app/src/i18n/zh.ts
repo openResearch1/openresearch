@@ -923,5 +923,21 @@ export const dict = {
   "research.import.failed": "导入科研项目失败",
   "research.import.error": "导入失败",
 
+  "research.clone.title": "克隆科研项目",
+  "research.clone.entry.title": "克隆科研项目",
+  "research.clone.entry.description": "从远程 Git 仓库克隆科研项目",
+  "research.clone.url.label": "仓库地址",
+  "research.clone.name.label": "项目名称",
+  "research.clone.name.placeholder": "输入项目名称",
+  "research.clone.location.label": "父目录",
+  "research.clone.location.placeholder": "选择项目存放位置",
+  "research.clone.location.picker": "选择父目录",
+  "research.clone.target.preview": "克隆到：",
+  "research.clone.button": "克隆",
+  "research.clone.cloning": "克隆中...",
+  "research.clone.success": "克隆成功",
+  "research.clone.failed": "克隆科研项目失败",
+  "research.clone.error": "克隆失败",
+
   "sidebar.research.project": "项目",
 } satisfies Partial<Record<Keys, string>>

@@ -246,7 +246,9 @@ export const AtomQueryTool = Tool.define("atom_query", {
     const atoms = Database.use((db) =>
       db.select().from(AtomTable).where(eq(AtomTable.research_project_id, researchProjectId)).all(),
     )
-    const items = params.articleIds?.length ? atoms.filter((atom) => atom.article_id && params.articleIds?.includes(atom.article_id)) : atoms
+    const items = params.articleIds?.length
+      ? atoms.filter((atom) => atom.article_id && params.articleIds?.includes(atom.article_id))
+      : atoms
 
     if (items.length === 0) {
       return {

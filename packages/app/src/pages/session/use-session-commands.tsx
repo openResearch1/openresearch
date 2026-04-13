@@ -15,6 +15,10 @@ import { DialogSelectFile } from "@/components/dialog-select-file"
 import { DialogSelectModel } from "@/components/dialog-select-model"
 import { DialogSelectMcp } from "@/components/dialog-select-mcp"
 import { DialogFork } from "@/components/dialog-fork"
+import { DialogCloneProject } from "@/components/dialog-clone-project"
+import { DialogPullConflicts } from "@/components/dialog-pull-conflicts"
+import { DialogPushRemote } from "@/components/dialog-push-remote"
+import { DialogCommitMessages, type DirtyExperimentInfo } from "@/components/dialog-commit-messages"
 import { showToast } from "@opencode-ai/ui/toast"
 import { findLast } from "@opencode-ai/util/array"
 import { extractPromptFromParts } from "@/utils/prompt"
@@ -381,6 +385,142 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
     }),
   ])
 
+  const syncCommand = withCategory("Sync")
+
+  const syncCommands = createMemo(() => [
+    syncCommand({
+      id: "sync.push",
+      title: "Push to remote",
+      description: "Push research project to remote git repository",
+      slash: "push",
+      onSelect: async () => {
+        showToast({ title: "Checking...", description: "Preparing push" })
+        const res = await sdk.client.sync.push({}).catch(() => null)
+        if (!res) {
+          showToast({ title: "Push failed", description: "Failed to push", variant: "error" })
+          return
+        }
+        if (res.data?.needsRemoteUrl) {
+          dialog.show(() => <DialogPushRemote />)
+          return
+        }
+        if (res.data?.needsMessage) {
+          dialog.show(() => (
+            <DialogCommitMessages
+              defaultMessage={res.data!.defaultMessage}
+              dirtyExperiments={res.data!.dirtyExperiments as DirtyExperimentInfo[] | undefined}
+              onConfirm={async ({ message, commitMessages }) => {
+                showToast({ title: "Pushing...", description: "Pushing research project to remote" })
+                const retry = await sdk.client.sync.push({ message, commitMessages }).catch(() => null)
+                if (!retry) {
+                  showToast({ title: "Push failed", description: "Failed to push", variant: "error" })
+                  return
+                }
+                if (retry.data?.needsRemoteUrl) {
+                  dialog.show(() => <DialogPushRemote />)
+                  return
+                }
+                if (retry.data?.ok) {
+                  showToast({ title: "Push complete", description: retry.data.message, variant: "success" })
+                } else {
+                  const msg = retry.data?.message ?? "Unknown error"
+                  if (msg.includes("push failed") || msg.includes("non-fast-forward")) {
+                    showToast({
+                      title: "Push failed — remote has new changes",
+                      description: "Please pull first to merge remote changes, then push again.",
+                      variant: "error",
+                      persistent: true,
+                    })
+                  } else {
+                    showToast({ title: "Push failed", description: msg, variant: "error" })
+                  }
+                }
+              }}
+            />
+          ))
+          return
+        }
+        if (res.data?.ok) {
+          showToast({ title: "Push complete", description: res.data.message, variant: "success" })
+        } else {
+          const msg = res.data?.message ?? "Unknown error"
+          if (msg.includes("push failed") || msg.includes("non-fast-forward")) {
+            showToast({
+              title: "Push failed — remote has new changes",
+              description: "Please pull first to merge remote changes, then push again.",
+              variant: "error",
+              persistent: true,
+            })
+          } else {
+            showToast({ title: "Push failed", description: msg, variant: "error" })
+          }
+        }
+      },
+    }),
+    syncCommand({
+      id: "sync.pull",
+      title: "Pull from remote",
+      description: "Pull research project from remote git repository",
+      slash: "pull",
+      onSelect: async () => {
+        showToast({ title: "Pulling...", description: "Pulling research project from remote" })
+
+        const doPull = async (opts: { commitMessages?: Record<string, string>; localCommitMessage?: string } = {}) => {
+          await sdk.client.sync
+            .pull(opts)
+            .then((res) => {
+              const data = res.data
+              if (!data) return
+              if (data.needsCommitMessages || data.needsLocalCommitMessage) {
+                dialog.show(() => (
+                  <DialogCommitMessages
+                    dirtyExperiments={data.dirtyExperiments as DirtyExperimentInfo[] | undefined}
+                    needsLocalCommitMessage={!!data.needsLocalCommitMessage}
+                    onConfirm={async ({ commitMessages, localCommitMessage }) => {
+                      showToast({ title: "Pulling...", description: "Pulling research project from remote" })
+                      await doPull({ commitMessages, localCommitMessage })
+                    }}
+                  />
+                ))
+                return
+              }
+              const desc = [data.message, data.reconciled, data.mergeResults].filter(Boolean).join(" | ")
+              if (desc.includes("conflict") || desc.includes("Conflict")) {
+                dialog.show(() => (
+                  <DialogPullConflicts
+                    title="Pull complete — conflicts detected"
+                    message={data.mergeResults || desc}
+                    directory={sdk.directory}
+                  />
+                ))
+              } else {
+                showToast({ title: "Pull complete", description: desc, variant: "success" })
+              }
+            })
+            .catch((err) => {
+              const msg = err?.message ?? (typeof err === "string" ? err : "")
+              if (err?.ok === false && msg) {
+                dialog.show(() => (
+                  <DialogPullConflicts title="Pull failed — merge conflicts" message={msg} directory={sdk.directory} />
+                ))
+              } else {
+                showToast({ title: "Pull failed", description: msg || "Failed to pull", variant: "error" })
+              }
+            })
+        }
+
+        await doPull()
+      },
+    }),
+    syncCommand({
+      id: "sync.clone",
+      title: "Clone research project",
+      description: "Clone a research project from a remote git repository",
+      slash: "clone",
+      onSelect: () => dialog.show(() => <DialogCloneProject />),
+    }),
+  ])
+
   const shareCommands = createMemo(() => {
     if (sync.data.config.share === "disabled") return []
     return [
@@ -500,6 +640,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       permissionCommands(),
       sessionActionCommands(),
       shareCommands(),
+      syncCommands(),
     ].flatMap((x) => x),
   )
 }

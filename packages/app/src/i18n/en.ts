@@ -946,5 +946,21 @@ export const dict = {
   "research.import.failed": "Failed to import research project",
   "research.import.error": "Import failed",
 
+  "research.clone.title": "Clone Research Project",
+  "research.clone.entry.title": "Clone Research Project",
+  "research.clone.entry.description": "Clone a research project from a remote Git repository",
+  "research.clone.url.label": "Repository URL",
+  "research.clone.name.label": "Project name",
+  "research.clone.name.placeholder": "Enter project name",
+  "research.clone.location.label": "Parent directory",
+  "research.clone.location.placeholder": "Select where to place the project",
+  "research.clone.location.picker": "Select parent directory",
+  "research.clone.target.preview": "Clone to:",
+  "research.clone.button": "Clone",
+  "research.clone.cloning": "Cloning...",
+  "research.clone.success": "Clone complete",
+  "research.clone.failed": "Failed to clone research project",
+  "research.clone.error": "Clone failed",
+
   "sidebar.research.project": "Project",
 }

@@ -111,7 +111,7 @@ export function ExpPlanTab(props: ExperimentTabProps) {
 
     // Only load if mounted
     if (isMounted) {
-      file.load(path).catch(console.error)
+      file.load(path, { force: true }).catch(console.error)
     }
 
     onCleanup(() => {

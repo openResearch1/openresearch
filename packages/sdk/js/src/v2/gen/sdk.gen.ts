@@ -228,6 +228,9 @@ import type {
   SessionWorkflowErrors,
   SessionWorkflowResponses,
   SubtaskPartInput,
+  SyncCloneResponses,
+  SyncPullResponses,
+  SyncPushResponses,
   TextPartInput,
   ToolIdsErrors,
   ToolIdsResponses,
@@ -4058,6 +4061,143 @@ export class Research extends HeyApiClient {
   }
 }
 
+export class Sync extends HeyApiClient {
+  /**
+   * Push research project to remote git repository
+   */
+  public push<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      message?: string
+      remote?: string
+      remoteUrl?: string
+      branch?: string
+      force?: boolean
+      commitMessages?: {
+        [key: string]: string
+      }
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "message" },
+            { in: "body", key: "remote" },
+            { in: "body", key: "remoteUrl" },
+            { in: "body", key: "branch" },
+            { in: "body", key: "force" },
+            { in: "body", key: "commitMessages" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<SyncPushResponses, unknown, ThrowOnError>({
+      url: "/sync/push",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Pull research project from remote git repository
+   */
+  public pull<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      remote?: string
+      branch?: string
+      commitMessages?: {
+        [key: string]: string
+      }
+      localCommitMessage?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "remote" },
+            { in: "body", key: "branch" },
+            { in: "body", key: "commitMessages" },
+            { in: "body", key: "localCommitMessage" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<SyncPullResponses, unknown, ThrowOnError>({
+      url: "/sync/pull",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Clone a research project from a remote git repository
+   */
+  public clone<ThrowOnError extends boolean = false>(
+    parameters?: {
+      query_directory?: string
+      workspace?: string
+      url?: string
+      body_directory?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            {
+              in: "query",
+              key: "query_directory",
+              map: "directory",
+            },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "url" },
+            {
+              in: "body",
+              key: "body_directory",
+              map: "directory",
+            },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<SyncCloneResponses, unknown, ThrowOnError>({
+      url: "/sync/clone",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
 export class Question extends HeyApiClient {
   /**
    * List pending questions
@@ -5676,6 +5816,11 @@ export class OpencodeClient extends HeyApiClient {
   private _research?: Research
   get research(): Research {
     return (this._research ??= new Research({ client: this.client }))
+  }
+
+  private _sync?: Sync
+  get sync(): Sync {
+    return (this._sync ??= new Sync({ client: this.client }))
   }
 
   private _question?: Question

@@ -9028,6 +9028,455 @@
         ]
       }
     },
+    "/research/project/{researchProjectId}/export": {
+      "post": {
+        "operationId": "research.project.export",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "researchProjectId",
+            "required": true
+          }
+        ],
+        "summary": "Export research project",
+        "description": "Export research project to a zip file containing all data and files.",
+        "responses": {
+          "200": {
+            "description": "Export successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "zip_path": {
+                      "type": "string"
+                    },
+                    "zip_name": {
+                      "type": "string"
+                    },
+                    "size": {
+                      "type": "number"
+                    }
+                  },
+                  "required": ["zip_path", "zip_name", "size"]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.research.project.export({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/research/import-project": {
+      "post": {
+        "operationId": "research.project.import",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Import research project",
+        "description": "Import research project from a zip file.",
+        "responses": {
+          "200": {
+            "description": "Import successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "project_id": {
+                      "type": "string"
+                    },
+                    "research_project_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["project_id", "research_project_id"]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "zipPath": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "targetDirectory": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": ["zipPath", "targetDirectory"]
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.research.project.import({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/sync/push": {
+      "post": {
+        "operationId": "sync.push",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "description": "Push research project to remote git repository",
+        "responses": {
+          "200": {
+            "description": "Push result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "needsRemoteUrl": {
+                      "type": "boolean"
+                    },
+                    "needsMessage": {
+                      "type": "boolean"
+                    },
+                    "defaultMessage": {
+                      "type": "string"
+                    },
+                    "needsCommitMessages": {
+                      "type": "boolean"
+                    },
+                    "dirtyExperiments": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "expId": {
+                            "type": "string"
+                          },
+                          "expName": {
+                            "type": "string"
+                          },
+                          "codeName": {
+                            "type": "string"
+                          }
+                        },
+                        "required": ["expId", "expName", "codeName"]
+                      }
+                    }
+                  },
+                  "required": ["ok"]
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "message": {
+                    "type": "string"
+                  },
+                  "remote": {
+                    "default": "origin",
+                    "type": "string"
+                  },
+                  "remoteUrl": {
+                    "type": "string"
+                  },
+                  "branch": {
+                    "type": "string"
+                  },
+                  "force": {
+                    "default": false,
+                    "type": "boolean"
+                  },
+                  "commitMessages": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.sync.push({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/sync/pull": {
+      "post": {
+        "operationId": "sync.pull",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "description": "Pull research project from remote git repository",
+        "responses": {
+          "200": {
+            "description": "Pull result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "reconciled": {
+                      "type": "string"
+                    },
+                    "mergeResults": {
+                      "type": "string"
+                    },
+                    "needsCommitMessages": {
+                      "type": "boolean"
+                    },
+                    "dirtyExperiments": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "expId": {
+                            "type": "string"
+                          },
+                          "expName": {
+                            "type": "string"
+                          },
+                          "codeName": {
+                            "type": "string"
+                          }
+                        },
+                        "required": ["expId", "expName", "codeName"]
+                      }
+                    },
+                    "needsLocalCommitMessage": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["ok"]
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "remote": {
+                    "default": "origin",
+                    "type": "string"
+                  },
+                  "branch": {
+                    "type": "string"
+                  },
+                  "commitMessages": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  },
+                  "localCommitMessage": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.sync.pull({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/sync/clone": {
+      "post": {
+        "operationId": "sync.clone",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "description": "Clone a research project from a remote git repository",
+        "responses": {
+          "200": {
+            "description": "Clone result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "directory": {
+                      "type": "string"
+                    },
+                    "reconciled": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["ok", "message"]
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "url": {
+                    "type": "string"
+                  },
+                  "directory": {
+                    "type": "string"
+                  }
+                },
+                "required": ["url"]
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.sync.clone({\n  ...\n})"
+          }
+        ]
+      }
+    },
     "/permission/{requestID}/reply": {
       "post": {
         "operationId": "permission.reply",

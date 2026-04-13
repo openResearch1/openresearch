@@ -166,7 +166,7 @@ export default function Page() {
     if (!active) return
 
     const path = file.pathFromTab(active)
-    if (path) file.load(path)
+    if (path) file.load(path, { force: true })
   })
 
   const info = createMemo(() => (params.id ? sync.session.get(params.id) : undefined))

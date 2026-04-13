@@ -101,7 +101,7 @@ export function AtomDetailPanel(props: {
   createEffect(() => {
     const path = props.atom.atom_claim_path
     if (!path) return
-    file.load(path).catch(console.error)
+    file.load(path, { force: true }).catch(console.error)
     let mounted = true
     const unsub = sdk.event.on("file.watcher.updated" as any, (event: { file: string; event: string }) => {
       if (!mounted) return
@@ -122,7 +122,7 @@ export function AtomDetailPanel(props: {
   createEffect(() => {
     const path = props.atom.atom_evidence_path
     if (!path) return
-    file.load(path).catch(console.error)
+    file.load(path, { force: true }).catch(console.error)
     let mounted = true
     const unsub = sdk.event.on("file.watcher.updated" as any, (event: { file: string; event: string }) => {
       if (!mounted) return
@@ -143,7 +143,7 @@ export function AtomDetailPanel(props: {
   createEffect(() => {
     const path = props.atom.atom_evidence_assessment_path
     if (!path) return
-    file.load(path).catch(console.error)
+    file.load(path, { force: true }).catch(console.error)
     let mounted = true
     const unsub = sdk.event.on("file.watcher.updated" as any, (event: { file: string; event: string }) => {
       if (!mounted) return
