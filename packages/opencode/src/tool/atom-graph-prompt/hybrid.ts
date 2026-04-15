@@ -1,6 +1,6 @@
 import type { TraversedAtom, RelationType, AtomType, CommunityFilterOptions } from "./types"
 import { traverseAtomGraph } from "./traversal"
-import { loadEmbeddingCache, getAtomEmbedding, cosineSimilarity, saveEmbeddingCache } from "./embedding"
+import { loadEmbeddingCache, getAtomEmbedding, cosineSimilarity, saveEmbeddingCache, batchGenerateEmbeddings } from "./embedding"
 import { scoreAndRankAtoms, selectDiverseAtoms, type ScoringWeights, DEFAULT_WEIGHTS } from "./scoring"
 import { selectAtomsWithinBudget, adaptiveBudgetSelection, type TokenBudgetOptions } from "./token-budget"
 import { Database, eq } from "../../storage/db"
@@ -222,7 +222,7 @@ async function semanticSearch(query: string, options: SemanticSearchOptions): Pr
 
   // 1. 生成查询的 embedding
   const cache = await loadEmbeddingCache()
-  const queryEmbedding = await getAtomEmbedding("query", query, cache)
+  let queryEmbedding = await getAtomEmbedding(`query:${query}`, query, cache)
 
   // 2. 获取当前项目的 atoms
   let atoms: (typeof AtomTable.$inferSelect)[]
@@ -244,36 +244,54 @@ async function semanticSearch(query: string, options: SemanticSearchOptions): Pr
     atoms = atoms.filter((atom) => atomTypes.includes(atom.atom_type as AtomType))
   }
 
-  // 4. 为每个 atom 计算相似度
+  // 4. 先读取 claim 文本，再批量预生成 embeddings
+  const claims: Array<{
+    atomId: string
+    atomName: string
+    claimText: string
+  }> = []
+
+  for (const atom of atoms) {
+    try {
+      if (!atom.atom_claim_path) continue
+      const claimText = await Filesystem.readText(atom.atom_claim_path)
+      if (!claimText) continue
+      claims.push({
+        atomId: atom.atom_id,
+        atomName: atom.atom_name,
+        claimText,
+      })
+    } catch {
+      continue
+    }
+  }
+
+  await batchGenerateEmbeddings(
+    claims.map((item) => ({
+      atomId: item.atomId,
+      claimText: item.claimText,
+    })),
+    cache,
+  )
+
+  // Batch generation may switch embedding backends after a timeout/fallback,
+  // so refresh the query vector from the current cache before comparing.
+  queryEmbedding = await getAtomEmbedding(`query:${query}`, query, cache)
+
   const similarities: Array<{
     atomId: string
     atomName: string
     similarity: number
   }> = []
 
-  for (const atom of atoms) {
-    // 读取 claim 文本
-    let claimText = ""
-    try {
-      if (atom.atom_claim_path) {
-        claimText = await Filesystem.readText(atom.atom_claim_path)
-      }
-    } catch (error) {
-      continue // 跳过无法读取的 atom
-    }
-
-    if (!claimText) continue
-
-    // 获取或生成 embedding
-    const atomEmbedding = await getAtomEmbedding(atom.atom_id, claimText, cache)
-
-    // 计算相似度
+  for (const item of claims) {
+    const atomEmbedding = await getAtomEmbedding(item.atomId, item.claimText, cache)
     const similarity = cosineSimilarity(queryEmbedding, atomEmbedding)
 
     if (similarity >= threshold) {
       similarities.push({
-        atomId: atom.atom_id,
-        atomName: atom.atom_name,
+        atomId: item.atomId,
+        atomName: item.atomName,
         similarity,
       })
     }
