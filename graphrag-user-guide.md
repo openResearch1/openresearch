@@ -170,6 +170,73 @@ Research Agent 会自动选择合适的 GraphRAG 工具和参数。
 
 ---
 
+## Embedding API 设置
+
+GraphRAG 的语义搜索依赖 embedding。开发环境可以回退到本地 simple embedding，但正式使用和评测时，建议配置真实的 OpenAI-compatible `/embeddings` API。
+
+### 方式 1：环境变量（推荐）
+
+```bash
+export OPENCODE_EMBEDDING_MODEL=openai/text-embedding-3-small
+export OPENCODE_EMBEDDING_BASE_URL=https://api.openai.com/v1
+export OPENCODE_EMBEDDING_API_KEY=your_api_key
+
+# 可选：仅当服务支持自定义维度时设置
+export OPENCODE_EMBEDDING_DIMENSIONS=1536
+```
+
+说明：
+
+- `OPENCODE_EMBEDDING_MODEL` 格式为 `<provider>/<model>`，例如 `openai/text-embedding-3-small`
+- `OPENCODE_EMBEDDING_BASE_URL` 填 OpenAI-compatible 服务根路径，系统会自动请求 `<baseURL>/embeddings`
+- `OPENCODE_EMBEDDING_API_KEY` 会作为 `Authorization: Bearer ...` 发送
+- `OPENCODE_EMBEDDING_DIMENSIONS` 不是必填项，只有服务支持时才需要设置
+
+### 方式 2：写入 provider 配置
+
+如果你的 LLM 和 embedding 走同一个 provider，也可以直接在 `openresearch.json` 里复用同一套 `baseURL` 和 `apiKey`：
+
+```json
+{
+  "provider": {
+    "openai": {
+      "options": {
+        "baseURL": "https://api.openai.com/v1",
+        "apiKey": "{env:OPENAI_API_KEY}",
+        "embeddingModel": "text-embedding-3-small"
+      }
+    }
+  }
+}
+```
+
+如果 embedding 和对话模型不是同一家服务，也可以单独设置：
+
+```json
+{
+  "provider": {
+    "openai": {
+      "options": {
+        "baseURL": "https://api.openai.com/v1",
+        "apiKey": "{env:OPENAI_API_KEY}",
+        "embeddingBaseURL": "https://your-embedding-endpoint.example/v1",
+        "embeddingApiKey": "{env:EMBEDDING_API_KEY}",
+        "embeddingModel": "text-embedding-3-small"
+      }
+    }
+  }
+}
+```
+
+### 缓存与回退
+
+- Embedding 缓存在 `atom_list/.atom-embeddings-cache.json`
+- 更换 embedding 模型或 API 地址后，旧缓存会自动失效并重建
+- 如果远端 embedding API 请求失败，GraphRAG 会回退到本地 simple embedding
+- 本地 simple embedding 适合开发调试，不建议用于正式评测
+
+---
+
 ## 参数速查
 
 | 参数                | 默认值   | 说明                                 |
@@ -196,4 +263,4 @@ Research Agent 会自动选择合适的 GraphRAG 工具和参数。
 4. **利用社区过滤**：先让 Agent 列出社区，再在感兴趣的社区内深入搜索
 5. **控制返回数量**：`5-10` 个 atoms 适合聚焦回答，`15-20` 适合全面综述
 
-最后更新: 2026-04-11
+最后更新: 2026-04-15
