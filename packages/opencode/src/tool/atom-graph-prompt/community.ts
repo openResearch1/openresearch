@@ -5,22 +5,8 @@ import { Database, inArray, eq } from "../../storage/db"
 import { AtomTable, AtomRelationTable, ResearchProjectTable } from "../../research/research.sql"
 import { Filesystem } from "../../util/filesystem"
 import { Instance } from "../../project/instance"
-import type { AtomType, RelationType } from "./types"
+import type { AtomType, RelationType, Community } from "./types"
 import { loadEmbeddingCache, getAtomEmbedding, cosineSimilarity } from "./embedding"
-
-/**
- * 社区信息
- */
-export interface Community {
-  id: string
-  atomIds: string[]
-  summary: string
-  keywords: string[]
-  dominantType: AtomType
-  size: number
-  density: number
-  timestamp: number
-}
 
 /**
  * 社区缓存结构

@@ -53,3 +53,43 @@ export interface CommunityFilterOptions {
   maxCommunitySize?: number
   dominantTypes?: AtomType[]
 }
+
+export interface CommunityPruneOptions {
+  minSize?: number
+  minDensity?: number
+  minInternalEdges?: number
+  minKeywords?: number
+  maxHubRatio?: number
+  forceRefresh?: boolean
+}
+
+export interface CommunityPruneMetrics {
+  size: number
+  density: number
+  internalEdges: number
+  maxEdges: number
+  keywordCount: number
+  hubRatio: number
+}
+
+export interface PrunedCommunity {
+  community: Community
+  pruned: boolean
+  reasons: string[]
+  metrics: CommunityPruneMetrics
+}
+
+export interface CommunityPruneResult {
+  kept: Community[]
+  removed: PrunedCommunity[]
+  decisions: PrunedCommunity[]
+}
+
+export interface CommunityPruneSummary {
+  beforeNodes: number
+  afterNodes: number
+  beforeCommunities: number
+  afterCommunities: number
+  beforeScore: number
+  afterScore: number
+}
