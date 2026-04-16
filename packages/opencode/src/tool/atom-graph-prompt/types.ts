@@ -24,6 +24,13 @@ export interface TraversedAtom {
   claimEmbedding?: number[] // Optional: for semantic search (Phase 2)
 }
 
+export interface RankedAtom extends TraversedAtom {
+  score: number
+  baseScore?: number
+  atomQuality?: number
+  queryOverlap?: number
+}
+
 export interface PromptBuilderOptions {
   template: "graphrag" | "compact"
   includeEvidence: boolean
@@ -92,4 +99,15 @@ export interface CommunityPruneSummary {
   afterCommunities: number
   beforeScore: number
   afterScore: number
+}
+
+export interface AtomQualityMetrics {
+  degree: number
+  degreeScore: number
+  bridgeCommunities: number
+  bridgeScore: number
+  communityScore: number
+  evidenceScore: number
+  informationScore: number
+  score: number
 }

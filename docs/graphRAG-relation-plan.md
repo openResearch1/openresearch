@@ -106,7 +106,7 @@
 
 ### 产物
 
-- 根目录 `workflow.md`
+- `docs/graphRAG-workflow.md`
 - 明确区分已实现与未实现环节
 - 明确 GraphRAG 与 relation 分支功能的接入点
 
@@ -483,7 +483,7 @@ interface GraphQualityReport {
 
 ## 研发 TODO
 
-1. 创建并维护根目录 `workflow.md`
+1. 创建并维护 `docs/graphRAG-workflow.md`
 2. 将 workflow 作为 relation 分支后续模块的总骨架
 3. 扩展 `types.ts` 定义关系分析与质量分析类型
 4. 实现社区剪枝模块

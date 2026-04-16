@@ -1,6 +1,12 @@
-import type { TraversedAtom, RelationType, AtomType, CommunityFilterOptions } from "./types"
+import type { RankedAtom, TraversedAtom, RelationType, AtomType, CommunityFilterOptions } from "./types"
 import { traverseAtomGraph } from "./traversal"
-import { loadEmbeddingCache, getAtomEmbedding, cosineSimilarity, saveEmbeddingCache, batchGenerateEmbeddings } from "./embedding"
+import {
+  loadEmbeddingCache,
+  getAtomEmbedding,
+  cosineSimilarity,
+  saveEmbeddingCache,
+  batchGenerateEmbeddings,
+} from "./embedding"
 import { scoreAndRankAtoms, selectDiverseAtoms, type ScoringWeights, DEFAULT_WEIGHTS } from "./scoring"
 import { selectAtomsWithinBudget, adaptiveBudgetSelection, type TokenBudgetOptions } from "./token-budget"
 import { Database, eq } from "../../storage/db"
@@ -8,6 +14,8 @@ import { AtomTable, ResearchProjectTable } from "../../research/research.sql"
 import { Filesystem } from "../../util/filesystem"
 import { Instance } from "../../project/instance"
 import { loadCommunityCache, getCommunityAtoms } from "./community"
+import { applyAtomQuality, scoreAtomQuality } from "./atom-quality"
+import { rerankAtoms } from "./atom-rerank"
 
 /**
  * 混合检索选项
@@ -44,12 +52,13 @@ export interface HybridSearchOptions {
  * 混合检索结果
  */
 export interface HybridSearchResult {
-  atoms: Array<TraversedAtom & { score: number }>
+  atoms: RankedAtom[]
   metadata: {
     totalFound: number
     selected: number
     fromSemanticSearch: number
     fromGraphTraversal: number
+    atomwiseRemoved?: number
     tokensUsed?: number
     budgetUsed?: number
   }
@@ -158,10 +167,15 @@ export async function hybridSearch(options: HybridSearchOptions): Promise<Hybrid
   // Step 7: 智能评分和排序
   const scoredAtoms = scoreAndRankAtoms(filteredAtoms, queryEmbedding, scoringWeights)
 
-  // Step 8: 选择多样化的 atoms
-  let selectedAtoms = selectDiverseAtoms(scoredAtoms, maxAtoms, diversityWeight)
+  // Step 8: atom-wise 质量打分 + query-aware rerank
+  const quality = await scoreAtomQuality(filteredAtoms)
+  const enriched = applyAtomQuality(scoredAtoms, quality)
+  const atomwise = rerankAtoms(enriched, query)
 
-  // Step 9: Token 预算管理（如果指定了）
+  // Step 9: 选择多样化的 atoms
+  let selectedAtoms = selectDiverseAtoms(atomwise.kept, maxAtoms, diversityWeight)
+
+  // Step 10: Token 预算管理（如果指定了）
   let tokensUsed: number | undefined
   let budgetUsed: number | undefined
 
@@ -185,6 +199,7 @@ export async function hybridSearch(options: HybridSearchOptions): Promise<Hybrid
       selected: selectedAtoms.length,
       fromSemanticSearch,
       fromGraphTraversal: traversedAtoms.length - fromSemanticSearch,
+      atomwiseRemoved: atomwise.removed,
       tokensUsed,
       budgetUsed,
     },
