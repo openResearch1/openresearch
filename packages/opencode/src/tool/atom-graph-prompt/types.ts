@@ -31,6 +31,13 @@ export interface RankedAtom extends TraversedAtom {
   queryOverlap?: number
 }
 
+export interface AtomwiseOptions {
+  enabled?: boolean
+  baseWeight?: number
+  qualityWeight?: number
+  overlapWeight?: number
+}
+
 export interface PromptBuilderOptions {
   template: "graphrag" | "compact"
   includeEvidence: boolean

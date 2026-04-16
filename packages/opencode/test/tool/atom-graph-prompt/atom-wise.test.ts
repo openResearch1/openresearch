@@ -183,10 +183,11 @@ test("should rerank atoms using query overlap and atom quality", async () => {
 
   expect(result.kept[0].atom.atom_id).toBe("a")
   expect(result.kept[0].queryOverlap).toBeGreaterThan(0)
-  expect(result.removed).toBe(1)
+  expect(result.removed).toBe(0)
+  expect(result.kept).toHaveLength(2)
 })
 
-test("should remove low quality distant atoms with atom-wise pruning", async () => {
+test("should rerank low quality distant atoms behind relevant atoms", async () => {
   await using tmp = await tmpdir({ git: true })
 
   await Instance.provide({
@@ -221,10 +222,10 @@ test("should remove low quality distant atoms with atom-wise pruning", async () 
       )
 
       const ids = reranked.kept.map((item) => item.atom.atom_id)
-      expect(reranked.removed).toBeGreaterThan(0)
+      expect(reranked.removed).toBe(0)
       expect(ids).toContain(atoms[0].id)
       expect(ids).toContain(atoms[1].id)
-      expect(ids).not.toContain(atoms[3].id)
+      expect(ids[ids.length - 1]).toBe(atoms[3].id)
     },
   })
 })
@@ -257,7 +258,7 @@ test("should expose atom-wise scores through hybrid search", async () => {
         semanticThreshold: 0.0,
       })
 
-      expect(result.metadata.atomwiseRemoved).toBeDefined()
+      expect(result.metadata.atomwiseRemoved).toBe(0)
       expect(result.atoms[0].atomQuality).toBeDefined()
       expect(result.atoms[0].queryOverlap).toBeDefined()
     },

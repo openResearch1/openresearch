@@ -88,6 +88,13 @@ export interface RetrievedContext {
   formattedContext: string
   retrievalTimeMs: number
   totalFound: number
+  metadata?: {
+    atomwiseBeforeNodes?: number
+    atomwiseAfterNodes?: number
+    atomwiseBeforeScore?: number
+    atomwiseAfterScore?: number
+    atomwiseRemoved?: number
+  }
 }
 
 // ---------------------------------------------------------------------------

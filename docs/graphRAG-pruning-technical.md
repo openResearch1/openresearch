@@ -371,6 +371,59 @@ keywordScore = min(keywordCount / 5, 1)
 
 ---
 
+## atom-wise ablation 结果
+
+在社区剪枝之外，进一步对 atom-wise 策略做了 10 样本 LongMemEval 对照实验。
+
+目标是回答：
+
+- atom-wise 的效果主要来自静态过滤，还是来自 reranking？
+
+### 实验设置
+
+固定最佳 preset=`mild`，拆为 3 种模式：
+
+1. `full`
+   - atom quality 打分 + query-aware reranking
+2. `filter-only`
+   - 只保留静态 atom 过滤逻辑
+3. `rerank-only`
+   - 不做 atom 过滤，只做 query-aware reranking
+
+### 结果
+
+| 模式          | Before Nodes | After Nodes | Before Score | After Score | Before Acc | After Acc |
+| ------------- | ------------ | ----------- | ------------ | ----------- | ---------- | --------- |
+| `full`        | 21.7         | 21.6        | 0.3935       | 0.3942      | 65%        | 75%       |
+| `filter-only` | 21.7         | 21.6        | 0.3935       | 0.3942      | 65%        | 65%       |
+| `rerank-only` | 21.7         | 21.7        | 0.3935       | 0.3935      | 65%        | 75%       |
+
+### 结论
+
+- 静态 atom 过滤对准确率没有贡献
+- query-aware reranking 才是当前 atom-wise 的主要收益来源
+- `full` 与 `rerank-only` 的准确率提升一致，说明当前收益几乎全部来自 reranking
+
+### 当前 atom-wise 模式选择
+
+基于上述结果，当前选择：
+
+- **保留 atom-wise reranking**
+- **移除 atom-wise 静态过滤**
+
+也就是说：
+
+- atom quality 继续作为排序特征保留
+- 但不再用 atom quality 作为生产路径中的硬过滤阈值
+
+这样做的原因：
+
+- reranking 已证明能带来准确率提升
+- 静态过滤没有带来额外收益
+- 硬过滤存在误删潜在关键 atom 的风险
+
+---
+
 ## 技术优点
 
 ### 1. 简单

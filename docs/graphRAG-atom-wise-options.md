@@ -316,20 +316,41 @@ atomScore =
 
 当前建议默认采用：
 
-**方案 A + 方案 B 的组合**
+**保留 A 作为质量特征，生产路径只保留 B 的 reranking 能力**
 
 也就是：
 
 1. 用规则型特征算 atom-level quality score
 2. 在检索阶段做 query-aware 重排序
-3. 不做硬删除，只做降权与筛选
+3. 不做 atom-wise 硬过滤
 
 理由：
 
 - 与现有 GraphRAG 主链路兼容最好
 - 对 LongMemEval 和真实研究问答都更稳
-- 不会像硬剪枝那样一刀切丢失潜在关键 atom
+- 不会像硬过滤那样一刀切丢失潜在关键 atom
 - 为后续 relation / quality / temporal 增强保留空间
+
+### ablation 结论
+
+当前已完成 10 样本 LongMemEval ablation：
+
+| 模式          | Before Acc | After Acc |
+| ------------- | ---------- | --------- |
+| `filter-only` | 65%        | 65%       |
+| `rerank-only` | 65%        | 75%       |
+| `full`        | 65%        | 75%       |
+
+说明：
+
+- 当前 atom-wise 的收益主要来自 reranking
+- 静态 atom 过滤没有带来额外准确率收益
+
+因此当前生产模式选择为：
+
+- `mild` preset
+- rerank-only
+- 不启用 atom-wise 硬过滤
 
 ---
 

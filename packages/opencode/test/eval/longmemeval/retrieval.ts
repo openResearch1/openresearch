@@ -22,6 +22,7 @@ import { AtomTable, ResearchProjectTable } from "../../../src/research/research.
 import { Filesystem } from "../../../src/util/filesystem"
 import { Instance } from "../../../src/project/instance"
 import { DEFAULT_WEIGHTS } from "../../../src/tool/atom-graph-prompt/scoring"
+import type { AtomwiseOptions } from "../../../src/tool/atom-graph-prompt/types"
 import type { EvalConfig, RetrievedContext, LongMemEvalInstance } from "./types"
 
 /**
@@ -38,6 +39,7 @@ export async function retrieveContextWithCommunityIds(
   instance: LongMemEvalInstance,
   config: EvalConfig,
   communityIds?: string[],
+  atomwise?: AtomwiseOptions,
 ): Promise<RetrievedContext> {
   const startTime = performance.now()
 
@@ -53,6 +55,7 @@ export async function retrieveContextWithCommunityIds(
     includeMetadata: true,
     diversityWeight: 0.3,
     communityFilter: communityIds && communityIds.length > 0 ? { communityIds } : undefined,
+    atomwise,
   })
 
   if (process.env.OPENRESEARCH_GRAPHRAG_PROFILE === "1") {
@@ -98,6 +101,13 @@ export async function retrieveContextWithCommunityIds(
     formattedContext,
     retrievalTimeMs,
     totalFound: searchResult.metadata.totalFound,
+    metadata: {
+      atomwiseBeforeNodes: searchResult.metadata.atomwiseBeforeNodes,
+      atomwiseAfterNodes: searchResult.metadata.atomwiseAfterNodes,
+      atomwiseBeforeScore: searchResult.metadata.atomwiseBeforeScore,
+      atomwiseAfterScore: searchResult.metadata.atomwiseAfterScore,
+      atomwiseRemoved: searchResult.metadata.atomwiseRemoved,
+    },
   }
 }
 
