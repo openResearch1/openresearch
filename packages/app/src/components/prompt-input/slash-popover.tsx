@@ -5,6 +5,7 @@ import { getDirectory, getFilename } from "@opencode-ai/util/path"
 
 export type AtOption =
   | { type: "agent"; name: string; display: string }
+  | { type: "action"; name: string; display: string }
   | { type: "file"; path: string; display: string; recent?: boolean }
 
 export interface SlashCommand {
@@ -51,7 +52,7 @@ export const PromptPopover: Component<PromptPopoverProps> = (props) => {
               when={props.atFlat.length > 0}
               fallback={<div class="text-text-weak px-2 py-1">{props.t("prompt.popover.emptyResults")}</div>}
             >
-              <For each={props.atFlat.slice(0, 10)}>
+              <For each={props.atFlat}>
                 {(item) => {
                   const key = props.atKey(item)
 
@@ -64,6 +65,20 @@ export const PromptPopover: Component<PromptPopoverProps> = (props) => {
                         onMouseEnter={() => props.setAtActive(key)}
                       >
                         <Icon name="brain" size="small" class="text-icon-info-active shrink-0" />
+                        <span class="text-14-regular text-text-strong whitespace-nowrap">@{item.name}</span>
+                      </button>
+                    )
+                  }
+
+                  if (item.type === "action") {
+                    return (
+                      <button
+                        class="w-full flex items-center gap-x-2 rounded-md px-2 py-0.5"
+                        classList={{ "bg-surface-raised-base-hover": props.atActive === key }}
+                        onClick={() => props.onAtSelect(item)}
+                        onMouseEnter={() => props.setAtActive(key)}
+                      >
+                        <Icon name="models" size="small" class="text-icon-warning-active shrink-0" />
                         <span class="text-14-regular text-text-strong whitespace-nowrap">@{item.name}</span>
                       </button>
                     )

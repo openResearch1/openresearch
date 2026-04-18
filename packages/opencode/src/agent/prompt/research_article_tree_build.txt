@@ -66,6 +66,21 @@ Allowed relation types:
 - `other`
 
 Do not create any relation whose source and target belong to different articles.
+Follow the relation semantics from `research.txt` strictly:
+- `motivates`: background/problem fact -> downstream method or verification
+- `formalizes`: earlier claim -> theorem/formal characterization
+- `derives`: prior theorem or construction basis -> downstream method/result
+- `analyzes`: method -> theorem analysis
+- `validates`: method or theorem -> verification
+
+Direction principle:
+- source is conceptually prior or more foundational
+- target is downstream, derived, analyzed, or empirically evaluated
+
+Never reverse `validates`.
+- Do not create `verification -> method`
+- Do not create `verification -> theorem`
+- Do not make a verification atom the source of empirical validation edges
 
 ## Final response
 

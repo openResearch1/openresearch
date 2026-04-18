@@ -1,15 +1,18 @@
 import path from "path"
 import { ExperimentExecutionWorkflowTemplate, ExperimentExecutionWorkflowTemplateDir } from "./experiment-execution-v1"
+import { ResearchIdeaTreeWorkflowTemplate, ResearchIdeaTreeWorkflowTemplateDir } from "./research-idea-tree-v1"
 import { SimpleTestWorkflowTemplate, SimpleTestWorkflowTemplateDir } from "./simple-test-v1"
 
 const registry = {
   [SimpleTestWorkflowTemplate.id]: SimpleTestWorkflowTemplate,
   [ExperimentExecutionWorkflowTemplate.id]: ExperimentExecutionWorkflowTemplate,
+  [ResearchIdeaTreeWorkflowTemplate.id]: ResearchIdeaTreeWorkflowTemplate,
 }
 
 const dirs = {
   [SimpleTestWorkflowTemplate.id]: SimpleTestWorkflowTemplateDir,
   [ExperimentExecutionWorkflowTemplate.id]: ExperimentExecutionWorkflowTemplateDir,
+  [ResearchIdeaTreeWorkflowTemplate.id]: ResearchIdeaTreeWorkflowTemplateDir,
 }
 
 export namespace WorkflowTemplates {

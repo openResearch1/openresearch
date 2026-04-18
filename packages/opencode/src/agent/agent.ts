@@ -29,6 +29,8 @@ import PROMPT_EXPERIMENT_SUCCESS from "./prompt/experiment_success.txt"
 import PROMPT_EVIDENCE_ASSESSMENT from "./prompt/evidence_assessment.txt"
 import PROMPT_ATOM_FORMULA_CLEANUP from "./prompt/atom_formula_cleanup.txt"
 import PROMPT_RESEARCH_ARTICLE_TREE_BUILD from "./prompt/research_article_tree_build.txt"
+import PROMPT_RESEARCH_IDEA from "./prompt/research_idea.txt"
+import PROMPT_RESEARCH_IDEA_TREE_BUILD from "./prompt/research_idea_tree_build.txt"
 import PROMPT_RESEARCH_TREE_LINK from "./prompt/research_tree_link.txt"
 import { PermissionNext } from "@/permission/next"
 import { mergeDeep, pipe, sortBy, values } from "remeda"
@@ -257,6 +259,23 @@ export namespace Agent {
         mode: "primary",
         native: true,
       },
+      research_idea: {
+        name: "research_idea",
+        description: "Research idea agent. Turns a user idea into a validation-oriented atom tree through a workflow.",
+        options: {},
+        hidden: true,
+        permission: PermissionNext.merge(
+          defaults,
+          PermissionNext.fromConfig({
+            question: "allow",
+            plan_enter: "allow",
+          }),
+          user,
+        ),
+        prompt: PROMPT_RESEARCH_IDEA,
+        mode: "primary",
+        native: true,
+      },
       plan: {
         name: "plan",
         description: "Plan mode. Disallows all edit tools.",
@@ -441,7 +460,7 @@ export namespace Agent {
       research_tree_link: {
         name: "research_tree_link",
         description:
-          "Link already-built article trees by creating only high-confidence cross-article atom relations between the provided article groups.",
+          "Link already-built trees by creating only high-confidence cross-tree atom relations between the provided source and target groups.",
         prompt: PROMPT_RESEARCH_TREE_LINK,
         permission: PermissionNext.merge(
           defaults,
@@ -451,6 +470,25 @@ export namespace Agent {
             atom_query: "allow",
             atom_relation_query: "allow",
             atom_relation_create: "allow",
+            read: "allow",
+          }),
+          user,
+        ),
+        options: {},
+        mode: "subagent",
+        native: true,
+      },
+      research_idea_tree_build: {
+        name: "research_idea_tree_build",
+        description:
+          "Build one idea-local validation tree only: create atoms and intra-tree relations for exactly one target idea.",
+        prompt: PROMPT_RESEARCH_IDEA_TREE_BUILD,
+        permission: PermissionNext.merge(
+          defaults,
+          PermissionNext.fromConfig({
+            "*": "deny",
+            atom_query: "allow",
+            atom_batch_create: "allow",
             read: "allow",
           }),
           user,
