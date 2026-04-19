@@ -121,7 +121,7 @@ async function resolve(providerID: string, modelID: string, cfg: Awaited<ReturnT
     (auth?.type === "api" ? auth.key : undefined) ??
     envs.map((name) => Env.get(name)).find(Boolean)
 
-  const headers = {
+  const headers: Record<string, string> = {
     ...record(provider?.options?.headers),
     ...record(provider?.options?.embeddingHeaders),
     "Content-Type": "application/json",
