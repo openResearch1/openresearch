@@ -174,6 +174,7 @@ export const AtomQueryTool = Tool.define("atom_query", {
       .describe(
         "The atom ID to query. If provided, returns that specific atom's details directly, bypassing session-based resolution.",
       ),
+    atomIds: z.array(z.string()).optional().describe("Optional list of atom IDs to filter by."),
     articleIds: z
       .array(z.string())
       .optional()
@@ -197,7 +198,7 @@ export const AtomQueryTool = Tool.define("atom_query", {
       }
     }
 
-    if (!params.articleIds?.length) {
+    if (!params.articleIds?.length && !params.atomIds?.length) {
       // 1. Check if current session is directly bound to an atom
       let parentSessionId = await Research.getParentSessionId(ctx.sessionID)
       if (!parentSessionId) {
@@ -246,14 +247,18 @@ export const AtomQueryTool = Tool.define("atom_query", {
     const atoms = Database.use((db) =>
       db.select().from(AtomTable).where(eq(AtomTable.research_project_id, researchProjectId)).all(),
     )
-    const items = params.articleIds?.length
-      ? atoms.filter((atom) => atom.article_id && params.articleIds?.includes(atom.article_id))
-      : atoms
+    const items = params.atomIds?.length
+      ? atoms.filter((atom) => params.atomIds?.includes(atom.atom_id))
+      : params.articleIds?.length
+        ? atoms.filter((atom) => atom.article_id && params.articleIds?.includes(atom.article_id))
+        : atoms
 
     if (items.length === 0) {
       return {
         title: "No atoms",
-        output: params.articleIds?.length
+        output: params.atomIds?.length
+          ? `No atoms found for atom IDs: ${params.atomIds.join(", ")}`
+          : params.articleIds?.length
           ? `No atoms found for article IDs: ${params.articleIds.join(", ")}`
           : "No atoms found in this research project.",
         metadata: { count: 0 },

@@ -140,6 +140,10 @@ This cleanup step must only inspect atoms from the target articles of this run, 
 - Only then create cross-tree links.
 - Keep article trees conceptually independent even after they are linked.
 - Cross-tree linking must be conservative and sparse.
+- All created relations must obey the `research.txt` relation semantics:
+  - source is prior
+  - target is downstream
+  - `validates` must point from method/theorem to verification
 
 ## Final response
 
