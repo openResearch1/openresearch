@@ -46,6 +46,7 @@ import {
   RemoteServerInputSchema,
 } from "@/research/remote-server"
 import { parseSshConfig } from "@/research/ssh-config"
+import { isArticleDirectory } from "@/research/article-source"
 
 const createSchema = z.object({
   name: z.string().min(1, "name required"),
@@ -58,19 +59,6 @@ const createSchema = z.object({
 async function copyFile(src: string, dest: string) {
   if (!(await Filesystem.exists(src))) throw new Error(`file not found: ${src}`)
   await fs.promises.cp(src, dest, { force: false, recursive: await Filesystem.isDir(src) })
-}
-
-/**
- * Check whether a directory looks like a single article source (e.g. LaTeX project)
- * rather than a container that holds multiple articles.
- *
- * A directory is considered an article if it contains at least one `.tex` file at
- * the top level.  A directory that only contains `.pdf` files or sub-directories
- * (but no `.tex` files) is treated as a container folder — not a single article.
- */
-async function isArticleDirectory(dir: string): Promise<boolean> {
-  const entries = await fs.promises.readdir(dir, { withFileTypes: true })
-  return entries.some((e) => !e.isDirectory() && e.name.endsWith(".tex"))
 }
 
 const uniqueID = () => crypto.randomUUID()
