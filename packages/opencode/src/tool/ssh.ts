@@ -43,6 +43,8 @@ export const SshTool = Tool.define("ssh", {
             "UserKnownHostsFile=/dev/null",
             "-o",
             "LogLevel=ERROR",
+            "-o",
+            "ClearAllForwardings=yes",
             server.host_alias,
             command,
           ]
@@ -55,6 +57,8 @@ export const SshTool = Tool.define("ssh", {
             "UserKnownHostsFile=/dev/null",
             "-o",
             "LogLevel=ERROR",
+            "-o",
+            "ClearAllForwardings=yes",
             `${server.user}@${server.address}`,
             command,
           ]

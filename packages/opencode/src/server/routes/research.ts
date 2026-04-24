@@ -2423,6 +2423,55 @@ export const ResearchRoutes = new Hono()
       return c.json({ id, config })
     },
   )
+  .patch(
+    "/server/:serverId",
+    describeRoute({
+      summary: "Update a remote server",
+      operationId: "research.server.update",
+      responses: {
+        200: {
+          description: "Updated remote server",
+          content: {
+            "application/json": {
+              schema: resolver(
+                z.object({
+                  id: z.string(),
+                  config: RemoteServerConfigSchema,
+                }),
+              ),
+            },
+          },
+        },
+        ...errors(404),
+      },
+    }),
+    validator(
+      "json",
+      z.object({
+        config: RemoteServerInputSchema,
+      }),
+    ),
+    async (c) => {
+      const serverId = c.req.param("serverId")
+      const row = Database.use((db) => db.select().from(RemoteServerTable).where(eq(RemoteServerTable.id, serverId)).get())
+      if (!row) {
+        return c.json({ success: false, message: `server not found: ${serverId}` }, 404)
+      }
+      const body = c.req.valid("json")
+      const config = normalizeRemoteServerConfig(body.config)
+      Database.use((db) =>
+        db
+          .update(RemoteServerTable)
+          .set({
+            config: JSON.stringify(config),
+            time_updated: Date.now(),
+          })
+          .where(eq(RemoteServerTable.id, serverId))
+          .run(),
+      )
+      return c.json({ id: serverId, config })
+    },
+  )
   .delete(
     "/server/:serverId",
     describeRoute({
@@ -2525,7 +2574,7 @@ export const ResearchRoutes = new Hono()
               status: w.status,
               stage: w.stage,
               message: w.message,
-              error_message: w.error_message ?? task?.error_message ?? null,
+              error_message: w.error_message ?? null,
               started_at: w.started_at,
               finished_at: w.finished_at,
               time_created: w.time_created,

@@ -2,12 +2,11 @@ import { spawn } from "node:child_process"
 import { randomBytes } from "node:crypto"
 import { Log } from "@/util/log"
 import { remoteServerLabel, resolveSshConfigPath, type RemoteServerConfig } from "./remote-server"
+import { ensureTunnel, quote, tunnelEnv } from "./ssh-tunnel"
 
 const log = Log.create({ service: "remote-task-runner" })
 
-function sh(value: string) {
-  return `'${value.replace(/'/g, `'"'"'`)}'`
-}
+const sh = quote
 
 function marker(script: string) {
   let value = "EOF"
@@ -18,6 +17,16 @@ function marker(script: string) {
 function remoteTarget(server: RemoteServerConfig) {
   if (server.mode === "ssh_config") return sh(server.host_alias)
   return sh(`${server.user}@${server.address}`)
+}
+
+export function taskEnv(server: RemoteServerConfig) {
+  const vars = tunnelEnv(server)
+  if (!vars) return []
+  return [
+    `export HTTP_PROXY=${sh(vars.http_proxy)} HTTPS_PROXY=${sh(vars.https_proxy)}`,
+    `export http_proxy=${sh(vars.http_proxy)} https_proxy=${sh(vars.https_proxy)}`,
+    `export NO_PROXY=${sh(vars.no_proxy)} no_proxy=${sh(vars.no_proxy)}`,
+  ]
 }
 
 export function wrapRemoteScript(server: RemoteServerConfig, script: string) {
@@ -32,6 +41,7 @@ export function wrapRemoteScript(server: RemoteServerConfig, script: string) {
       "-o StrictHostKeyChecking=no",
       "-o UserKnownHostsFile=/dev/null",
       "-o LogLevel=ERROR",
+      "-o ClearAllForwardings=yes",
       remoteTarget(server),
       `<<'${tag}'`,
     ]
@@ -46,6 +56,7 @@ ${tag}`
     "-o StrictHostKeyChecking=no",
     "-o UserKnownHostsFile=/dev/null",
     "-o LogLevel=ERROR",
+    "-o ClearAllForwardings=yes",
     "-p",
     String(server.port),
     remoteTarget(server),
@@ -111,10 +122,12 @@ export async function startRemoteTask(input: {
   screenName: string
   command: string
 }) {
+  await ensureTunnel(input.server)
   const paths = control(input.remoteRoot, input.taskId)
   const screenName = sh(input.screenName)
   const task = [
     `echo START $(date) >> ${sh(paths.logPath)}`,
+    ...taskEnv(input.server),
     `${input.command} >> ${sh(paths.logPath)} 2>&1`,
     `echo EXIT_CODE:$? >> ${sh(paths.logPath)}`,
   ].join("\n")
