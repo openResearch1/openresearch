@@ -177,6 +177,9 @@ describe("tool.experiment-remote-task lifecycle", () => {
           port: 22,
           user: "zhouzih",
           password: "secret",
+          network: {
+            mode: "direct",
+          },
         })
         expect(result.output).toContain("Screen: openresearch")
 

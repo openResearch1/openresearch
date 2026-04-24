@@ -36,7 +36,7 @@ sshpass -p '<password>' rsync -avz \
   --exclude '.DS_Store' \
   --exclude '__pycache__' \
   --exclude '*.pyc' \
-  -e 'ssh -p <port> -o StrictHostKeyChecking=no' \
+  -e 'ssh -p <port> -o StrictHostKeyChecking=no -o ClearAllForwardings=yes' \
   <code_path>/ <user>@<address>:<remote_path>/
 ```
 
@@ -50,7 +50,7 @@ rsync -avz \
   --exclude '.DS_Store' \
   --exclude '__pycache__' \
   --exclude '*.pyc' \
-  -e 'ssh -F <ssh_config_path>' \
+  -e 'ssh -F <ssh_config_path> -o ClearAllForwardings=yes' \
   <code_path>/ <host_alias>:<remote_path>/
 ```
 
@@ -64,7 +64,7 @@ rsync -avz \
   --exclude '.DS_Store' \
   --exclude '__pycache__' \
   --exclude '*.pyc' \
-  -e 'ssh -F <ssh_config_path> -l <user>' \
+  -e 'ssh -F <ssh_config_path> -l <user> -o ClearAllForwardings=yes' \
   <code_path>/ <host_alias>:<remote_path>/
 ```
 
@@ -78,7 +78,7 @@ sshpass -p '<password>' rsync -avz \
   --exclude '.DS_Store' \
   --exclude '__pycache__' \
   --exclude '*.pyc' \
-  -e 'ssh -F <ssh_config_path> -l <user>' \
+  -e 'ssh -F <ssh_config_path> -l <user> -o ClearAllForwardings=yes' \
   <code_path>/ <host_alias>:<remote_path>/
 ```
 
@@ -88,6 +88,7 @@ Command construction rules:
 - In ssh config mode, if `user` is provided separately from the config file, explicitly pass it in the SSH command instead of assuming the alias already defines it.
 - In either mode, if `password` is present, you may use `sshpass`; otherwise prefer plain `rsync`/`scp`.
 - Do not drop `-F <ssh_config_path>` when using ssh config mode.
+- Always include `-o ClearAllForwardings=yes` in the SSH command used by `rsync`/`scp`, so transfer commands do not inherit `RemoteForward` entries from the user's SSH config.
 
 ## Return Format
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { session, wrapRemoteScript } from "../../src/research/remote-task-runner"
+import { session, taskEnv, wrapRemoteScript } from "../../src/research/remote-task-runner"
 
 describe("research.remote-task-runner", () => {
   test("wraps direct ssh script as heredoc command", () => {
@@ -18,10 +18,28 @@ describe("research.remote-task-runner", () => {
     )
 
     expect(cmd)
-      .toBe(`sshpass -p 'HX5a6bU9/hUP' ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -p 38734 'root@connect.cqa1.seetacloud.com' <<'EOF'
+      .toBe(`sshpass -p 'HX5a6bU9/hUP' ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ClearAllForwardings=yes -p 38734 'root@connect.cqa1.seetacloud.com' <<'EOF'
 mkdir -p /mnt/zhouzih
 screen -dmS cub_download bash -lc 'echo START $(date) >> /mnt/zhouzih/cub_download.log'
 EOF`)
+  })
+
+  test("adds proxy exports when tunnel networking is configured", () => {
+    expect(
+      taskEnv({
+        mode: "ssh_config",
+        host_alias: "gpu-box",
+        network: {
+          mode: "tunnel",
+          local_proxy: "127.0.0.1:7890",
+          remote_port: 8890,
+        },
+      }),
+    ).toEqual([
+      "export HTTP_PROXY='http://127.0.0.1:8890' HTTPS_PROXY='http://127.0.0.1:8890'",
+      "export http_proxy='http://127.0.0.1:8890' https_proxy='http://127.0.0.1:8890'",
+      "export NO_PROXY='localhost,127.0.0.1' no_proxy='localhost,127.0.0.1'",
+    ])
   })
 
   test("uses a unique heredoc marker when script contains EOF", () => {
