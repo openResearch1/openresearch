@@ -2,8 +2,9 @@ import type { Hooks, PluginInput } from "@opencode-ai/plugin"
 import { Log } from "../util/log"
 import { Installation } from "../installation"
 import { Auth, OAUTH_DUMMY_KEY } from "../auth"
+import { Config } from "../config/config"
+import { ModelsDev } from "../provider/models"
 import os from "os"
-import { ProviderTransform } from "@/provider/transform"
 import { setTimeout as sleep } from "node:timers/promises"
 
 const log = Log.create({ service: "plugin.codex" })
@@ -107,6 +108,35 @@ interface TokenResponse {
   access_token: string
   refresh_token: string
   expires_in?: number
+}
+
+function extra(value: unknown) {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []
+}
+
+function codexOAuth(value: unknown) {
+  if (typeof value === "boolean") return value
+  if (!value || typeof value !== "object") return false
+  if ("codexOAuth" in value && typeof value.codexOAuth === "boolean") return value.codexOAuth
+  if ("oauth" in value && value.oauth && typeof value.oauth === "object") {
+    const oauth = value.oauth as Record<string, unknown>
+    if (typeof oauth.codex === "boolean") return oauth.codex
+  }
+  return false
+}
+
+function allowed(model: { id: string; family?: string; options?: Record<string, unknown> }, list: Set<string>) {
+  if (list.has(model.id)) return true
+  if (codexOAuth(model.options)) return true
+  if (model.id.includes("codex")) return true
+  if (model.family?.includes("codex")) return true
+  return model.id.startsWith("gpt-5")
+}
+
+async function refreshModels() {
+  await ModelsDev.refresh().catch((error) => {
+    log.warn("failed to refresh models.dev after codex auth", { error })
+  })
 }
 
 async function exchangeCodeForTokens(code: string, redirectUri: string, pkce: PkceCodes): Promise<TokenResponse> {
@@ -357,52 +387,12 @@ export async function CodexAuthPlugin(input: PluginInput): Promise<Hooks> {
         const auth = await getAuth()
         if (auth.type !== "oauth") return {}
 
-        // Filter models to only allowed Codex models for OAuth
-        const allowedModels = new Set([
-          "gpt-5.1-codex-max",
-          "gpt-5.1-codex-mini",
-          "gpt-5.2",
-          "gpt-5.4",
-          "gpt-5.2-codex",
-          "gpt-5.3-codex",
-          "gpt-5.1-codex",
-        ])
-        for (const modelId of Object.keys(provider.models)) {
-          if (modelId.includes("codex")) continue
-          if (allowedModels.has(modelId)) continue
-          delete provider.models[modelId]
-        }
+        const cfg = await Config.get()
+        const allowedModels = new Set(extra(cfg.provider?.openai?.options?.additionalAllowedModels))
 
-        if (!provider.models["gpt-5.3-codex"]) {
-          const model = {
-            id: "gpt-5.3-codex",
-            providerID: "openai",
-            api: {
-              id: "gpt-5.3-codex",
-              url: "https://chatgpt.com/backend-api/codex",
-              npm: "@ai-sdk/openai",
-            },
-            name: "GPT-5.3 Codex",
-            capabilities: {
-              temperature: false,
-              reasoning: true,
-              attachment: true,
-              toolcall: true,
-              input: { text: true, audio: false, image: true, video: false, pdf: false },
-              output: { text: true, audio: false, image: false, video: false, pdf: false },
-              interleaved: false,
-            },
-            cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
-            limit: { context: 400_000, input: 272_000, output: 128_000 },
-            status: "active" as const,
-            options: {},
-            headers: {},
-            release_date: "2026-02-05",
-            variants: {} as Record<string, Record<string, any>>,
-            family: "gpt-codex",
-          }
-          model.variants = ProviderTransform.variants(model)
-          provider.models["gpt-5.3-codex"] = model
+        for (const modelId of Object.keys(provider.models)) {
+          if (allowed(provider.models[modelId], allowedModels)) continue
+          delete provider.models[modelId]
         }
 
         // Zero out costs for Codex (included with ChatGPT subscription)
@@ -515,6 +505,7 @@ export async function CodexAuthPlugin(input: PluginInput): Promise<Hooks> {
               callback: async () => {
                 const tokens = await callbackPromise
                 stopOAuthServer()
+                await refreshModels()
                 const accountId = extractAccountId(tokens)
                 return {
                   type: "success" as const,
@@ -590,6 +581,7 @@ export async function CodexAuthPlugin(input: PluginInput): Promise<Hooks> {
                     }
 
                     const tokens: TokenResponse = await tokenResponse.json()
+                    await refreshModels()
 
                     return {
                       type: "success" as const,

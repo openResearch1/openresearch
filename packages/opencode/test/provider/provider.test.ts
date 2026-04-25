@@ -2,6 +2,7 @@ import { test, expect } from "bun:test"
 import path from "path"
 
 import { tmpdir } from "../fixture/fixture"
+import { Auth } from "../../src/auth"
 import { Instance } from "../../src/project/instance"
 import { Provider } from "../../src/provider/provider"
 import { Env } from "../../src/env"
@@ -247,6 +248,72 @@ test("custom provider with npm package", async () => {
       expect(providers["custom-provider"].models["custom-model"]).toBeDefined()
     },
   })
+})
+
+test("openai oauth exposes gpt-5 and codex models without hardcoded allowlist", async () => {
+  await using tmp = await tmpdir()
+  try {
+    await Instance.provide({
+      directory: tmp.path,
+      init: async () => {
+        await Auth.set("openai", {
+          type: "oauth",
+          access: "test-access",
+          refresh: "test-refresh",
+          expires: Date.now() + 60_000,
+        })
+      },
+      fn: async () => {
+        const providers = await Provider.list()
+        expect(providers["openai"]).toBeDefined()
+        expect(providers["openai"].models["gpt-5.2"]).toBeDefined()
+        expect(providers["openai"].models["gpt-5.2-codex"]).toBeDefined()
+        expect(providers["openai"].models["gpt-4.1-mini"]).toBeUndefined()
+      },
+    })
+  } finally {
+    await Auth.remove("openai")
+  }
+})
+
+test("openai oauth can expose extra configured models", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "openresearch.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          provider: {
+            openai: {
+              options: {
+                additionalAllowedModels: ["gpt-4.1-mini"],
+              },
+            },
+          },
+        }),
+      )
+    },
+  })
+  try {
+    await Instance.provide({
+      directory: tmp.path,
+      init: async () => {
+        await Auth.set("openai", {
+          type: "oauth",
+          access: "test-access",
+          refresh: "test-refresh",
+          expires: Date.now() + 60_000,
+        })
+      },
+      fn: async () => {
+        const providers = await Provider.list()
+        expect(providers["openai"]).toBeDefined()
+        expect(providers["openai"].models["gpt-4.1-mini"]).toBeDefined()
+      },
+    })
+  } finally {
+    await Auth.remove("openai")
+  }
 })
 
 test("env variable takes precedence, config merges options", async () => {

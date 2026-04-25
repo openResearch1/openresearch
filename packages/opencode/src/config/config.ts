@@ -960,6 +960,10 @@ export namespace Config {
           apiKey: z.string().optional(),
           baseURL: z.string().optional(),
           enterpriseUrl: z.string().optional().describe("GitHub Enterprise URL for copilot authentication"),
+          additionalAllowedModels: z
+            .array(z.string())
+            .optional()
+            .describe("Extra model IDs to expose for provider-specific OAuth flows such as Codex."),
           setCacheKey: z.boolean().optional().describe("Enable promptCacheKey for this provider (default false)"),
           timeout: z
             .union([
