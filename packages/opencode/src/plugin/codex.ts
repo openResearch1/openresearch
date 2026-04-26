@@ -366,6 +366,7 @@ export async function CodexAuthPlugin(input: PluginInput): Promise<Hooks> {
           "gpt-5.2-codex",
           "gpt-5.3-codex",
           "gpt-5.1-codex",
+          "gpt-5.5",
         ])
         for (const modelId of Object.keys(provider.models)) {
           if (modelId.includes("codex")) continue
@@ -411,6 +412,16 @@ export async function CodexAuthPlugin(input: PluginInput): Promise<Hooks> {
             input: 0,
             output: 0,
             cache: { read: 0, write: 0 },
+          }
+
+          // gpt-5.5 models temporarily have restricted context window size for codex plans
+          if (model.id.includes("gpt-5.5")) {
+            model.limit = {
+              context: 400_000,
+              //@ts-expect-error incorrect type for v1 sdk but works
+              input: 272_000,
+              output: 128_000,
+            }
           }
         }
 
