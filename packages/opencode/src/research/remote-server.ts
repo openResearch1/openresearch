@@ -2,10 +2,27 @@ import os from "node:os"
 import path from "node:path"
 import z from "zod"
 
+export const RemoteServerNetworkDirectSchema = z.object({
+  mode: z.literal("direct"),
+})
+
+export const RemoteServerNetworkTunnelSchema = z.object({
+  mode: z.literal("tunnel"),
+  local_proxy: z.string(),
+  remote_port: z.number().int().positive(),
+  no_proxy: z.string().optional(),
+})
+
+export const RemoteServerNetworkSchema = z.discriminatedUnion("mode", [
+  RemoteServerNetworkDirectSchema,
+  RemoteServerNetworkTunnelSchema,
+])
+
 const Shared = {
   resource_root: z.string().optional(),
   wandb_api_key: z.string().optional(),
   wandb_project_name: z.string().optional(),
+  network: RemoteServerNetworkSchema.optional(),
 }
 
 export const RemoteServerDirectSchema = z.object({
@@ -44,7 +61,12 @@ export const RemoteServerInputSchema = z.union([
 export type RemoteServerConfig = z.infer<typeof RemoteServerConfigSchema>
 
 export function normalizeRemoteServerConfig(input: z.input<typeof RemoteServerInputSchema>): RemoteServerConfig {
-  if ("mode" in input) return input
+  if ("mode" in input) {
+    return {
+      ...input,
+      network: input.network ?? { mode: "direct" },
+    }
+  }
   return {
     mode: "direct",
     address: input.address,
@@ -54,6 +76,7 @@ export function normalizeRemoteServerConfig(input: z.input<typeof RemoteServerIn
     resource_root: input.resource_root,
     wandb_api_key: input.wandb_api_key,
     wandb_project_name: input.wandb_project_name,
+    network: input.network ?? { mode: "direct" },
   }
 }
 

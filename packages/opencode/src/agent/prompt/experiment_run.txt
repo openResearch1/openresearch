@@ -26,6 +26,8 @@ The launch command must explicitly export both `WANDB_API_KEY` and `WANDB_CONSOL
 cd <remote_path> && export WANDB_API_KEY=<wandb_api_key> && export WANDB_CONSOLE=off && <absolute_conda_path> run --no-capture-output -n <env_name> <run_command>
 ```
 
+If the server config declares tunnel networking, the remote task tool will prepare the SSH reverse tunnel and inject the matching proxy environment automatically. Do not add ad-hoc `HTTP_PROXY` or SSH forwarding wrappers yourself unless the user explicitly asks for a different setup.
+
 If the remote environment already provides a known absolute conda path from prior setup context, use that exact path. Otherwise, resolve the conda binary location first and then use the absolute path in `experiment_remote_task_start`.
 
 Do not launch the long-running training process with `ssh`, `bash`, or any other tool directly. Always submit it through `experiment_remote_task_start`.
