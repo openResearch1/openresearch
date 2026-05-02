@@ -18,12 +18,14 @@ import PROMPT_RESEARCH_PROJECT_INIT from "./prompt/research_project_init.txt"
 import PROMPT_EXPERIMENT from "./prompt/experiment.txt"
 import PROMPT_EXPERIMENT_COMMIT from "./prompt/experiment_commit.txt"
 import PROMPT_EXPERIMENT_PLAN from "./prompt/experiment_plan.txt"
-import PROMPT_EXPERIMENT_REMOTE_DOWNLOAD from "./prompt/experiment_remote_download.txt"
+import PROMPT_EXPERIMENT_RESOURCE_PREPARE from "./prompt/experiment_resource_prepare.txt"
+import PROMPT_PROJECT_RUNTIME_RESOURCE_DOWNLOAD from "./prompt/project_runtime_resource_download.txt"
 import PROMPT_EXPERIMENT_DEPLOY from "./prompt/experiment_deploy.txt"
 import PROMPT_EXPERIMENT_SETUP_ENV from "./prompt/experiment_setup_env.txt"
 import PROMPT_EXPERIMENT_RUN from "./prompt/experiment_run.txt"
 import PROMPT_EXPERIMENT_SUMMARY from "./prompt/experiment_summary.txt"
 import PROMPT_EXPERIMENT_SUCCESS from "./prompt/experiment_success.txt"
+import PROMPT_PROJECT_RUNTIME_ENV_SETUP from "./prompt/project_runtime_env_setup.txt"
 import PROMPT_EVIDENCE_ASSESSMENT from "./prompt/evidence_assessment.txt"
 import PROMPT_ATOM_FORMULA_CLEANUP from "./prompt/atom_formula_cleanup.txt"
 import PROMPT_RESEARCH_ARTICLE_TREE_BUILD from "./prompt/research_article_tree_build.txt"
@@ -119,6 +121,15 @@ export namespace Agent {
             plan_enter: "allow",
             experiment_remote_task_start: "allow",
             experiment_remote_task_get: "allow",
+            experiment_remote_task_list: "allow",
+            research_code_query: "allow",
+            project_runtime_server_query: "allow",
+            project_runtime_env_spec_inspect: "allow",
+            project_runtime_ensure: "allow",
+            project_runtime_env_query: "allow",
+            project_runtime_env_upsert: "allow",
+            project_runtime_resource_query: "allow",
+            project_runtime_resource_upsert: "allow",
           }),
           user,
         ),
@@ -136,6 +147,7 @@ export namespace Agent {
           PermissionNext.fromConfig({
             question: "allow",
             experiment_remote_task_get: "allow",
+            experiment_remote_task_list: "allow",
           }),
           user,
         ),
@@ -149,17 +161,17 @@ export namespace Agent {
         options: {},
         permission: PermissionNext.merge(
           defaults,
-          PermissionNext.fromConfig({ experiment_remote_task_get: "allow" }),
+          PermissionNext.fromConfig({ experiment_remote_task_get: "allow", experiment_remote_task_list: "allow" }),
           user,
         ),
         prompt: PROMPT_EXPERIMENT_DEPLOY,
         mode: "subagent",
         native: true,
       },
-      experiment_remote_download: {
-        name: "experiment_remote_download",
+      project_runtime_resource_download: {
+        name: "project_runtime_resource_download",
         description:
-          "Experiment remote download agent. Downloads resources directly on the remote server and verifies the final remote paths.",
+          "Project runtime resource download agent. Downloads large shared resources on the remote server, verifies them, and updates project runtime inventory.",
         options: {},
         permission: PermissionNext.merge(
           defaults,
@@ -172,10 +184,40 @@ export namespace Agent {
             modelscope_search: "allow",
             experiment_remote_task_start: "allow",
             experiment_remote_task_get: "allow",
+            experiment_remote_task_list: "allow",
+            project_runtime_server_query: "allow",
+            project_runtime_ensure: "allow",
+            project_runtime_resource_query: "allow",
+            project_runtime_resource_upsert: "allow",
           }),
           user,
         ),
-        prompt: PROMPT_EXPERIMENT_REMOTE_DOWNLOAD,
+        prompt: PROMPT_PROJECT_RUNTIME_RESOURCE_DOWNLOAD,
+        mode: "subagent",
+        native: true,
+      },
+      experiment_resource_prepare: {
+        name: "experiment_resource_prepare",
+        description:
+          "Experiment resource preparation agent. Verifies existing remote resources and performs experiment-specific remote preparation without downloading resources.",
+        options: {},
+        permission: PermissionNext.merge(
+          defaults,
+          PermissionNext.fromConfig({
+            "*": "deny",
+            ssh: "allow",
+            read: "allow",
+            question: "allow",
+            experiment_remote_task_start: "allow",
+            experiment_remote_task_get: "allow",
+            experiment_remote_task_list: "allow",
+            project_runtime_server_query: "allow",
+            project_runtime_resource_query: "allow",
+            project_runtime_resource_upsert: "allow",
+          }),
+          user,
+        ),
+        prompt: PROMPT_EXPERIMENT_RESOURCE_PREPARE,
         mode: "subagent",
         native: true,
       },
@@ -186,7 +228,15 @@ export namespace Agent {
         options: {},
         permission: PermissionNext.merge(
           defaults,
-          PermissionNext.fromConfig({ experiment_remote_task_get: "allow" }),
+          PermissionNext.fromConfig({
+            experiment_remote_task_get: "allow",
+            experiment_remote_task_list: "allow",
+            project_runtime_server_query: "allow",
+            project_runtime_env_spec_inspect: "allow",
+            project_runtime_ensure: "allow",
+            project_runtime_env_query: "allow",
+            project_runtime_env_upsert: "allow",
+          }),
           user,
         ),
         prompt: PROMPT_EXPERIMENT_SETUP_ENV,
@@ -203,10 +253,41 @@ export namespace Agent {
           PermissionNext.fromConfig({
             experiment_remote_task_start: "allow",
             experiment_remote_task_get: "allow",
+            experiment_remote_task_list: "allow",
           }),
           user,
         ),
         prompt: PROMPT_EXPERIMENT_RUN,
+        mode: "subagent",
+        native: true,
+      },
+      project_runtime_env_setup: {
+        name: "project_runtime_env_setup",
+        description:
+          "Project runtime environment setup agent. Inspects a local code path, derives environment requirements, reuses or prepares a project-managed remote conda environment, and updates runtime inventory.",
+        options: {},
+        permission: PermissionNext.merge(
+          defaults,
+          PermissionNext.fromConfig({
+            "*": "deny",
+            read: "allow",
+            glob: "allow",
+            grep: "allow",
+            ssh: "allow",
+            question: "allow",
+            research_code_query: "allow",
+            project_runtime_server_query: "allow",
+            project_runtime_env_spec_inspect: "allow",
+            project_runtime_ensure: "allow",
+            project_runtime_env_query: "allow",
+            project_runtime_env_upsert: "allow",
+            experiment_remote_task_start: "allow",
+            experiment_remote_task_get: "allow",
+            experiment_remote_task_list: "allow",
+          }),
+          user,
+        ),
+        prompt: PROMPT_PROJECT_RUNTIME_ENV_SETUP,
         mode: "subagent",
         native: true,
       },
@@ -220,6 +301,12 @@ export namespace Agent {
           PermissionNext.fromConfig({
             question: "allow",
             plan_enter: "allow",
+            research_code_query: "allow",
+            project_runtime_server_query: "allow",
+            project_runtime_env_spec_inspect: "allow",
+            project_runtime_ensure: "allow",
+            project_runtime_env_query: "allow",
+            project_runtime_resource_query: "allow",
             bash: "ask",
             edit: {
               "*": "deny",

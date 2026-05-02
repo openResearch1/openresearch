@@ -45,12 +45,22 @@ import { AtomGraphPromptTool } from "./atom-graph-prompt"
 import { AtomGraphPromptSmartTool } from "./atom-graph-prompt-smart"
 import { ExperimentCreateTool } from "./experiment"
 import { ExperimentQueryTool } from "./experiment-query"
+import { ResearchCodeQueryTool } from "./research-code"
 import { ResearchBackgroundTool, ResearchGoalTool, ResearchMacroTool } from "./research-background"
 import { ResearchInfoTool } from "./research-info"
 import { SshTool } from "./ssh"
 import { ExperimentWatchTool } from "./experiment-watch"
 import { ExperimentExecutionWatchInitTool, ExperimentExecutionWatchUpdateTool } from "./experiment-execution-watch"
-import { ExperimentRemoteTaskGetTool, ExperimentRemoteTaskStartTool } from "./experiment-remote-task"
+import { ExperimentRemoteTaskGetTool, ExperimentRemoteTaskListTool, ExperimentRemoteTaskStartTool } from "./experiment-remote-task"
+import {
+  ProjectRuntimeEnsureTool,
+  ProjectRuntimeEnvQueryTool,
+  ProjectRuntimeEnvSpecInspectTool,
+  ProjectRuntimeEnvUpsertTool,
+  ProjectRuntimeResourceQueryTool,
+  ProjectRuntimeResourceUpsertTool,
+  ProjectRuntimeServerQueryTool,
+} from "./project-runtime"
 import { ConvertTool } from "./convert"
 import { WorkflowTool } from "./workflow"
 import { Glob } from "../util/glob"
@@ -158,6 +168,7 @@ export namespace ToolRegistry {
       AtomGraphPromptSmartTool,
       ExperimentCreateTool,
       ExperimentQueryTool,
+      ResearchCodeQueryTool,
       ResearchBackgroundTool,
       ResearchGoalTool,
       ResearchMacroTool,
@@ -168,6 +179,14 @@ export namespace ToolRegistry {
       ExperimentExecutionWatchUpdateTool,
       ExperimentRemoteTaskStartTool,
       ExperimentRemoteTaskGetTool,
+      ExperimentRemoteTaskListTool,
+      ProjectRuntimeServerQueryTool,
+      ProjectRuntimeEnvSpecInspectTool,
+      ProjectRuntimeEnsureTool,
+      ProjectRuntimeEnvQueryTool,
+      ProjectRuntimeEnvUpsertTool,
+      ProjectRuntimeResourceQueryTool,
+      ProjectRuntimeResourceUpsertTool,
       ConvertTool,
       WorkflowTool,
       ...(Flag.OPENCODE_EXPERIMENTAL_LSP_TOOL ? [LspTool] : []),

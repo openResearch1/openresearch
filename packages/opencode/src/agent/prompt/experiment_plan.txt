@@ -164,7 +164,9 @@ List every pip package required, including `wandb` and any packages from `requir
   - `source`
   - `strategy` as `remote_download`
   - `target_path` as a remote absolute path, typically under `resource_root`
-  - whether `experiment_remote_download` is required
+  - whether it is a project-level shared resource
+  - whether `project_runtime_resource_download` is required for missing, stale, failed, invalid, or network-download resources
+  - whether `experiment_resource_prepare` is required for experiment-specific confirmation, directory creation, extraction, conversion, symlinks, manifests, copying/moving, or layout adaptation
   - whether it should be shared across experiments or be experiment-specific
   - verification checks that confirm the download is usable
   - the exact runtime CLI argument that must receive `target_path`

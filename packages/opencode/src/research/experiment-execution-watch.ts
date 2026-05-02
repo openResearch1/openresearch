@@ -1,8 +1,9 @@
 import { and, Database, eq } from "../storage/db"
-import { ExperimentExecutionWatchTable, ExperimentTable, ExperimentWatchTable } from "./research.sql"
+import { ExperimentExecutionWatchTable, ExperimentTable, ExperimentWatchTable, RemoteTaskTable } from "./research.sql"
 
 type ExecutionStatus = typeof ExperimentExecutionWatchTable.$inferSelect.status
 type ExecutionStage = typeof ExperimentExecutionWatchTable.$inferSelect.stage
+type Task = typeof RemoteTaskTable.$inferSelect
 
 interface UpdateInput {
   expId?: string
@@ -37,6 +38,39 @@ function row(input: { expId?: string; watchId?: string }) {
   return Database.use((db) =>
     db.select().from(ExperimentExecutionWatchTable).where(eq(ExperimentExecutionWatchTable.exp_id, input.expId!)).get(),
   )
+}
+
+function tasks(expId: string) {
+  return Database.use((db) => db.select().from(RemoteTaskTable).where(eq(RemoteTaskTable.exp_id, expId)).all()).sort(
+    (a, b) => b.time_updated - a.time_updated,
+  )
+}
+
+function active(task: Task) {
+  return task.status === "pending" || task.status === "running"
+}
+
+function status(task: Task): ExecutionStatus {
+  if (task.status === "finished") return "finished"
+  if (task.status === "failed" || task.status === "crashed") return "failed"
+  if (task.status === "canceled") return "canceled"
+  return "running"
+}
+
+function stage(task: Task): ExecutionStage {
+  if (task.kind === "env_setup") return "setting_up_env"
+  if (task.kind === "resource_download") return "remote_downloading"
+  return "running_experiment"
+}
+
+function message(task: Task) {
+  if (task.status === "finished") return `${task.title} finished`
+  if (task.status === "failed" || task.status === "crashed") return task.error_message ?? `${task.title} failed`
+  return task.title
+}
+
+function finished(task: Task) {
+  return task.status === "finished" || task.status === "failed" || task.status === "crashed" || task.status === "canceled"
 }
 
 export namespace ExperimentExecutionWatch {
@@ -122,6 +156,24 @@ export namespace ExperimentExecutionWatch {
 
   export function syncRemoteTask(expId: string, _opts?: SyncOptions) {
     createOrGet(expId, title(expId))
+    const exp = Database.use((db) => db.select().from(ExperimentTable).where(eq(ExperimentTable.exp_id, expId)).get())
+    if (exp?.kind !== "project_runtime") return
+    const rows = tasks(expId)
+    const current = rows.filter(active)
+    const head = current[0] ?? rows[0]
+    if (!head) return
+    update({
+      expId,
+      status: current.length ? "running" : status(head),
+      stage: current.some((item) => item.kind === "env_setup")
+        ? "setting_up_env"
+        : current.some((item) => item.kind === "resource_download")
+          ? "remote_downloading"
+          : stage(head),
+      message: current.length > 1 ? `${current.length} remote tasks running` : message(head),
+      errorMessage: current.length ? null : head.status === "failed" || head.status === "crashed" ? head.error_message : null,
+      finishedAt: current.length ? null : finished(head) ? head.time_updated : null,
+    })
   }
 
   export function title(expId: string) {

@@ -10,6 +10,8 @@ export {
   ExperimentWatchTable,
   ExperimentExecutionWatchTable,
   RemoteTaskTable,
+  ProjectRuntimeEnvironmentTable,
+  ProjectRuntimeResourceTable,
   AtomTable,
   AtomRelationTable,
   ArticleTable,
