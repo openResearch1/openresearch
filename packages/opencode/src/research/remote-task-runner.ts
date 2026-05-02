@@ -147,13 +147,17 @@ export async function inspectRemoteTask(input: {
   screenName: string
   targetPath?: string | null
 }) {
+  return exec(input.server, inspectRemoteTaskScript(input))
+}
+
+export function inspectRemoteTaskScript(input: { logPath: string; screenName: string; targetPath?: string | null }) {
   const match = `.${input.screenName}`
-  const remote = [
+  return [
     "set -euo pipefail",
     `printf '__SCREEN__\n'`,
     `out=$(screen -ls 2>/dev/null || true)`,
     `line=$(printf '%s\n' "$out" | grep -F -- ${sh(match)} || true)`,
-    `if printf '%s\n' "$line" | grep -F -- '(Detached)' >/dev/null 2>&1; then printf 'detached'; elif printf '%s\n' "$line" | grep -F -- '(Attached)' >/dev/null 2>&1; then printf 'attached'; elif [ -n "$line" ]; then printf 'running'; else printf 'stopped'; fi`,
+    `if printf '%s\n' "$line" | grep -F -- '(Detached)' >/dev/null 2>&1; then printf 'detached'; elif printf '%s\n' "$line" | grep -F -- '(Attached)' >/dev/null 2>&1; then printf 'attached'; elif printf '%s\n' "$line" | grep -F -- '(Dead' >/dev/null 2>&1; then printf 'dead'; elif [ -n "$line" ]; then printf 'unknown'; else printf 'stopped'; fi`,
     `printf '\n__TARGET__\n'`,
     input.targetPath
       ? `if [ -e ${sh(input.targetPath)} ]; then printf 'present'; else printf 'missing'; fi`
@@ -161,7 +165,6 @@ export async function inspectRemoteTask(input: {
     `printf '\n__TAIL__\n'`,
     `if [ -f ${sh(input.logPath)} ]; then tail -n 40 ${sh(input.logPath)}; fi`,
   ].join("\n")
-  return exec(input.server, remote)
 }
 
 export function parseInspectOutput(output: string) {
@@ -185,7 +188,10 @@ export function parseInspectOutput(output: string) {
 }
 
 export function exitCodeFromTail(tail: string) {
-  const match = /EXIT_CODE:(\d+)/.exec(tail)
+  const lines = tail.split("\n")
+  const start = lines.findLastIndex((line) => line.trimStart().startsWith("START"))
+  const text = (start === -1 ? lines : lines.slice(start)).join("\n")
+  const match = [...text.matchAll(/EXIT_CODE:(\d+)/g)].at(-1)
   if (!match) return
   return Number(match[1])
 }

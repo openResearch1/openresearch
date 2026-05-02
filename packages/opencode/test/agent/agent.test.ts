@@ -104,6 +104,36 @@ test("general agent denies todo tools", async () => {
   })
 })
 
+test("resource agents have separate download and prepare boundaries", async () => {
+  await using tmp = await tmpdir()
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const download = await Agent.get("project_runtime_resource_download")
+      const prepare = await Agent.get("experiment_resource_prepare")
+      const old = await Agent.get("experiment_remote_download")
+
+      expect(download).toBeDefined()
+      expect(download?.mode).toBe("subagent")
+      expect(download?.native).toBe(true)
+      expect(evalPerm(download, "huggingface_search")).toBe("allow")
+      expect(evalPerm(download, "modelscope_search")).toBe("allow")
+      expect(evalPerm(download, "experiment_remote_task_start")).toBe("allow")
+      expect(evalPerm(download, "project_runtime_resource_upsert")).toBe("allow")
+
+      expect(prepare).toBeDefined()
+      expect(prepare?.mode).toBe("subagent")
+      expect(prepare?.native).toBe(true)
+      expect(evalPerm(prepare, "huggingface_search")).toBe("deny")
+      expect(evalPerm(prepare, "modelscope_search")).toBe("deny")
+      expect(evalPerm(prepare, "experiment_remote_task_start")).toBe("allow")
+      expect(evalPerm(prepare, "project_runtime_resource_query")).toBe("allow")
+
+      expect(old).toBeUndefined()
+    },
+  })
+})
+
 test("compaction agent denies all permissions", async () => {
   await using tmp = await tmpdir()
   await Instance.provide({

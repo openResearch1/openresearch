@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test"
-import { session, taskEnv, wrapRemoteScript } from "../../src/research/remote-task-runner"
+import {
+  exitCodeFromTail,
+  inspectRemoteTaskScript,
+  session,
+  taskEnv,
+  wrapRemoteScript,
+} from "../../src/research/remote-task-runner"
 
 describe("research.remote-task-runner", () => {
   test("wraps direct ssh script as heredoc command", () => {
@@ -53,6 +59,19 @@ EOF`)
 
     expect(cmd).toContain("<<'EOF_OPENCODE'")
     expect(cmd.endsWith("EOF_OPENCODE")).toBeTrue()
+  })
+
+  test("reads exit code from the latest task log segment", () => {
+    expect(exitCodeFromTail("START old\nEXIT_CODE:0\nSTART new")).toBeUndefined()
+    expect(exitCodeFromTail("START old\nEXIT_CODE:0\nSTART new\nEXIT_CODE:130")).toBe(130)
+  })
+
+  test("classifies dead screen sessions distinctly", () => {
+    const script = inspectRemoteTaskScript({ logPath: "/tmp/task.log", screenName: "openresearch-abc" })
+
+    expect(script).toContain("grep -F -- '(Dead'")
+    expect(script).toContain("printf 'dead'")
+    expect(script).toContain("printf 'unknown'")
   })
 
   test("generates short unique screen session names", () => {

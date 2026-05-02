@@ -1149,10 +1149,17 @@ export type PermissionConfig =
       codesearch?: PermissionActionConfig
       huggingface_search?: PermissionActionConfig
       modelscope_search?: PermissionActionConfig
-      experiment_resource_job_start?: PermissionActionConfig
-      experiment_local_download_watch_init?: PermissionActionConfig
-      experiment_local_download_watch_update?: PermissionActionConfig
-      experiment_local_download_watch_refresh?: PermissionActionConfig
+      research_code_query?: PermissionActionConfig
+      experiment_remote_task_start?: PermissionActionConfig
+      experiment_remote_task_get?: PermissionActionConfig
+      experiment_remote_task_list?: PermissionActionConfig
+      project_runtime_server_query?: PermissionActionConfig
+      project_runtime_env_spec_inspect?: PermissionActionConfig
+      project_runtime_ensure?: PermissionActionConfig
+      project_runtime_env_query?: PermissionActionConfig
+      project_runtime_env_upsert?: PermissionActionConfig
+      project_runtime_resource_query?: PermissionActionConfig
+      project_runtime_resource_upsert?: PermissionActionConfig
       lsp?: PermissionRuleConfig
       doom_loop?: PermissionActionConfig
       skill?: PermissionRuleConfig
@@ -4512,6 +4519,8 @@ export type ResearchSessionAtomGetResponses = {
       time_updated: number
       experiments: Array<{
         exp_id: string
+        kind: "experiment" | "project_runtime"
+        runtime_key: string | null
         research_project_id: string
         exp_name: string
         exp_session_id: string | null
@@ -4532,6 +4541,16 @@ export type ResearchSessionAtomGetResponses = {
               resource_root?: string
               wandb_api_key?: string
               wandb_project_name?: string
+              network?:
+                | {
+                    mode: "direct"
+                  }
+                | {
+                    mode: "tunnel"
+                    local_proxy: string
+                    remote_port: number
+                    no_proxy?: string
+                  }
             }
           | {
               mode: "ssh_config"
@@ -4542,6 +4561,16 @@ export type ResearchSessionAtomGetResponses = {
               resource_root?: string
               wandb_api_key?: string
               wandb_project_name?: string
+              network?:
+                | {
+                    mode: "direct"
+                  }
+                | {
+                    mode: "tunnel"
+                    local_proxy: string
+                    remote_port: number
+                    no_proxy?: string
+                  }
             }
           | null
         code_path: string
@@ -4930,6 +4959,8 @@ export type ResearchExperimentBySessionResponses = {
    */
   200: {
     exp_id: string
+    kind: "experiment" | "project_runtime"
+    runtime_key: string | null
     research_project_id: string
     exp_name: string
     exp_session_id: string | null
@@ -4950,6 +4981,16 @@ export type ResearchExperimentBySessionResponses = {
           resource_root?: string
           wandb_api_key?: string
           wandb_project_name?: string
+          network?:
+            | {
+                mode: "direct"
+              }
+            | {
+                mode: "tunnel"
+                local_proxy: string
+                remote_port: number
+                no_proxy?: string
+              }
         }
       | {
           mode: "ssh_config"
@@ -4960,6 +5001,16 @@ export type ResearchExperimentBySessionResponses = {
           resource_root?: string
           wandb_api_key?: string
           wandb_project_name?: string
+          network?:
+            | {
+                mode: "direct"
+              }
+            | {
+                mode: "tunnel"
+                local_proxy: string
+                remote_port: number
+                no_proxy?: string
+              }
         }
       | null
     code_path: string
@@ -5114,6 +5165,16 @@ export type ResearchServerListResponses = {
           resource_root?: string
           wandb_api_key?: string
           wandb_project_name?: string
+          network?:
+            | {
+                mode: "direct"
+              }
+            | {
+                mode: "tunnel"
+                local_proxy: string
+                remote_port: number
+                no_proxy?: string
+              }
         }
       | {
           mode: "ssh_config"
@@ -5124,6 +5185,16 @@ export type ResearchServerListResponses = {
           resource_root?: string
           wandb_api_key?: string
           wandb_project_name?: string
+          network?:
+            | {
+                mode: "direct"
+              }
+            | {
+                mode: "tunnel"
+                local_proxy: string
+                remote_port: number
+                no_proxy?: string
+              }
         }
     time_created: number
     time_updated: number
@@ -5144,6 +5215,16 @@ export type ResearchServerCreateData = {
           resource_root?: string
           wandb_api_key?: string
           wandb_project_name?: string
+          network?:
+            | {
+                mode: "direct"
+              }
+            | {
+                mode: "tunnel"
+                local_proxy: string
+                remote_port: number
+                no_proxy?: string
+              }
         }
       | {
           mode: "ssh_config"
@@ -5154,6 +5235,16 @@ export type ResearchServerCreateData = {
           resource_root?: string
           wandb_api_key?: string
           wandb_project_name?: string
+          network?:
+            | {
+                mode: "direct"
+              }
+            | {
+                mode: "tunnel"
+                local_proxy: string
+                remote_port: number
+                no_proxy?: string
+              }
         }
       | {
           address: string
@@ -5163,6 +5254,16 @@ export type ResearchServerCreateData = {
           resource_root?: string
           wandb_api_key?: string
           wandb_project_name?: string
+          network?:
+            | {
+                mode: "direct"
+              }
+            | {
+                mode: "tunnel"
+                local_proxy: string
+                remote_port: number
+                no_proxy?: string
+              }
         }
   }
   path?: never
@@ -5189,6 +5290,16 @@ export type ResearchServerCreateResponses = {
           resource_root?: string
           wandb_api_key?: string
           wandb_project_name?: string
+          network?:
+            | {
+                mode: "direct"
+              }
+            | {
+                mode: "tunnel"
+                local_proxy: string
+                remote_port: number
+                no_proxy?: string
+              }
         }
       | {
           mode: "ssh_config"
@@ -5199,6 +5310,16 @@ export type ResearchServerCreateResponses = {
           resource_root?: string
           wandb_api_key?: string
           wandb_project_name?: string
+          network?:
+            | {
+                mode: "direct"
+              }
+            | {
+                mode: "tunnel"
+                local_proxy: string
+                remote_port: number
+                no_proxy?: string
+              }
         }
   }
 }
@@ -5244,6 +5365,16 @@ export type ResearchServerImportSshConfigResponses = {
             resource_root?: string
             wandb_api_key?: string
             wandb_project_name?: string
+            network?:
+              | {
+                  mode: "direct"
+                }
+              | {
+                  mode: "tunnel"
+                  local_proxy: string
+                  remote_port: number
+                  no_proxy?: string
+                }
           }
         | {
             mode: "ssh_config"
@@ -5254,6 +5385,16 @@ export type ResearchServerImportSshConfigResponses = {
             resource_root?: string
             wandb_api_key?: string
             wandb_project_name?: string
+            network?:
+              | {
+                  mode: "direct"
+                }
+              | {
+                  mode: "tunnel"
+                  local_proxy: string
+                  remote_port: number
+                  no_proxy?: string
+                }
           }
     }>
     skipped: Array<string>
@@ -5295,6 +5436,140 @@ export type ResearchServerDeleteResponses = {
 
 export type ResearchServerDeleteResponse = ResearchServerDeleteResponses[keyof ResearchServerDeleteResponses]
 
+export type ResearchServerUpdateData = {
+  body?: {
+    config:
+      | {
+          mode: "direct"
+          address: string
+          port: number
+          user: string
+          password?: string
+          resource_root?: string
+          wandb_api_key?: string
+          wandb_project_name?: string
+          network?:
+            | {
+                mode: "direct"
+              }
+            | {
+                mode: "tunnel"
+                local_proxy: string
+                remote_port: number
+                no_proxy?: string
+              }
+        }
+      | {
+          mode: "ssh_config"
+          host_alias: string
+          ssh_config_path?: string
+          user?: string
+          password?: string
+          resource_root?: string
+          wandb_api_key?: string
+          wandb_project_name?: string
+          network?:
+            | {
+                mode: "direct"
+              }
+            | {
+                mode: "tunnel"
+                local_proxy: string
+                remote_port: number
+                no_proxy?: string
+              }
+        }
+      | {
+          address: string
+          port: number
+          user: string
+          password?: string
+          resource_root?: string
+          wandb_api_key?: string
+          wandb_project_name?: string
+          network?:
+            | {
+                mode: "direct"
+              }
+            | {
+                mode: "tunnel"
+                local_proxy: string
+                remote_port: number
+                no_proxy?: string
+              }
+        }
+  }
+  path: {
+    serverId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/research/server/{serverId}"
+}
+
+export type ResearchServerUpdateErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ResearchServerUpdateError = ResearchServerUpdateErrors[keyof ResearchServerUpdateErrors]
+
+export type ResearchServerUpdateResponses = {
+  /**
+   * Updated remote server
+   */
+  200: {
+    id: string
+    config:
+      | {
+          mode: "direct"
+          address: string
+          port: number
+          user: string
+          password?: string
+          resource_root?: string
+          wandb_api_key?: string
+          wandb_project_name?: string
+          network?:
+            | {
+                mode: "direct"
+              }
+            | {
+                mode: "tunnel"
+                local_proxy: string
+                remote_port: number
+                no_proxy?: string
+              }
+        }
+      | {
+          mode: "ssh_config"
+          host_alias: string
+          ssh_config_path?: string
+          user?: string
+          password?: string
+          resource_root?: string
+          wandb_api_key?: string
+          wandb_project_name?: string
+          network?:
+            | {
+                mode: "direct"
+              }
+            | {
+                mode: "tunnel"
+                local_proxy: string
+                remote_port: number
+                no_proxy?: string
+              }
+        }
+  }
+}
+
+export type ResearchServerUpdateResponse = ResearchServerUpdateResponses[keyof ResearchServerUpdateResponses]
+
 export type ResearchExperimentWatchListData = {
   body?: never
   path?: never
@@ -5311,19 +5586,18 @@ export type ResearchExperimentWatchListResponses = {
    */
   200: Array<{
     watch_id: string
-    kind: "experiment"
+    kind: "experiment" | "project_runtime"
     exp_id: string
     exp_session_id: string | null
     exp_result_path: string | null
     title: string
     status: "pending" | "running" | "finished" | "failed" | "canceled"
     stage:
+      | "pending"
       | "planning"
       | "coding"
       | "deploying_code"
       | "setting_up_env"
-      | "local_downloading"
-      | "syncing_resources"
       | "remote_downloading"
       | "verifying_resources"
       | "running_experiment"
@@ -5337,10 +5611,28 @@ export type ResearchExperimentWatchListResponses = {
     wandb_entity: string | null
     wandb_project: string | null
     wandb_run_id: string | null
-    local_download_resource_name: string | null
-    local_download_local_path: string | null
-    local_download_log_path: string | null
-    local_download_status_path: string | null
+    remote_task_title: string | null
+    remote_task_kind: "resource_download" | "experiment_run" | "env_setup" | null
+    remote_task_status: "pending" | "running" | "finished" | "failed" | "crashed" | "canceled" | null
+    remote_task_target_path: string | null
+    remote_task_screen_name: string | null
+    remote_task_log_path: string | null
+    remote_task_error_message: string | null
+    remote_tasks: Array<{
+      task_id: string
+      title: string
+      kind: "resource_download" | "experiment_run" | "env_setup"
+      status: "pending" | "running" | "finished" | "failed" | "crashed" | "canceled"
+      resource_key: string | null
+      target_path: string | null
+      screen_name: string
+      log_path: string | null
+      error_message: string | null
+      source_selection: string | null
+      method: string | null
+      time_created: number
+      time_updated: number
+    }>
   }>
 }
 
@@ -5450,6 +5742,111 @@ export type ResearchExperimentWatchRefreshResponses = {
 export type ResearchExperimentWatchRefreshResponse =
   ResearchExperimentWatchRefreshResponses[keyof ResearchExperimentWatchRefreshResponses]
 
+export type ResearchExperimentWatchRefreshWandbData = {
+  body?: never
+  path: {
+    watchId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/research/experiment-watch/{watchId}/refresh-wandb"
+}
+
+export type ResearchExperimentWatchRefreshWandbErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ResearchExperimentWatchRefreshWandbError =
+  ResearchExperimentWatchRefreshWandbErrors[keyof ResearchExperimentWatchRefreshWandbErrors]
+
+export type ResearchExperimentWatchRefreshWandbResponses = {
+  /**
+   * Refresh result
+   */
+  200: {
+    success: boolean
+    message: string
+  }
+}
+
+export type ResearchExperimentWatchRefreshWandbResponse =
+  ResearchExperimentWatchRefreshWandbResponses[keyof ResearchExperimentWatchRefreshWandbResponses]
+
+export type ResearchExperimentWatchRefreshRemoteTaskData = {
+  body?: never
+  path: {
+    watchId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/research/experiment-watch/{watchId}/refresh-remote-task"
+}
+
+export type ResearchExperimentWatchRefreshRemoteTaskErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ResearchExperimentWatchRefreshRemoteTaskError =
+  ResearchExperimentWatchRefreshRemoteTaskErrors[keyof ResearchExperimentWatchRefreshRemoteTaskErrors]
+
+export type ResearchExperimentWatchRefreshRemoteTaskResponses = {
+  /**
+   * Refresh result
+   */
+  200: {
+    success: boolean
+    message: string
+  }
+}
+
+export type ResearchExperimentWatchRefreshRemoteTaskResponse =
+  ResearchExperimentWatchRefreshRemoteTaskResponses[keyof ResearchExperimentWatchRefreshRemoteTaskResponses]
+
+export type ResearchExperimentWatchLogData = {
+  body?: never
+  path: {
+    watchId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/research/experiment-watch/{watchId}/log"
+}
+
+export type ResearchExperimentWatchLogErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ResearchExperimentWatchLogError = ResearchExperimentWatchLogErrors[keyof ResearchExperimentWatchLogErrors]
+
+export type ResearchExperimentWatchLogResponses = {
+  /**
+   * Remote log content
+   */
+  200: {
+    ok: boolean
+    path: string
+    content: string
+  }
+}
+
+export type ResearchExperimentWatchLogResponse =
+  ResearchExperimentWatchLogResponses[keyof ResearchExperimentWatchLogResponses]
+
 export type ResearchExperimentDeleteData = {
   body?: never
   path: {
@@ -5515,6 +5912,8 @@ export type ResearchExperimentUpdateResponses = {
    */
   200: {
     exp_id: string
+    kind: "experiment" | "project_runtime"
+    runtime_key: string | null
     research_project_id: string
     exp_name: string
     exp_session_id: string | null
@@ -5535,6 +5934,16 @@ export type ResearchExperimentUpdateResponses = {
           resource_root?: string
           wandb_api_key?: string
           wandb_project_name?: string
+          network?:
+            | {
+                mode: "direct"
+              }
+            | {
+                mode: "tunnel"
+                local_proxy: string
+                remote_port: number
+                no_proxy?: string
+              }
         }
       | {
           mode: "ssh_config"
@@ -5545,6 +5954,16 @@ export type ResearchExperimentUpdateResponses = {
           resource_root?: string
           wandb_api_key?: string
           wandb_project_name?: string
+          network?:
+            | {
+                mode: "direct"
+              }
+            | {
+                mode: "tunnel"
+                local_proxy: string
+                remote_port: number
+                no_proxy?: string
+              }
         }
       | null
     code_path: string

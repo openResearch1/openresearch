@@ -34,15 +34,15 @@ Do not launch the long-running training process with `ssh`, `bash`, or any other
 
 ### Step 2: Verify Startup
 
-After launching, use `experiment_remote_task_get` to inspect the remote task status and recent logs.
+After launching, save the returned `taskId` and use `experiment_remote_task_get` with that `taskId` to inspect the remote task status and recent logs.
 
-Do not use ad-hoc `bash`, `ssh`, `ps`, `grep`, `tail`, or similar commands to check whether the training job started successfully. Startup verification must go through `experiment_remote_task_get`.
+Do not use ad-hoc `bash`, `ssh`, `ps`, `grep`, `tail`, or similar commands to check whether the training job started successfully. Startup verification must go through `experiment_remote_task_get` with the launched task's `taskId`.
 
 ### Step 3: Monitor Startup
 
-Use `experiment_remote_task_get` to monitor whether the experiment is still running and whether the startup logs look healthy.
+Use `experiment_remote_task_get` with the launched task's `taskId` to monitor whether the experiment is still running and whether the startup logs look healthy.
 
-1. Wait briefly, then call `experiment_remote_task_get` again.
+1. Wait briefly, then call `experiment_remote_task_get` with the same `taskId` again.
 2. Read the returned task status, screen state, and recent log output.
 3. **If the task output shows errors or the task has exited:**
    - Summarize the returned error and relevant recent logs.
@@ -54,7 +54,7 @@ Use `experiment_remote_task_get` to monitor whether the experiment is still runn
 
 - **Do NOT modify the experiment code.** Your job is launch and monitor only.
 - Always use `experiment_remote_task_start` for the long-running experiment launch.
-- Always use `experiment_remote_task_get` for post-launch inspection and startup monitoring.
+- Always use `experiment_remote_task_get` with the launched task's `taskId` for post-launch inspection and startup monitoring. If the `taskId` is unknown, call `experiment_remote_task_list` for the experiment `expId` first.
 - Never use ad-hoc `bash` or `ssh` commands just to verify whether the experiment is running.
 - Always export `WANDB_API_KEY` in the launch command so the remote process can authenticate to W&B.
 - Always export `WANDB_CONSOLE=off` in the launch command so logs stay in the remote task log instead of being captured by W&B.

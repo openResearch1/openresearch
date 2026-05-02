@@ -203,6 +203,12 @@ export function getToolInfo(tool: string, input: any = {}): ToolInfo {
         title: i18n.t("ui.tool.shell"),
         subtitle: input.description,
       }
+    case "experiment_remote_task_get":
+      return {
+        icon: "mcp",
+        title: "Remote task",
+        subtitle: input.expId,
+      }
     case "edit":
       return {
         icon: "code-lines",
@@ -1225,6 +1231,78 @@ ToolRegistry.register({
             </div>
           )}
         </Show>
+      </ToolCall>
+    )
+  },
+})
+
+ToolRegistry.register({
+  name: "experiment_remote_task_get",
+  render(props) {
+    const pending = createMemo(() => busy(props.status))
+    const reveal = useToolReveal(pending, () => props.reveal !== false)
+    const meta = () => props.metadata ?? {}
+    const phase = () => (typeof meta().phase === "string" ? meta().phase : undefined)
+    const remote = () => (typeof meta().status === "string" ? meta().status : undefined)
+    const title = () => {
+      if (phase() === "waiting_terminal") return "Waiting for remote task"
+      if (remote()) return "Remote task"
+      return "Inspect remote task"
+    }
+    const subtitle = () => {
+      const value = meta().title
+      if (typeof value === "string" && value) return value
+      const input = props.input.expId
+      if (typeof input === "string") return input
+      return undefined
+    }
+    const lines = createMemo(() => {
+      const items: string[] = []
+      const kind = meta().kind
+      const status = remote()
+      const taskId = meta().taskId
+      const expId = meta().expId ?? props.input.expId
+      if (typeof status === "string") items.push(`status: ${status}`)
+      if (typeof kind === "string") items.push(`kind: ${kind}`)
+      if (typeof taskId === "string") items.push(`task: ${taskId}`)
+      if (typeof expId === "string") items.push(`exp: ${expId}`)
+      return items
+    })
+    const output = createMemo(() => (typeof props.output === "string" ? stripAnsi(props.output) : ""))
+    const open = createMemo(
+      () => pending() || meta().waited === true || ["failed", "crashed", "canceled"].includes(remote() ?? ""),
+    )
+
+    return (
+      <ToolCall
+        variant="panel"
+        {...props}
+        icon="mcp"
+        animate
+        springContent
+        defaultOpen={open()}
+        trigger={
+          <div data-slot="basic-tool-tool-info-structured">
+            <div data-slot="basic-tool-tool-info-main">
+              <span data-slot="basic-tool-tool-title">
+                <TextShimmer text={title()} active={pending()} />
+              </span>
+              <Show when={subtitle()}>{(text) => <ToolText text={text()} animate={reveal()} />}</Show>
+            </div>
+          </div>
+        }
+      >
+        <div data-component="tool-output" data-scrollable>
+          <Show when={phase() === "waiting_terminal"}>
+            <div class="text-12-regular text-text-weak pb-2">Waiting until the remote task reaches a terminal status.</div>
+          </Show>
+          <Show when={lines().length > 0}>
+            <pre class="text-11-regular text-text-weak whitespace-pre-wrap break-words pb-2">
+              <code>{lines().join("\n")}</code>
+            </pre>
+          </Show>
+          <Show when={output()}>{(text) => <Markdown text={text()} />}</Show>
+        </div>
       </ToolCall>
     )
   },

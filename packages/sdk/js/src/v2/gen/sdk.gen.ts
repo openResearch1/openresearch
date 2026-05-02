@@ -152,8 +152,14 @@ import type {
   ResearchExperimentWatchDeleteErrors,
   ResearchExperimentWatchDeleteResponses,
   ResearchExperimentWatchListResponses,
+  ResearchExperimentWatchLogErrors,
+  ResearchExperimentWatchLogResponses,
   ResearchExperimentWatchRefreshErrors,
+  ResearchExperimentWatchRefreshRemoteTaskErrors,
+  ResearchExperimentWatchRefreshRemoteTaskResponses,
   ResearchExperimentWatchRefreshResponses,
+  ResearchExperimentWatchRefreshWandbErrors,
+  ResearchExperimentWatchRefreshWandbResponses,
   ResearchProjectCreateErrors,
   ResearchProjectCreateResponses,
   ResearchProjectExportErrors,
@@ -176,6 +182,8 @@ import type {
   ResearchServerImportSshConfigErrors,
   ResearchServerImportSshConfigResponses,
   ResearchServerListResponses,
+  ResearchServerUpdateErrors,
+  ResearchServerUpdateResponses,
   ResearchSessionAtomGetErrors,
   ResearchSessionAtomGetResponses,
   ResearchUploadErrors,
@@ -3695,6 +3703,16 @@ export class Server extends HeyApiClient {
             resource_root?: string
             wandb_api_key?: string
             wandb_project_name?: string
+            network?:
+              | {
+                  mode: "direct"
+                }
+              | {
+                  mode: "tunnel"
+                  local_proxy: string
+                  remote_port: number
+                  no_proxy?: string
+                }
           }
         | {
             mode: "ssh_config"
@@ -3705,6 +3723,16 @@ export class Server extends HeyApiClient {
             resource_root?: string
             wandb_api_key?: string
             wandb_project_name?: string
+            network?:
+              | {
+                  mode: "direct"
+                }
+              | {
+                  mode: "tunnel"
+                  local_proxy: string
+                  remote_port: number
+                  no_proxy?: string
+                }
           }
         | {
             address: string
@@ -3714,6 +3742,16 @@ export class Server extends HeyApiClient {
             resource_root?: string
             wandb_api_key?: string
             wandb_project_name?: string
+            network?:
+              | {
+                  mode: "direct"
+                }
+              | {
+                  mode: "tunnel"
+                  local_proxy: string
+                  remote_port: number
+                  no_proxy?: string
+                }
           }
     },
     options?: Options<never, ThrowOnError>,
@@ -3814,6 +3852,106 @@ export class Server extends HeyApiClient {
       ...params,
     })
   }
+
+  /**
+   * Update a remote server
+   */
+  public update<ThrowOnError extends boolean = false>(
+    parameters: {
+      serverId: string
+      directory?: string
+      workspace?: string
+      config?:
+        | {
+            mode: "direct"
+            address: string
+            port: number
+            user: string
+            password?: string
+            resource_root?: string
+            wandb_api_key?: string
+            wandb_project_name?: string
+            network?:
+              | {
+                  mode: "direct"
+                }
+              | {
+                  mode: "tunnel"
+                  local_proxy: string
+                  remote_port: number
+                  no_proxy?: string
+                }
+          }
+        | {
+            mode: "ssh_config"
+            host_alias: string
+            ssh_config_path?: string
+            user?: string
+            password?: string
+            resource_root?: string
+            wandb_api_key?: string
+            wandb_project_name?: string
+            network?:
+              | {
+                  mode: "direct"
+                }
+              | {
+                  mode: "tunnel"
+                  local_proxy: string
+                  remote_port: number
+                  no_proxy?: string
+                }
+          }
+        | {
+            address: string
+            port: number
+            user: string
+            password?: string
+            resource_root?: string
+            wandb_api_key?: string
+            wandb_project_name?: string
+            network?:
+              | {
+                  mode: "direct"
+                }
+              | {
+                  mode: "tunnel"
+                  local_proxy: string
+                  remote_port: number
+                  no_proxy?: string
+                }
+          }
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "serverId" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "config" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).patch<
+      ResearchServerUpdateResponses,
+      ResearchServerUpdateErrors,
+      ThrowOnError
+    >({
+      url: "/research/server/{serverId}",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
 }
 
 export class ExperimentWatch extends HeyApiClient {
@@ -3908,6 +4046,108 @@ export class ExperimentWatch extends HeyApiClient {
       ThrowOnError
     >({
       url: "/research/experiment-watch/{watchId}/refresh",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Force refresh W&B watch
+   */
+  public refreshWandb<ThrowOnError extends boolean = false>(
+    parameters: {
+      watchId: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "watchId" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      ResearchExperimentWatchRefreshWandbResponses,
+      ResearchExperimentWatchRefreshWandbErrors,
+      ThrowOnError
+    >({
+      url: "/research/experiment-watch/{watchId}/refresh-wandb",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Force refresh remote task watch
+   */
+  public refreshRemoteTask<ThrowOnError extends boolean = false>(
+    parameters: {
+      watchId: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "watchId" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      ResearchExperimentWatchRefreshRemoteTaskResponses,
+      ResearchExperimentWatchRefreshRemoteTaskErrors,
+      ThrowOnError
+    >({
+      url: "/research/experiment-watch/{watchId}/refresh-remote-task",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Read remote task log for a watch
+   */
+  public log<ThrowOnError extends boolean = false>(
+    parameters: {
+      watchId: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "watchId" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      ResearchExperimentWatchLogResponses,
+      ResearchExperimentWatchLogErrors,
+      ThrowOnError
+    >({
+      url: "/research/experiment-watch/{watchId}/log",
       ...options,
       ...params,
     })
