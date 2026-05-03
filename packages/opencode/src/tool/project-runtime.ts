@@ -6,11 +6,7 @@ import z from "zod"
 import { Database, and, eq } from "@/storage/db"
 import { ProjectRuntime } from "@/research/project-runtime"
 import { Research } from "@/research/research"
-import {
-  ProjectRuntimeEnvironmentTable,
-  ProjectRuntimeResourceTable,
-  RemoteServerTable,
-} from "@/research/research.sql"
+import { ProjectRuntimeEnvironmentTable, ProjectRuntimeResourceTable, RemoteServerTable } from "@/research/research.sql"
 import { normalizeRemoteServerConfig, remoteServerLabel, type RemoteServerConfig } from "@/research/remote-server"
 import { Instance } from "@/project/instance"
 import { Filesystem } from "@/util/filesystem"
@@ -32,7 +28,9 @@ function text(value: unknown) {
 }
 
 function server(remoteServerId: string) {
-  const row = Database.use((db) => db.select().from(RemoteServerTable).where(eq(RemoteServerTable.id, remoteServerId)).get())
+  const row = Database.use((db) =>
+    db.select().from(RemoteServerTable).where(eq(RemoteServerTable.id, remoteServerId)).get(),
+  )
   if (!row) throw new Error(`remote server not found: ${remoteServerId}`)
   return row
 }
@@ -106,7 +104,12 @@ function unique(items: (string | undefined)[]) {
 }
 
 function safeName(input: string) {
-  return input.toLowerCase().replace(/[^a-z0-9_-]+/g, "_").replace(/^_+|_+$/g, "") || "env"
+  return (
+    input
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, "_")
+      .replace(/^_+|_+$/g, "") || "env"
+  )
 }
 
 export const ProjectRuntimeServerQueryTool = Tool.define("project_runtime_server_query", {
@@ -165,7 +168,9 @@ export const ProjectRuntimeServerQueryTool = Tool.define("project_runtime_server
       }
     })
     return {
-      title: params.remoteServerId ? `Remote server: ${servers[0]?.label ?? params.remoteServerId}` : `${servers.length} remote server(s)`,
+      title: params.remoteServerId
+        ? `Remote server: ${servers[0]?.label ?? params.remoteServerId}`
+        : `${servers.length} remote server(s)`,
       output: JSON.stringify(params.remoteServerId ? servers[0] : servers, null, 2),
       metadata: params.remoteServerId ? { server: servers[0] } : { servers },
     }
@@ -176,14 +181,23 @@ export const ProjectRuntimeEnvSpecInspectTool = Tool.define("project_runtime_env
   description:
     "Normalize AI-provided project runtime environment requirements into a stable spec and fingerprint. This tool does not infer dependencies from code; the agent must inspect code and server facts first.",
   parameters: z.object({
-    codePath: z.string().optional().describe("Local code directory already inspected by the agent. Recorded in spec only."),
+    codePath: z
+      .string()
+      .optional()
+      .describe("Local code directory already inspected by the agent. Recorded in spec only."),
     envKey: z.string().optional().describe("Stable project environment key to use instead of the generated key."),
     condaEnvName: z.string().optional().describe("Conda environment name to use instead of the generated name."),
     pythonVersion: z.string().optional().describe("Python major.minor version requirement, for example 3.10."),
     cudaVersion: z.string().optional().describe("CUDA major.minor requirement, for example 12.1."),
     pipPackages: z.array(z.string()).optional().describe("Pip requirements selected by the agent after code analysis."),
-    condaPackages: z.array(z.string()).optional().describe("Conda requirements selected by the agent after code/server analysis."),
-    systemPackages: z.array(z.string()).optional().describe("System packages selected by the agent after server analysis."),
+    condaPackages: z
+      .array(z.string())
+      .optional()
+      .describe("Conda requirements selected by the agent after code/server analysis."),
+    systemPackages: z
+      .array(z.string())
+      .optional()
+      .describe("System packages selected by the agent after server analysis."),
     installMode: z
       .enum(["dependency_only", "local_package_required", "editable_install_required", "unknown"])
       .optional()
@@ -410,7 +424,11 @@ export const ProjectRuntimeResourceQueryTool = Tool.define("project_runtime_reso
         )
         .all(),
     )
-    return { title: `${rows.length} project runtime resource(s)`, output: JSON.stringify(rows, null, 2), metadata: { rows } }
+    return {
+      title: `${rows.length} project runtime resource(s)`,
+      output: JSON.stringify(rows, null, 2),
+      metadata: { rows },
+    }
   },
 })
 

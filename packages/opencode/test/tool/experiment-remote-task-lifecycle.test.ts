@@ -478,9 +478,8 @@ describe("tool.experiment-remote-task lifecycle", () => {
       directory: tmp.path,
       fn: async () => {
         await seed(tmp.path)
-        const { ExperimentRemoteTaskGetTool, ExperimentRemoteTaskListTool, ExperimentRemoteTaskStartTool } = await import(
-          "../../src/tool/experiment-remote-task"
-        )
+        const { ExperimentRemoteTaskGetTool, ExperimentRemoteTaskListTool, ExperimentRemoteTaskStartTool } =
+          await import("../../src/tool/experiment-remote-task")
         const start = await ExperimentRemoteTaskStartTool.init()
         const cub = await start.execute(
           {
@@ -519,9 +518,9 @@ describe("tool.experiment-remote-task lifecycle", () => {
         expect(result.metadata.title).toBe("CUB download")
         expect(result.output).toContain("Task ID: " + cub.metadata.taskId)
 
-        await expect(get.execute({ expId: "exp-2", taskId: cub.metadata.taskId, waitForTerminal: false }, ctx)).rejects.toThrow(
-          "remote task does not belong to experiment",
-        )
+        await expect(
+          get.execute({ expId: "exp-2", taskId: cub.metadata.taskId, waitForTerminal: false }, ctx),
+        ).rejects.toThrow("remote task does not belong to experiment")
       },
     })
   })
@@ -625,10 +624,7 @@ describe("tool.experiment-remote-task lifecycle", () => {
         }))
 
         const get = await ExperimentRemoteTaskGetTool.init()
-        const result = await get.execute(
-          { expId: "exp-1", taskId: cub.metadata.taskId, waitForTerminal: false },
-          ctx,
-        )
+        const result = await get.execute({ expId: "exp-1", taskId: cub.metadata.taskId, waitForTerminal: false }, ctx)
 
         expect(inspectRemoteTaskMock).toHaveBeenCalledTimes(2)
         expect(result.metadata.taskId).toBe(cub.metadata.taskId)

@@ -12,11 +12,7 @@ function statusColor(status: RemoteTaskRow["status"] | WatchRow["remote_task_sta
 
 function notice(task: RemoteTaskRow) {
   const name =
-    task.kind === "experiment_run"
-      ? "Experiment task"
-      : task.kind === "env_setup"
-        ? "Environment setup"
-        : "Remote task"
+    task.kind === "experiment_run" ? "Experiment task" : task.kind === "env_setup" ? "Environment setup" : "Remote task"
   if (task.status === "failed" || task.status === "crashed") return `${name} failed`
   if (task.status === "finished") {
     if (task.kind === "resource_download") return "Remote task finished"

@@ -691,6 +691,23 @@ export function UserMessageDisplay(props: {
 
   const text = createMemo(() => textPart()?.text || "")
 
+  // Collab auto-wake posts parts like `collab_return` as user-role messages so
+  // the parent LLM's next turn can see them. Render them inline via PART_MAPPING
+  // so the user-side shows a compact "child completed" card rather than a blank
+  // message block between intermediate turns.
+  //
+  // Filter to parts that actually render SOMETHING visible. Right now only
+  // `collab_return` with `kind === "child_done"` renders; other kinds return
+  // null from their renderer. Keep the filter here so the wrapping chrome
+  // doesn't reserve blank space for parts that will self-hide.
+  const isVisibleSystemPart = (p: PartType): boolean => {
+    if (!PART_MAPPING[p.type]) return false
+    if (p.type === "text" || p.type === "file") return false
+    if (p.type === "collab_return") return (p as unknown as { kind: string }).kind === "child_done"
+    return true
+  }
+  const systemParts = createMemo(() => (props.parts?.filter(isVisibleSystemPart) ?? []) as PartType[])
+
   const files = createMemo(() => (props.parts?.filter((p) => p.type === "file") as FilePart[]) ?? [])
 
   const attachments = createMemo(() =>
@@ -745,84 +762,110 @@ export function UserMessageDisplay(props: {
     setTimeout(() => setCopied(false), 2000)
   }
 
+  // When the message has nothing visible at all (e.g. auto-wake posted only
+  // hidden progress pings), skip rendering entirely so no empty bubble shows
+  // up between intermediate rounds.
+  const empty = createMemo(() => !text() && files().length === 0 && systemParts().length === 0)
+  // When the message is driven entirely by framework parts (e.g. collab auto-wake
+  // where the only visible part is a `child_done` card), skip the standard
+  // user-message chrome — padding / copy button / meta line don't apply to
+  // framework injections.
+  const onlySystem = createMemo(() => systemParts().length > 0 && !text() && files().length === 0)
+
   return (
-    <GrowBox animate={!!props.animate} fade class="w-full min-w-0 self-stretch max-w-full">
-      <div data-component="user-message" data-interrupted={props.interrupted ? "" : undefined}>
-        <div data-slot="user-message-inner">
-          <Show when={attachments().length > 0}>
-            <div data-slot="user-message-attachments">
-              <For each={attachments()}>
-                {(file) => (
-                  <div
-                    data-slot="user-message-attachment"
-                    data-type={file.mime.startsWith("image/") ? "image" : "file"}
-                    data-queued={props.queued ? "" : undefined}
-                    onClick={() => {
-                      if (file.mime.startsWith("image/") && file.url) {
-                        openImagePreview(file.url, file.filename)
-                      }
-                    }}
-                  >
-                    <Show
-                      when={file.mime.startsWith("image/") && file.url}
-                      fallback={
-                        <div data-slot="user-message-attachment-icon">
-                          <Icon name="folder" />
-                        </div>
-                      }
-                    >
-                      <img
-                        data-slot="user-message-attachment-image"
-                        src={file.url}
-                        alt={file.filename ?? i18n.t("ui.message.attachment.alt")}
-                      />
-                    </Show>
-                  </div>
-                )}
-              </For>
-            </div>
-          </Show>
-          <Show when={text()}>
-            <>
-              <div data-slot="user-message-body">
-                <div data-slot="user-message-text" data-queued={props.queued ? "" : undefined}>
-                  <HighlightedText text={text()} references={inlineFiles()} agents={agents()} />
+    <Show when={!empty()}>
+      <Show
+        when={!onlySystem()}
+        fallback={
+          <div data-component="user-message-system" class="w-full min-w-0 self-stretch">
+            <For each={systemParts()}>{(part) => <Part part={part} message={props.message} />}</For>
+          </div>
+        }
+      >
+        <GrowBox animate={!!props.animate} fade class="w-full min-w-0 self-stretch max-w-full">
+          <div data-component="user-message" data-interrupted={props.interrupted ? "" : undefined}>
+            <Show when={systemParts().length > 0}>
+              <div data-slot="user-message-system-parts" class="w-full">
+                <For each={systemParts()}>{(part) => <Part part={part} message={props.message} />}</For>
+              </div>
+            </Show>
+            <div data-slot="user-message-inner">
+              <Show when={attachments().length > 0}>
+                <div data-slot="user-message-attachments">
+                  <For each={attachments()}>
+                    {(file) => (
+                      <div
+                        data-slot="user-message-attachment"
+                        data-type={file.mime.startsWith("image/") ? "image" : "file"}
+                        data-queued={props.queued ? "" : undefined}
+                        onClick={() => {
+                          if (file.mime.startsWith("image/") && file.url) {
+                            openImagePreview(file.url, file.filename)
+                          }
+                        }}
+                      >
+                        <Show
+                          when={file.mime.startsWith("image/") && file.url}
+                          fallback={
+                            <div data-slot="user-message-attachment-icon">
+                              <Icon name="folder" />
+                            </div>
+                          }
+                        >
+                          <img
+                            data-slot="user-message-attachment-image"
+                            src={file.url}
+                            alt={file.filename ?? i18n.t("ui.message.attachment.alt")}
+                          />
+                        </Show>
+                      </div>
+                    )}
+                  </For>
                 </div>
-                <GrowBox animate={!!props.animate} open={!!props.queued}>
-                  <div data-slot="user-message-queued-indicator">
-                    <TextShimmer text={i18n.t("ui.message.queued")} />
+              </Show>
+              <Show when={text()}>
+                <>
+                  <div data-slot="user-message-body">
+                    <div data-slot="user-message-text" data-queued={props.queued ? "" : undefined}>
+                      <HighlightedText text={text()} references={inlineFiles()} agents={agents()} />
+                    </div>
+                    <GrowBox animate={!!props.animate} open={!!props.queued}>
+                      <div data-slot="user-message-queued-indicator">
+                        <TextShimmer text={i18n.t("ui.message.queued")} />
+                      </div>
+                    </GrowBox>
                   </div>
-                </GrowBox>
-              </div>
-              <div data-slot="user-message-copy-wrapper" data-interrupted={props.interrupted ? "" : undefined}>
-                <Show when={userMeta()}>
-                  <span data-slot="user-message-meta" class="text-12-regular text-text-weak cursor-default">
-                    {userMeta()}
-                  </span>
-                </Show>
-                <Tooltip
-                  value={copied() ? i18n.t("ui.message.copied") : i18n.t("ui.message.copyMessage")}
-                  placement="top"
-                  gutter={4}
-                >
-                  <IconButton
-                    icon={copied() ? "check" : "copy"}
-                    size="normal"
-                    variant="ghost"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      handleCopy()
-                    }}
-                    aria-label={copied() ? i18n.t("ui.message.copied") : i18n.t("ui.message.copyMessage")}
-                  />
-                </Tooltip>
-              </div>
-            </>
-          </Show>
-        </div>
-      </div>
-    </GrowBox>
+                  <div data-slot="user-message-copy-wrapper" data-interrupted={props.interrupted ? "" : undefined}>
+                    <Show when={userMeta()}>
+                      <span data-slot="user-message-meta" class="text-12-regular text-text-weak cursor-default">
+                        {userMeta()}
+                      </span>
+                    </Show>
+                    <Tooltip
+                      value={copied() ? i18n.t("ui.message.copied") : i18n.t("ui.message.copyMessage")}
+                      placement="top"
+                      gutter={4}
+                    >
+                      <IconButton
+                        icon={copied() ? "check" : "copy"}
+                        size="normal"
+                        variant="ghost"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          handleCopy()
+                        }}
+                        aria-label={copied() ? i18n.t("ui.message.copied") : i18n.t("ui.message.copyMessage")}
+                      />
+                    </Tooltip>
+                  </div>
+                </>
+              </Show>
+            </div>
+          </div>
+        </GrowBox>
+      </Show>
+    </Show>
   )
 }
 
@@ -1095,6 +1138,106 @@ PART_MAPPING["reasoning"] = function ReasoningPartDisplay(props) {
   )
 }
 
+PART_MAPPING["collab_return"] = function CollabReturnPartDisplay(props) {
+  const data = useData()
+  const part = () =>
+    props.part as unknown as {
+      id: string
+      type: "collab_return"
+      kind: string
+      childAgentId?: string
+      childName?: string
+      childSessionId?: string
+      headline: string
+      body: string
+    }
+
+  // Only render the final completion card. Progress pings, intermediate
+  // failures, cancels, system events etc. are kept in the data (so the parent
+  // LLM can reason over them via toModelMessages) but hidden from the UI —
+  // the subagent dock already shows live status, and the visible message
+  // stream should only flag "this child's work landed, here's what it said."
+  if (part().kind !== "child_done") return null as unknown as JSX.Element
+
+  const style = { color: "#2ea043", label: "Completed" }
+
+  const childHref = createMemo(() => {
+    const sid = part().childSessionId
+    if (!sid) return
+    const direct = data.sessionHref?.(sid)
+    if (direct) return direct
+    if (typeof window === "undefined") return
+    const path = window.location.pathname
+    const idx = path.indexOf("/session")
+    if (idx === -1) return
+    return `${path.slice(0, idx)}/session/${sid}`
+  })
+
+  const onChildClick = (e: MouseEvent) => {
+    const sid = part().childSessionId
+    const url = childHref()
+    if (!sid || !url) return
+    e.stopPropagation()
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+    const nav = data.navigateToSession
+    if (!nav || typeof window === "undefined") return
+    e.preventDefault()
+    const handled = nav(sid)
+    if (handled) return
+    const before = window.location.pathname + window.location.search + window.location.hash
+    setTimeout(() => {
+      const after = window.location.pathname + window.location.search + window.location.hash
+      if (after === before) window.location.assign(url)
+    }, 50)
+  }
+
+  const row = () => (
+    <div
+      data-slot="collab-return-trigger"
+      style={{
+        display: "flex",
+        gap: "8px",
+        "align-items": "center",
+        padding: "4px 10px",
+        "border-left": `3px solid ${style.color}`,
+        background: "rgba(127,127,127,0.05)",
+        "font-size": "12px",
+        width: "100%",
+      }}
+    >
+      <span style={{ color: style.color, "font-weight": 600 }}>{style.label}</span>
+      <span style={{ opacity: 0.85 }}>{part().headline}</span>
+      <Show when={part().childSessionId}>
+        {(sid) => (
+          <a
+            href={childHref() ?? "#"}
+            onClick={onChildClick}
+            style={{ "margin-left": "auto", "font-size": "11px", opacity: 0.65 }}
+          >
+            {sid().slice(0, 10)}…
+          </a>
+        )}
+      </Show>
+      <Icon name="chevron-grabber-vertical" size="small" />
+    </div>
+  )
+
+  return (
+    <div data-component="collab-return-part" style={{ margin: "2px 0" }}>
+      <Accordion multiple>
+        <Accordion.Item value={part().id}>
+          <Accordion.Trigger>{row()}</Accordion.Trigger>
+          <Accordion.Content>
+            <div data-slot="collab-return-body" style={{ padding: "8px 12px", background: "rgba(127,127,127,0.04)" }}>
+              <Markdown text={part().body} cacheKey={part().id} />
+            </div>
+          </Accordion.Content>
+        </Accordion.Item>
+      </Accordion>
+    </div>
+  )
+}
+
 ToolRegistry.register({
   name: "read",
   render(props) {
@@ -1294,7 +1437,9 @@ ToolRegistry.register({
       >
         <div data-component="tool-output" data-scrollable>
           <Show when={phase() === "waiting_terminal"}>
-            <div class="text-12-regular text-text-weak pb-2">Waiting until the remote task reaches a terminal status.</div>
+            <div class="text-12-regular text-text-weak pb-2">
+              Waiting until the remote task reaches a terminal status.
+            </div>
           </Show>
           <Show when={lines().length > 0}>
             <pre class="text-11-regular text-text-weak whitespace-pre-wrap break-words pb-2">
@@ -1882,6 +2027,232 @@ ToolRegistry.register({
     )
 
     return <ToolCall variant="row" icon="task" status={props.status} trigger={trigger()} animate />
+  },
+})
+
+ToolRegistry.register({
+  name: "spawn_agent",
+  render(props) {
+    const data = useData()
+    const i18n = useI18n()
+    const childSessionId = () => props.metadata.sessionId as string | undefined
+    const agentId = () => props.metadata.agentId as string | undefined
+    const type = createMemo(() => {
+      const raw = props.input.agent_type ?? props.input.subagent_type
+      if (typeof raw !== "string" || !raw) return undefined
+      return raw[0]!.toUpperCase() + raw.slice(1)
+    })
+    const title = createMemo(() => agentTitle(i18n, type()))
+    const taskName = createMemo(() => {
+      const name = props.input.name
+      return typeof name === "string" && name.length > 0 ? name : undefined
+    })
+    const prompt = createMemo(() => {
+      const value = props.input.prompt
+      return typeof value === "string" && value.length > 0 ? value : undefined
+    })
+    const pending = createMemo(() => busy(props.status))
+
+    const href = createMemo(() => {
+      const sessionId = childSessionId()
+      if (!sessionId) return
+      const direct = data.sessionHref?.(sessionId)
+      if (direct) return direct
+      if (typeof window === "undefined") return
+      const path = window.location.pathname
+      const idx = path.indexOf("/session")
+      if (idx === -1) return
+      return `${path.slice(0, idx)}/session/${sessionId}`
+    })
+
+    const handleLinkClick = (e: MouseEvent) => {
+      const sessionId = childSessionId()
+      const url = href()
+      if (!sessionId || !url) return
+      e.stopPropagation()
+      if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+      const nav = data.navigateToSession
+      if (!nav || typeof window === "undefined") return
+      e.preventDefault()
+      const handled = nav(sessionId)
+      if (handled) return
+      const before = window.location.pathname + window.location.search + window.location.hash
+      setTimeout(() => {
+        const after = window.location.pathname + window.location.search + window.location.hash
+        if (after === before) window.location.assign(url)
+      }, 50)
+    }
+
+    const openAction = () => {
+      const url = href()
+      if (!url) return undefined
+      return (
+        <a
+          data-slot="agent-card-open"
+          class="clickable subagent-link"
+          href={url}
+          onClick={handleLinkClick}
+        >
+          <span>{i18n.t("ui.tool.agent.openSession")}</span>
+          <Icon name="square-arrow-top-right" size="small" />
+        </a>
+      )
+    }
+
+    return (
+      <div data-component="agent-tool-card">
+        <ToolCall
+          variant="panel"
+          icon="task"
+          status={props.status}
+          animate
+          springContent
+          trigger={
+            <ToolTriggerRow
+              title={title()}
+              pending={pending()}
+              subtitle={taskName()}
+              action={openAction()}
+              animate={props.reveal}
+            />
+          }
+        >
+          <div data-component="agent-card">
+            <Show when={prompt()}>
+              {(text) => (
+                <div data-slot="agent-card-block">
+                  <div data-slot="agent-card-label">{i18n.t("ui.tool.agent.prompt")}</div>
+                  <div data-slot="agent-card-body">
+                    <Markdown text={text()} />
+                  </div>
+                </div>
+              )}
+            </Show>
+            <Show when={agentId() || childSessionId()}>
+              <div data-slot="agent-card-meta">
+                <Show when={agentId()}>
+                  {(id) => (
+                    <span>
+                      <span data-slot="agent-card-meta-key">{i18n.t("ui.tool.agent.agentId")}:</span>{" "}
+                      <code>{id()}</code>
+                    </span>
+                  )}
+                </Show>
+                <Show when={childSessionId()}>
+                  {(sid) => (
+                    <span>
+                      <span data-slot="agent-card-meta-key">{i18n.t("ui.tool.agent.sessionId")}:</span>{" "}
+                      <code>{sid()}</code>
+                    </span>
+                  )}
+                </Show>
+              </div>
+            </Show>
+          </div>
+        </ToolCall>
+      </div>
+    )
+  },
+})
+
+ToolRegistry.register({
+  name: "resume_agent",
+  render(props) {
+    const data = useData()
+    const i18n = useI18n()
+    const metadata = () =>
+      (props.metadata ?? {}) as { agent_id?: string; session_id?: string }
+    const targetAgentId = () => {
+      const fromInput = props.input.agent_id
+      if (typeof fromInput === "string" && fromInput) return fromInput
+      return metadata().agent_id
+    }
+    const targetSessionId = () => metadata().session_id
+    const prompt = createMemo(() => {
+      const value = props.input.prompt
+      return typeof value === "string" && value.length > 0 ? value : undefined
+    })
+    const pending = createMemo(() => busy(props.status))
+
+    const href = createMemo(() => {
+      const sessionId = targetSessionId()
+      if (!sessionId) return
+      const direct = data.sessionHref?.(sessionId)
+      if (direct) return direct
+      if (typeof window === "undefined") return
+      const path = window.location.pathname
+      const idx = path.indexOf("/session")
+      if (idx === -1) return
+      return `${path.slice(0, idx)}/session/${sessionId}`
+    })
+
+    const handleLinkClick = (e: MouseEvent) => {
+      const sessionId = targetSessionId()
+      const url = href()
+      if (!sessionId || !url) return
+      e.stopPropagation()
+      if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+      const nav = data.navigateToSession
+      if (!nav || typeof window === "undefined") return
+      e.preventDefault()
+      const handled = nav(sessionId)
+      if (handled) return
+      const before = window.location.pathname + window.location.search + window.location.hash
+      setTimeout(() => {
+        const after = window.location.pathname + window.location.search + window.location.hash
+        if (after === before) window.location.assign(url)
+      }, 50)
+    }
+
+    const openAction = () => {
+      const url = href()
+      if (!url) return undefined
+      return (
+        <a
+          data-slot="agent-card-open"
+          class="clickable subagent-link"
+          href={url}
+          onClick={handleLinkClick}
+        >
+          <span>{i18n.t("ui.tool.agent.openSession")}</span>
+          <Icon name="square-arrow-top-right" size="small" />
+        </a>
+      )
+    }
+
+    return (
+      <div data-component="agent-tool-card">
+        <ToolCall
+          variant="panel"
+          icon="refresh"
+          status={props.status}
+          animate
+          springContent
+          trigger={
+            <ToolTriggerRow
+              title={i18n.t("ui.tool.resume_agent")}
+              pending={pending()}
+              subtitle={targetAgentId()}
+              action={openAction()}
+              animate={props.reveal}
+            />
+          }
+        >
+          <div data-component="agent-card">
+            <Show when={prompt()}>
+              {(text) => (
+                <div data-slot="agent-card-block">
+                  <div data-slot="agent-card-label">{i18n.t("ui.tool.agent.instruction")}</div>
+                  <div data-slot="agent-card-body">
+                    <Markdown text={text()} />
+                  </div>
+                </div>
+              )}
+            </Show>
+          </div>
+        </ToolCall>
+      </div>
+    )
   },
 })
 

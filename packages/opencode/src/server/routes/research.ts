@@ -2502,7 +2502,9 @@ export const ResearchRoutes = new Hono()
     ),
     async (c) => {
       const serverId = c.req.param("serverId")
-      const row = Database.use((db) => db.select().from(RemoteServerTable).where(eq(RemoteServerTable.id, serverId)).get())
+      const row = Database.use((db) =>
+        db.select().from(RemoteServerTable).where(eq(RemoteServerTable.id, serverId)).get(),
+      )
       if (!row) {
         return c.json({ success: false, message: `server not found: ${serverId}` }, 404)
       }
@@ -2598,7 +2600,9 @@ export const ResearchRoutes = new Hono()
         expIds.has(w.exp_id),
       )
       const now = Date.now()
-      const tasks = Database.use((db) => db.select().from(RemoteTaskTable).all()).filter((task) => expIds.has(task.exp_id))
+      const tasks = Database.use((db) => db.select().from(RemoteTaskTable).all()).filter((task) =>
+        expIds.has(task.exp_id),
+      )
       const taskMap = new Map<string, RemoteTaskRow[]>()
       for (const task of tasks) {
         if (!taskVisible(task, now)) continue
@@ -3099,7 +3103,9 @@ export const ResearchRoutes = new Hono()
           db
             .select()
             .from(ExperimentTable)
-            .where(and(eq(ExperimentTable.research_project_id, researchProjectId), eq(ExperimentTable.kind, "experiment")))
+            .where(
+              and(eq(ExperimentTable.research_project_id, researchProjectId), eq(ExperimentTable.kind, "experiment")),
+            )
             .all(),
         )
         const articles = Database.use((db) =>

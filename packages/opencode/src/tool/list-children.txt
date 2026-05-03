@@ -1,0 +1,11 @@
+List your direct child agents and their current status.
+
+Returns for each child:
+- agent_id, name, subagent_type
+- status: pending | running | blocked_on_children | completed | failed | canceled
+- active_children: how many grand-children are still running
+- spawned_at, ended_at
+- latest_progress: the most recent `child_progress` payload the framework captured (may be null if no progress yet)
+- summary: populated only after the child has completed
+
+Use this tool when you want a snapshot of your children without consuming inbox messages. This does not block, does not modify state, and does not inject anything into your context.

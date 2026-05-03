@@ -25,7 +25,12 @@ const deps = [
 ]
 
 function envKey(name: string) {
-  return name.toLowerCase().replace(/[^a-z0-9_-]+/g, "_").replace(/^_+|_+$/g, "") || "code"
+  return (
+    name
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, "_")
+      .replace(/^_+|_+$/g, "") || "code"
+  )
 }
 
 async function dirs(root: string) {
@@ -69,27 +74,29 @@ export const ResearchCodeQueryTool = Tool.define("research_code_query", {
     const byName = new Map(rows.map((row) => [row.code_name, row]))
     const names = new Set([...(await dirs(path.join(Instance.directory, "code"))), ...rows.map((row) => row.code_name)])
     const articles = new Map(
-      Database.use((db) => db.select().from(ArticleTable).where(eq(ArticleTable.research_project_id, researchProjectId)).all()).map(
-        (row) => [row.article_id, row],
-      ),
+      Database.use((db) =>
+        db.select().from(ArticleTable).where(eq(ArticleTable.research_project_id, researchProjectId)).all(),
+      ).map((row) => [row.article_id, row]),
     )
 
     let result = await Promise.all(
-      [...names].sort((a, b) => a.localeCompare(b)).map(async (name) => {
-        const row = byName.get(name)
-        const codePath = path.join(Instance.directory, "code", name)
-        const info = await inspect(codePath)
-        return {
-          code_id: row?.code_id ?? null,
-          code_name: name,
-          code_path: codePath,
-          article_id: row?.article_id ?? null,
-          article_title: row?.article_id ? (articles.get(row.article_id)?.title ?? null) : null,
-          registered: !!row,
-          suggested_env_key: envKey(name),
-          ...info,
-        }
-      }),
+      [...names]
+        .sort((a, b) => a.localeCompare(b))
+        .map(async (name) => {
+          const row = byName.get(name)
+          const codePath = path.join(Instance.directory, "code", name)
+          const info = await inspect(codePath)
+          return {
+            code_id: row?.code_id ?? null,
+            code_name: name,
+            code_path: codePath,
+            article_id: row?.article_id ?? null,
+            article_title: row?.article_id ? (articles.get(row.article_id)?.title ?? null) : null,
+            registered: !!row,
+            suggested_env_key: envKey(name),
+            ...info,
+          }
+        }),
     )
 
     if (params.codeId) result = result.filter((row) => row.code_id === params.codeId)

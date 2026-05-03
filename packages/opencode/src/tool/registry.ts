@@ -51,7 +51,11 @@ import { ResearchInfoTool } from "./research-info"
 import { SshTool } from "./ssh"
 import { ExperimentWatchTool } from "./experiment-watch"
 import { ExperimentExecutionWatchInitTool, ExperimentExecutionWatchUpdateTool } from "./experiment-execution-watch"
-import { ExperimentRemoteTaskGetTool, ExperimentRemoteTaskListTool, ExperimentRemoteTaskStartTool } from "./experiment-remote-task"
+import {
+  ExperimentRemoteTaskGetTool,
+  ExperimentRemoteTaskListTool,
+  ExperimentRemoteTaskStartTool,
+} from "./experiment-remote-task"
 import {
   ProjectRuntimeEnsureTool,
   ProjectRuntimeEnvQueryTool,
@@ -63,6 +67,11 @@ import {
 } from "./project-runtime"
 import { ConvertTool } from "./convert"
 import { WorkflowTool } from "./workflow"
+import { SpawnAgentTool } from "./spawn-agent"
+import { ListChildrenTool } from "./list-children"
+import { CancelAgentTool } from "./cancel-agent"
+import { SendToAgentTool } from "./send-to-agent"
+import { ResumeAgentTool } from "./resume-agent"
 import { Glob } from "../util/glob"
 import { pathToFileURL } from "url"
 
@@ -189,6 +198,11 @@ export namespace ToolRegistry {
       ProjectRuntimeResourceUpsertTool,
       ConvertTool,
       WorkflowTool,
+      SpawnAgentTool,
+      ListChildrenTool,
+      CancelAgentTool,
+      SendToAgentTool,
+      ResumeAgentTool,
       ...(Flag.OPENCODE_EXPERIMENTAL_LSP_TOOL ? [LspTool] : []),
       ...(config.experimental?.batch_tool === true ? [BatchTool] : []),
       ...(Flag.OPENCODE_EXPERIMENTAL_PLAN_MODE && Flag.OPENCODE_CLIENT === "cli" ? [PlanExitTool] : []),

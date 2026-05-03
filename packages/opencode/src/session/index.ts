@@ -67,6 +67,7 @@ export namespace Session {
       workspaceID: row.workspace_id ?? undefined,
       directory: row.directory,
       parentID: row.parent_id ?? undefined,
+      collabPeer: row.collab_peer ? true : undefined,
       title: row.title,
       version: row.version,
       summary,
@@ -88,6 +89,7 @@ export namespace Session {
       project_id: info.projectID,
       workspace_id: info.workspaceID,
       parent_id: info.parentID,
+      collab_peer: info.collabPeer ?? null,
       slug: info.slug,
       directory: info.directory,
       title: info.title,
@@ -124,6 +126,7 @@ export namespace Session {
       workspaceID: z.string().optional(),
       directory: z.string(),
       parentID: Identifier.schema("session").optional(),
+      collabPeer: z.boolean().optional(),
       summary: z
         .object({
           additions: z.number(),
@@ -294,6 +297,7 @@ export namespace Session {
     parentID?: string
     directory: string
     permission?: PermissionNext.Ruleset
+    collabPeer?: boolean
   }) {
     const result: Info = {
       id: Identifier.descending("session", input.id),
@@ -303,6 +307,7 @@ export namespace Session {
       directory: input.directory,
       workspaceID: WorkspaceContext.workspaceID,
       parentID: input.parentID,
+      collabPeer: input.collabPeer ? true : undefined,
       title: input.title ?? createDefaultTitle(!!input.parentID),
       permission: input.permission,
       time: {
@@ -549,6 +554,7 @@ export namespace Session {
     }
     if (input?.roots) {
       conditions.push(isNull(SessionTable.parent_id))
+      conditions.push(or(isNull(SessionTable.collab_peer), eq(SessionTable.collab_peer, false))!)
     }
     if (input?.start) {
       conditions.push(gte(SessionTable.time_updated, input.start))
@@ -589,6 +595,7 @@ export namespace Session {
     }
     if (input?.roots) {
       conditions.push(isNull(SessionTable.parent_id))
+      conditions.push(or(isNull(SessionTable.collab_peer), eq(SessionTable.collab_peer, false))!)
     }
     if (input?.start) {
       conditions.push(gte(SessionTable.time_updated, input.start))

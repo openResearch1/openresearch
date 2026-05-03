@@ -21,7 +21,9 @@ export namespace ProjectRuntime {
   }
 
   export function byKey(runtimeKey: string) {
-    return Database.use((db) => db.select().from(ExperimentTable).where(eq(ExperimentTable.runtime_key, runtimeKey)).get())
+    return Database.use((db) =>
+      db.select().from(ExperimentTable).where(eq(ExperimentTable.runtime_key, runtimeKey)).get(),
+    )
   }
 
   export function ensure(input: { researchProjectId: string; remoteServerId: string }) {
@@ -77,7 +79,9 @@ export namespace ProjectRuntime {
   }
 
   export function title(remoteServerId: string) {
-    const server = Database.use((db) => db.select().from(RemoteServerTable).where(eq(RemoteServerTable.id, remoteServerId)).get())
+    const server = Database.use((db) =>
+      db.select().from(RemoteServerTable).where(eq(RemoteServerTable.id, remoteServerId)).get(),
+    )
     if (!server) return "Project Runtime"
     return `Project Runtime: ${remoteServerLabel(normalizeRemoteServerConfig(JSON.parse(server.config)))}`
   }

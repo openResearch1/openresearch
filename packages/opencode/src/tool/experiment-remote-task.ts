@@ -128,7 +128,10 @@ export const ExperimentRemoteTaskGetTool = Tool.define("experiment_remote_task_g
     "Get a remote task for an experiment. Pass taskId to inspect a specific task; otherwise returns the current active task when present, then the latest task.",
   parameters: z.object({
     expId: z.string().describe("Experiment ID to inspect."),
-    taskId: z.string().optional().describe("Optional remote task ID to inspect exactly. If omitted, uses legacy current-task behavior."),
+    taskId: z
+      .string()
+      .optional()
+      .describe("Optional remote task ID to inspect exactly. If omitted, uses legacy current-task behavior."),
     waitForTerminal: z
       .boolean()
       .optional()
@@ -136,18 +139,27 @@ export const ExperimentRemoteTaskGetTool = Tool.define("experiment_remote_task_g
       .describe(
         "For running env_setup/resource_download tasks, wait until the remote task reaches a terminal status before returning.",
       ),
-    waitTimeoutMs: z.number().positive().optional().describe("Optional maximum time to wait for terminal status in milliseconds."),
+    waitTimeoutMs: z
+      .number()
+      .positive()
+      .optional()
+      .describe("Optional maximum time to wait for terminal status in milliseconds."),
   }),
   async execute(params, ctx) {
     if (params.taskId) {
       const existing = ExperimentRemoteTask.get(params.taskId)
       if (!existing) throw new Error(`remote task not found: ${params.taskId}`)
-      if (existing.exp_id !== params.expId) throw new Error(`remote task does not belong to experiment: ${params.taskId}`)
+      if (existing.exp_id !== params.expId)
+        throw new Error(`remote task does not belong to experiment: ${params.taskId}`)
     }
     await forceRefreshRemoteTask(params.expId, { taskId: params.taskId })
     let task = params.taskId ? ExperimentRemoteTask.get(params.taskId) : ExperimentRemoteTask.current(params.expId)
     if (!task) {
-      throw new Error(params.taskId ? `remote task not found: ${params.taskId}` : `no remote task found for experiment: ${params.expId}`)
+      throw new Error(
+        params.taskId
+          ? `remote task not found: ${params.taskId}`
+          : `no remote task found for experiment: ${params.expId}`,
+      )
     }
     if (task.exp_id !== params.expId) {
       throw new Error(`remote task does not belong to experiment: ${params.taskId}`)
@@ -231,7 +243,8 @@ export const ExperimentRemoteTaskGetTool = Tool.define("experiment_remote_task_g
 })
 
 export const ExperimentRemoteTaskListTool = Tool.define("experiment_remote_task_list", {
-  description: "List all active remote tasks for an experiment ID so a caller can choose a taskId for exact inspection.",
+  description:
+    "List all active remote tasks for an experiment ID so a caller can choose a taskId for exact inspection.",
   parameters: z.object({
     expId: z.string().describe("Experiment ID whose active remote tasks should be listed."),
   }),

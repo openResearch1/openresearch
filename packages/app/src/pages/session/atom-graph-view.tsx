@@ -2025,9 +2025,7 @@ export function AtomGraphView(props: {
       </Show>
       <Show when={state.confirmOpen}>
         <div class="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-[rgba(2,6,23,0.6)] backdrop-blur-sm">
-          <div
-            class="pointer-events-auto w-[340px] overflow-hidden rounded-2xl border border-white/10 bg-[rgba(15,23,42,0.95)] shadow-[0_24px_64px_rgba(0,0,0,0.6)]"
-          >
+          <div class="pointer-events-auto w-[340px] overflow-hidden rounded-2xl border border-white/10 bg-[rgba(15,23,42,0.95)] shadow-[0_24px_64px_rgba(0,0,0,0.6)]">
             <style>{`
               @keyframes confirm-in {
                 from { opacity: 0; transform: scale(0.92) translateY(8px); }

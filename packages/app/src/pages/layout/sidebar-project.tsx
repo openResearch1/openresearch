@@ -12,6 +12,7 @@ import { useLanguage } from "@/context/language"
 import { useNotification } from "@/context/notification"
 import { ProjectIcon, SessionItem, type SessionItemProps } from "./sidebar-items"
 import { childMapByParent, displayName, sortedRootSessions } from "./helpers"
+import { useCollabPeers } from "@/context/collab-peers"
 import { projectSelected, projectTileActive } from "./sidebar-project-helpers"
 
 export type ProjectSidebarContext = {
@@ -334,11 +335,19 @@ export const SortableProject = (props: {
   }
 
   const projectStore = createMemo(() => globalSync.child(props.project.worktree, { bootstrap: false })[0])
-  const projectSessions = createMemo(() => sortedRootSessions(projectStore(), props.sortNow()).slice(0, 2))
+  const projectPeers = useCollabPeers(() => props.project.worktree)
+  const filterPeers = (sessions: ReturnType<typeof sortedRootSessions>, peers: ReadonlySet<string>) =>
+    peers.size === 0 ? sessions : sessions.filter((s) => !peers.has(s.id))
+  const projectSessions = createMemo(() =>
+    filterPeers(sortedRootSessions(projectStore(), props.sortNow()), projectPeers()).slice(0, 2),
+  )
   const projectChildren = createMemo(() => childMapByParent(projectStore().session))
   const workspaceSessions = (directory: string) => {
     const [data] = globalSync.child(directory, { bootstrap: false })
-    return sortedRootSessions(data, props.sortNow()).slice(0, 2)
+    // `workspaceSessions(directory)` is called inline in render paths for
+    // peripheral workspaces; resolve peers lazily per directory.
+    const peers = useCollabPeers(() => directory)
+    return filterPeers(sortedRootSessions(data, props.sortNow()), peers()).slice(0, 2)
   }
   const workspaceChildren = (directory: string) => {
     const [data] = globalSync.child(directory, { bootstrap: false })
