@@ -55,6 +55,8 @@ import { PromptImageAttachments } from "./prompt-input/image-attachments"
 import { PromptDragOverlay } from "./prompt-input/drag-overlay"
 import { promptPlaceholder } from "./prompt-input/placeholder"
 import { ImagePreview } from "@opencode-ai/ui/image-preview"
+import { Dialog } from "@opencode-ai/ui/dialog"
+import { showToast } from "@opencode-ai/ui/toast"
 
 interface PromptInputProps {
   class?: string
@@ -93,6 +95,62 @@ const EXAMPLES = [
 ] as const
 
 const NON_EMPTY_TEXT = /[^\s\u200B]/
+const AT_AGENT_LIST = [
+  "research_project_init",
+  "experiment_plan",
+  "experiment_deploy",
+  "experiment_local_download",
+  "project_runtime_resource_download",
+  "experiment_resource_prepare",
+  "experiment_sync_resource",
+  "experiment_setup_env",
+  "experiment_run",
+  "general",
+  "explore",
+] as const
+
+function DialogNewIdea(props: { onCancel: () => void; onSubmit: (idea: string) => void }) {
+  const dialog = useDialog()
+  const [idea, setIdea] = createSignal("")
+
+  const submit = () => {
+    const value = idea().trim()
+    if (!value) return
+    dialog.close()
+    props.onSubmit(value)
+  }
+
+  return (
+    <Dialog title="Add New Idea" fit class="w-full max-w-[560px] mx-auto">
+      <div class="px-6 py-5 flex flex-col gap-4">
+        <p class="text-13-regular text-text-weak">
+          Describe the idea you want to turn into a validation-oriented atom tree.
+        </p>
+        <textarea
+          value={idea()}
+          onInput={(e) => setIdea(e.currentTarget.value)}
+          placeholder="Example: I think balancing the singular value spectrum helps continual learning."
+          rows={6}
+          class="w-full rounded-lg border border-border-base bg-background-base px-3 py-2 text-14-regular text-text-strong outline-none resize-y min-h-[140px]"
+        />
+        <div class="flex justify-end gap-2">
+          <Button
+            variant="secondary"
+            onClick={() => {
+              dialog.close()
+              props.onCancel()
+            }}
+          >
+            Cancel
+          </Button>
+          <Button disabled={!idea().trim()} onClick={submit}>
+            Start
+          </Button>
+        </div>
+      </div>
+    </Dialog>
+  )
+}
 
 export const PromptInput: Component<PromptInputProps> = (props) => {
   const sdk = useSDK()
@@ -490,15 +548,90 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     setComposing(false)
   }
 
-  const agentList = createMemo(() =>
-    sync.data.agent
-      .filter((agent) => !agent.hidden && agent.mode !== "primary")
+  const agentList = createMemo(() => [
+    { type: "action" as const, name: "add_new_idea", display: "add_new_idea" },
+    ...sync.data.agent
+      .filter((agent) => AT_AGENT_LIST.includes(agent.name as (typeof AT_AGENT_LIST)[number]))
+      .sort(
+        (a, b) =>
+          AT_AGENT_LIST.indexOf(a.name as (typeof AT_AGENT_LIST)[number]) -
+          AT_AGENT_LIST.indexOf(b.name as (typeof AT_AGENT_LIST)[number]),
+      )
       .map((agent): AtOption => ({ type: "agent", name: agent.name, display: agent.name })),
-  )
+  ])
   const agentNames = createMemo(() => local.agent.list().map((agent) => agent.name))
+
+  const startIdeaWorkflow = async (idea: string) => {
+    const sessionID = params.id
+    if (!sessionID) {
+      showToast({
+        title: "Idea Not Started",
+        description: "Open a session before adding a new idea.",
+        variant: "error",
+      })
+      return
+    }
+
+    const currentModel = local.model.current()
+    if (!currentModel) {
+      showToast({
+        title: "Idea Not Started",
+        description: "Select a model before adding a new idea.",
+        variant: "error",
+      })
+      return
+    }
+
+    const text = [
+      "Build a validation-oriented atom tree for the following research idea.",
+      "",
+      `Idea: ${idea}`,
+      "",
+      "The tree should consider whether this idea is related to existing atoms and should link conservatively when appropriate.",
+      "If the idea extends an existing direction, treat it incrementally instead of rebuilding unrelated trees.",
+    ].join("\n")
+
+    await sdk.client.session.promptAsync({
+      sessionID,
+      agent: "research_idea",
+      model: {
+        modelID: currentModel.id,
+        providerID: currentModel.provider.id,
+      },
+      variant: local.model.variant.current(),
+      parts: [{ type: "text", text }],
+    })
+
+    showToast({
+      title: "Idea Workflow Started",
+      description: "Started building a validation tree for the new idea.",
+      variant: "success",
+    })
+  }
 
   const handleAtSelect = (option: AtOption | undefined) => {
     if (!option) return
+    if (option.type === "action") {
+      closePopover()
+      if (option.name === "add_new_idea") {
+        dialog.show(() => (
+          <DialogNewIdea
+            onCancel={() => {}}
+            onSubmit={(idea) =>
+              void startIdeaWorkflow(idea).catch((error) => {
+                console.error("Failed to start idea workflow:", error)
+                showToast({
+                  title: "Idea Not Started",
+                  description: error instanceof Error ? error.message : "Failed to start idea workflow.",
+                  variant: "error",
+                })
+              })
+            }
+          />
+        ))
+      }
+      return
+    }
     if (option.type === "agent") {
       addPart({ type: "agent", name: option.name, content: "@" + option.name, start: 0, end: 0 })
     } else {
@@ -508,7 +641,9 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
 
   const atKey = (x: AtOption | undefined) => {
     if (!x) return ""
-    return x.type === "agent" ? `agent:${x.name}` : `file:${x.path}`
+    if (x.type === "agent") return `agent:${x.name}`
+    if (x.type === "action") return `action:${x.name}`
+    return `file:${x.path}`
   }
 
   const {
@@ -520,6 +655,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   } = useFilteredList<AtOption>({
     items: async (query) => {
       const agents = agentList()
+      if (!query.trim()) return agents
       const open = recent()
       const seen = new Set(open)
       const pinned: AtOption[] = open.map((path) => ({ type: "file", path, display: path, recent: true }))
@@ -532,7 +668,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     key: atKey,
     filterKeys: ["display"],
     groupBy: (item) => {
-      if (item.type === "agent") return "agent"
+      if (item.type === "agent" || item.type === "action") return "agent"
       if (item.recent) return "recent"
       return "file"
     },

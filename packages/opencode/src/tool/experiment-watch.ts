@@ -97,15 +97,21 @@ export const ExperimentWatchTool = Tool.define("experiment_watch", {
         .get(),
     )
     if (existing) {
+      const status = existing.status === "finished" ? "finished" : existing.status === "running" ? "running" : "failed"
       ExperimentExecutionWatch.createOrGet(params.expId, ExperimentExecutionWatch.title(params.expId))
       ExperimentExecutionWatch.update({
         expId: params.expId,
-        status: existing.status === "running" ? "running" : "pending",
+        status,
         stage: "watching_wandb",
         wandbEntity: existing.wandb_entity,
         wandbProject: existing.wandb_project,
         wandbRunId: existing.wandb_run_id,
-        message: "Monitoring W&B run",
+        message:
+          status === "finished"
+            ? "W&B run finished"
+            : status === "failed"
+              ? `W&B run ended with state: ${existing.wandb_state ?? existing.status}`
+              : "Monitoring W&B run",
       })
       return {
         title: "Already watching",
@@ -147,7 +153,7 @@ export const ExperimentWatchTool = Tool.define("experiment_watch", {
           wandb_project: params.wandbProject,
           wandb_api_key: params.wandbApiKey,
           wandb_run_id: params.wandbRunId,
-          status: check.state === "running" ? "running" : "pending",
+          status: check.state === "finished" ? "finished" : check.state === "running" ? "running" : "failed",
           wandb_state: check.state ?? null,
           time_created: now,
           time_updated: now,
@@ -156,14 +162,20 @@ export const ExperimentWatchTool = Tool.define("experiment_watch", {
     )
 
     ExperimentExecutionWatch.createOrGet(params.expId, ExperimentExecutionWatch.title(params.expId))
+    const status = check.state === "finished" ? "finished" : check.state === "running" ? "running" : "failed"
     ExperimentExecutionWatch.update({
       expId: params.expId,
-      status: check.state === "running" ? "running" : "pending",
+      status,
       stage: "watching_wandb",
       wandbEntity: viewer.entity,
       wandbProject: params.wandbProject,
       wandbRunId: params.wandbRunId,
-      message: "Monitoring W&B run",
+      message:
+        status === "finished"
+          ? "W&B run finished"
+          : status === "failed"
+            ? `W&B run ended with state: ${check.state ?? "unknown"}`
+            : "Monitoring W&B run",
       errorMessage: null,
     })
 

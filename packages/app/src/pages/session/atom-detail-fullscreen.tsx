@@ -143,10 +143,7 @@ export function AtomDetailFullscreen(props: {
         @keyframes connectionLineDash {
           to { stroke-dashoffset: -9; }
         }
-        .solid-flow__edge path {
-          transition: stroke 0.2s, stroke-width 0.2s;
-        }
-        .solid-flow__edge:hover path {
+        .solid-flow__edge:hover .solid-flow__edge-path {
           stroke-width: 3px !important;
           filter: drop-shadow(0 0 3px currentColor);
         }

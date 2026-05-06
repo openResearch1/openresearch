@@ -59,7 +59,6 @@ function bool(value: string | undefined) {
   if (!value) return false
   return value === "1" || value.toLowerCase() === "true"
 }
-
 function record(value: unknown): Record<string, string> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {}
   return Object.fromEntries(
@@ -94,7 +93,6 @@ function delay(retryAfter: string | null, attempt: number) {
   }
   return Math.min(10_000, 1_000 * 2 ** attempt)
 }
-
 async function target() {
   const cfg = await Config.get()
   const env = Env.get("OPENCODE_EMBEDDING_MODEL")
@@ -247,7 +245,6 @@ async function generate(texts: string[], cache: EmbeddingCache) {
   if (strict()) {
     throw new Error("Embedding API strict mode enabled but no remote embedding target is available")
   }
-
   return Promise.all(texts.map((text) => generateSimpleEmbedding(text)))
 }
 

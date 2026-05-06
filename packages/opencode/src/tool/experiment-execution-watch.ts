@@ -30,8 +30,6 @@ export const ExperimentExecutionWatchUpdateTool = Tool.define("experiment_execut
         "coding",
         "deploying_code",
         "setting_up_env",
-        "local_downloading",
-        "syncing_resources",
         "remote_downloading",
         "verifying_resources",
         "running_experiment",

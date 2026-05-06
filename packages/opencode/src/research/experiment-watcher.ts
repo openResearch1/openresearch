@@ -173,7 +173,10 @@ async function pollAll() {
   }
 }
 
-export async function forceRefreshWatch(watchId: string): Promise<{ success: boolean; message: string }> {
+export async function forceRefreshWatch(
+  watchId: string,
+  opts?: { preserveStage?: boolean },
+): Promise<{ success: boolean; message: string }> {
   const watch = Database.use((db) =>
     db.select().from(ExperimentWatchTable).where(eq(ExperimentWatchTable.watch_id, watchId)).get(),
   )
@@ -204,13 +207,17 @@ export async function forceRefreshWatch(watchId: string): Promise<{ success: boo
       .run(),
   )
 
-  ExperimentExecutionWatch.syncWatch(watch.exp_id, {
-    ...watch,
-    status: newStatus,
-    wandb_state: run.state,
-    last_polled_at: now,
-    time_updated: now,
-  })
+  ExperimentExecutionWatch.syncWatch(
+    watch.exp_id,
+    {
+      ...watch,
+      status: newStatus,
+      wandb_state: run.state,
+      last_polled_at: now,
+      time_updated: now,
+    },
+    { preserveStage: opts?.preserveStage },
+  )
 
   // Always overwrite summary and config if available
   const experiment = Database.use((db) =>

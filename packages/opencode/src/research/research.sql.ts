@@ -6,6 +6,8 @@ import { Timestamps } from "@/storage/schema.sql"
 const atomKinds = ["fact", "method", "theorem", "verification"] as const
 const evidenceKinds = ["math", "experiment"] as const
 const evidenceSteps = ["pending", "in_progress", "proven", "disproven"] as const
+const experimentKinds = ["experiment", "project_runtime"] as const
+const runtimeStatuses = ["pending", "preparing", "downloading", "ready", "stale", "failed"] as const
 export const linkKinds = [
   "motivates",
   "formalizes",
@@ -41,6 +43,8 @@ export const ExperimentTable = sqliteTable(
   "experiment",
   {
     exp_id: text().primaryKey(),
+    kind: text().$type<(typeof experimentKinds)[number]>().notNull().default("experiment"),
+    runtime_key: text(),
     research_project_id: text()
       .notNull()
       .references(() => ResearchProjectTable.research_project_id, { onDelete: "cascade" }),
@@ -63,6 +67,74 @@ export const ExperimentTable = sqliteTable(
     index("experiment_research_project_idx").on(table.research_project_id),
     index("experiment_session_idx").on(table.exp_session_id),
     index("experiment_atom_idx").on(table.atom_id),
+    uniqueIndex("experiment_runtime_key_idx").on(table.runtime_key),
+  ],
+)
+
+export const ProjectRuntimeEnvironmentTable = sqliteTable(
+  "project_runtime_environment",
+  {
+    env_id: text().primaryKey(),
+    research_project_id: text()
+      .notNull()
+      .references(() => ResearchProjectTable.research_project_id, { onDelete: "cascade" }),
+    remote_server_id: text()
+      .notNull()
+      .references(() => RemoteServerTable.id, { onDelete: "cascade" }),
+    runtime_exp_id: text()
+      .notNull()
+      .references(() => ExperimentTable.exp_id, { onDelete: "cascade" }),
+    env_key: text().notNull(),
+    conda_env_name: text().notNull(),
+    python_version: text(),
+    spec: text(),
+    fingerprint: text(),
+    status: text().$type<(typeof runtimeStatuses)[number]>().notNull().default("pending"),
+    last_verified_at: integer(),
+    error_message: text(),
+    ...Timestamps,
+  },
+  (table) => [
+    index("project_runtime_env_project_idx").on(table.research_project_id),
+    index("project_runtime_env_server_idx").on(table.remote_server_id),
+    index("project_runtime_env_runtime_exp_idx").on(table.runtime_exp_id),
+    uniqueIndex("project_runtime_env_key_idx").on(table.research_project_id, table.remote_server_id, table.env_key),
+  ],
+)
+
+export const ProjectRuntimeResourceTable = sqliteTable(
+  "project_runtime_resource",
+  {
+    resource_id: text().primaryKey(),
+    research_project_id: text()
+      .notNull()
+      .references(() => ResearchProjectTable.research_project_id, { onDelete: "cascade" }),
+    remote_server_id: text()
+      .notNull()
+      .references(() => RemoteServerTable.id, { onDelete: "cascade" }),
+    runtime_exp_id: text()
+      .notNull()
+      .references(() => ExperimentTable.exp_id, { onDelete: "cascade" }),
+    resource_key: text().notNull(),
+    type: text().$type<"dataset" | "model" | "checkpoint" | "artifact">().notNull(),
+    source: text(),
+    target_path: text().notNull(),
+    verify: text(),
+    fingerprint: text(),
+    status: text().$type<(typeof runtimeStatuses)[number]>().notNull().default("pending"),
+    last_verified_at: integer(),
+    error_message: text(),
+    ...Timestamps,
+  },
+  (table) => [
+    index("project_runtime_resource_project_idx").on(table.research_project_id),
+    index("project_runtime_resource_server_idx").on(table.remote_server_id),
+    index("project_runtime_resource_runtime_exp_idx").on(table.runtime_exp_id),
+    uniqueIndex("project_runtime_resource_key_idx").on(
+      table.research_project_id,
+      table.remote_server_id,
+      table.resource_key,
+    ),
   ],
 )
 
@@ -109,7 +181,7 @@ export const AtomRelationTable = sqliteTable(
   ],
 )
 
-const watchStatuses = ["pending", "running", "finished", "failed", "crashed"] as const
+const watchStatuses = ["pending", "running", "finished", "failed", "crashed", "canceled"] as const
 const executionStatuses = ["pending", "running", "finished", "failed", "canceled"] as const
 const executionStages = [
   "pending",
@@ -117,13 +189,12 @@ const executionStages = [
   "coding",
   "deploying_code",
   "setting_up_env",
-  "local_downloading",
-  "syncing_resources",
   "remote_downloading",
   "verifying_resources",
   "running_experiment",
   "watching_wandb",
 ] as const
+const remoteTaskKinds = ["resource_download", "experiment_run", "env_setup"] as const
 export const ExperimentWatchTable = sqliteTable(
   "experiment_watch",
   {
@@ -172,32 +243,35 @@ export const ExperimentExecutionWatchTable = sqliteTable(
   ],
 )
 
-export const LocalDownloadWatchTable = sqliteTable(
-  "local_download_watch",
+export const RemoteTaskTable = sqliteTable(
+  "remote_task",
   {
-    watch_id: text().primaryKey(),
+    task_id: text().primaryKey(),
     exp_id: text()
       .notNull()
       .references(() => ExperimentTable.exp_id, { onDelete: "cascade" }),
-    resource_key: text().notNull(),
-    resource_name: text().notNull(),
-    resource_type: text(),
+    kind: text().$type<(typeof remoteTaskKinds)[number]>().notNull(),
+    resource_key: text(),
+    title: text().notNull(),
     status: text().$type<(typeof watchStatuses)[number]>().notNull().default("pending"),
-    local_resource_root: text(),
-    local_path: text(),
+    server: text().notNull(),
+    remote_root: text().notNull(),
+    target_path: text(),
+    screen_name: text().notNull(),
+    command: text().notNull(),
     pid: integer(),
     log_path: text(),
-    status_path: text(),
     source_selection: text(),
     method: text(),
     error_message: text(),
     last_polled_at: integer(),
+    stopped_at: integer(),
     ...Timestamps,
   },
   (table) => [
-    index("local_download_watch_exp_idx").on(table.exp_id),
-    index("local_download_watch_status_idx").on(table.status),
-    uniqueIndex("local_download_watch_exp_resource_idx").on(table.exp_id, table.resource_key),
+    index("remote_task_exp_idx").on(table.exp_id),
+    index("remote_task_status_idx").on(table.status),
+    uniqueIndex("remote_task_exp_kind_resource_idx").on(table.exp_id, table.kind, table.resource_key),
   ],
 )
 

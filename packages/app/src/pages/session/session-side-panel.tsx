@@ -39,11 +39,7 @@ import { WatchesTab } from "@/pages/session/watches-tab"
 import { CodesTab } from "@/pages/session/codes-tab"
 import { setSessionHandoff } from "@/pages/session/handoff"
 
-function DialogArticleImport(props: {
-  count: number
-  onSkip: () => void
-  onParse: () => void
-}) {
+function DialogArticleImport(props: { count: number; onSkip: () => void; onParse: () => void }) {
   const dialog = useDialog()
 
   return (
@@ -967,7 +963,8 @@ export function SessionSidePanel(props: {
                                               if (!sessionID) {
                                                 showToast({
                                                   title: "Parse Not Started",
-                                                  description: "Open a main research session to start incremental parsing.",
+                                                  description:
+                                                    "Open a main research session to start incremental parsing.",
                                                   variant: "error",
                                                 })
                                                 return
@@ -1000,7 +997,9 @@ export function SessionSidePanel(props: {
                                                   showToast({
                                                     title: "Parse Start Failed",
                                                     description:
-                                                      error instanceof Error ? error.message : "Failed to start incremental parse",
+                                                      error instanceof Error
+                                                        ? error.message
+                                                        : "Failed to start incremental parse",
                                                     variant: "error",
                                                   })
                                                 })

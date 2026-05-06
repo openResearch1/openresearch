@@ -513,6 +513,22 @@ export type CompactionPart = {
   overflow?: boolean
 }
 
+export type CollabReturnPart = {
+  id: string
+  sessionID: string
+  messageID: string
+  type: "collab_return"
+  kind: "child_done" | "child_failed" | "child_progress" | "cancel" | "user_input" | "system"
+  childAgentId?: string
+  childName?: string
+  childSessionId?: string
+  headline: string
+  body: string
+  payload?: {
+    [key: string]: unknown
+  }
+}
+
 export type Part =
   | TextPart
   | SubtaskPart
@@ -526,6 +542,7 @@ export type Part =
   | AgentPart
   | RetryPart
   | CompactionPart
+  | CollabReturnPart
 
 export type EventMessagePartUpdated = {
   type: "message.part.updated"
@@ -795,6 +812,116 @@ export type EventWorkflowUpdated = {
   }
 }
 
+export type CollabAgentPolicy = {
+  on_fail?: "fail_fast" | "continue" | "retry_once"
+  timeout_ms?: number
+  maxChildren?: number
+  progress_injection?: "none" | "latest" | "all"
+  summarize?: boolean
+}
+
+export type CollabAgentSpec = {
+  initialPrompt: string
+  model?: {
+    providerID: string
+    modelID: string
+  }
+  policy?: CollabAgentPolicy
+  metadata?: {
+    [key: string]: unknown
+  }
+}
+
+export type CollabAgentResult = {
+  summary?: string
+  result?: {
+    [key: string]: unknown
+  }
+}
+
+export type CollabAgentError = {
+  code: string
+  message: string
+  detail?: string
+}
+
+export type CollabAgent = {
+  id: string
+  session_id: string
+  parent_agent_id: string | null
+  name: string
+  project_id: string
+  root_agent_id: string
+  subagent_type: string
+  status: "pending" | "running" | "blocked_on_children" | "completed" | "failed" | "canceled"
+  phase: "main_loop" | "awaiting_children" | "draining"
+  spec: CollabAgentSpec
+  result: CollabAgentResult | null
+  error: CollabAgentError | null
+  active_children: number
+  spawned_total: number
+  time_created: number
+  time_updated: number
+  time_started: number | null
+  time_ended: number | null
+}
+
+export type EventCollabAgentCreated = {
+  type: "collab.agent.created"
+  properties: {
+    info: CollabAgent
+  }
+}
+
+export type EventCollabAgentStatus = {
+  type: "collab.agent.status"
+  properties: {
+    agentId: string
+    rootAgentId: string
+    status: "pending" | "running" | "blocked_on_children" | "completed" | "failed" | "canceled"
+    phase: "main_loop" | "awaiting_children" | "draining"
+    active_children: number
+  }
+}
+
+export type EventCollabAgentCompleted = {
+  type: "collab.agent.completed"
+  properties: {
+    agentId: string
+    rootAgentId: string
+    summary?: string
+  }
+}
+
+export type EventCollabAgentFailed = {
+  type: "collab.agent.failed"
+  properties: {
+    agentId: string
+    rootAgentId: string
+    code: string
+    message: string
+  }
+}
+
+export type EventCollabMessagePosted = {
+  type: "collab.message.posted"
+  properties: {
+    messageId: string
+    recipientAgentId: string
+    senderAgentId: string | null
+    kind: "child_done" | "child_failed" | "child_progress" | "cancel" | "user_input" | "system"
+  }
+}
+
+export type EventCollabMessageConsumed = {
+  type: "collab.message.consumed"
+  properties: {
+    messageId: string
+    recipientAgentId: string
+    kind: "child_done" | "child_failed" | "child_progress" | "cancel" | "user_input" | "system"
+  }
+}
+
 export type EventTuiPromptAppend = {
   type: "tui.prompt.append"
   properties: {
@@ -891,6 +1018,7 @@ export type Session = {
   workspaceID?: string
   directory: string
   parentID?: string
+  collabPeer?: boolean
   summary?: {
     additions: number
     deletions: number
@@ -1064,6 +1192,12 @@ export type Event =
   | EventTodoUpdated
   | EventResearchAtomsUpdated
   | EventWorkflowUpdated
+  | EventCollabAgentCreated
+  | EventCollabAgentStatus
+  | EventCollabAgentCompleted
+  | EventCollabAgentFailed
+  | EventCollabMessagePosted
+  | EventCollabMessageConsumed
   | EventTuiPromptAppend
   | EventTuiCommandExecute
   | EventTuiToastShow
@@ -1149,10 +1283,17 @@ export type PermissionConfig =
       codesearch?: PermissionActionConfig
       huggingface_search?: PermissionActionConfig
       modelscope_search?: PermissionActionConfig
-      experiment_resource_job_start?: PermissionActionConfig
-      experiment_local_download_watch_init?: PermissionActionConfig
-      experiment_local_download_watch_update?: PermissionActionConfig
-      experiment_local_download_watch_refresh?: PermissionActionConfig
+      research_code_query?: PermissionActionConfig
+      experiment_remote_task_start?: PermissionActionConfig
+      experiment_remote_task_get?: PermissionActionConfig
+      experiment_remote_task_list?: PermissionActionConfig
+      project_runtime_server_query?: PermissionActionConfig
+      project_runtime_env_spec_inspect?: PermissionActionConfig
+      project_runtime_ensure?: PermissionActionConfig
+      project_runtime_env_query?: PermissionActionConfig
+      project_runtime_env_upsert?: PermissionActionConfig
+      project_runtime_resource_query?: PermissionActionConfig
+      project_runtime_resource_upsert?: PermissionActionConfig
       lsp?: PermissionRuleConfig
       doom_loop?: PermissionActionConfig
       skill?: PermissionRuleConfig
@@ -1765,6 +1906,7 @@ export type GlobalSession = {
   workspaceID?: string
   directory: string
   parentID?: string
+  collabPeer?: boolean
   summary?: {
     additions: number
     deletions: number
@@ -1846,6 +1988,59 @@ export type SubtaskPartInput = {
     modelID: string
   }
   command?: string
+}
+
+export type CollabReturnPartInput = {
+  id?: string
+  type: "collab_return"
+  kind: "child_done" | "child_failed" | "child_progress" | "cancel" | "user_input" | "system"
+  childAgentId?: string
+  childName?: string
+  childSessionId?: string
+  headline: string
+  body: string
+  payload?: {
+    [key: string]: unknown
+  }
+}
+
+export type CollabActiveAgentsResponse = {
+  agents: Array<CollabAgent>
+}
+
+export type CollabPeerSessionIdsResponse = {
+  session_ids: Array<string>
+}
+
+export type CollabTreeResponse = {
+  root: CollabAgent
+  nodes: Array<CollabAgent>
+}
+
+export type CollabMessage = {
+  id: string
+  recipient_agent_id: string
+  sender_agent_id: string | null
+  kind: "child_done" | "child_failed" | "child_progress" | "cancel" | "user_input" | "system"
+  payload: unknown
+  status: "pending" | "consumed" | "dropped"
+  time_created: number
+  time_updated: number
+  time_consumed: number | null
+}
+
+export type CollabMessagesResponse = {
+  agent_id: string
+  messages: Array<CollabMessage>
+}
+
+export type CollabSessionAgentResponse = {
+  agent: CollabAgent | null
+}
+
+export type CollabCancelResponse = {
+  agent_id: string
+  canceled: boolean
 }
 
 export type ProviderAuthMethod = {
@@ -3448,7 +3643,7 @@ export type SessionPromptData = {
     format?: OutputFormat
     system?: string
     variant?: string
-    parts: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
+    parts: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput | CollabReturnPartInput>
   }
   path: {
     /**
@@ -3681,7 +3876,7 @@ export type SessionPromptAsyncData = {
     format?: OutputFormat
     system?: string
     variant?: string
-    parts: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
+    parts: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput | CollabReturnPartInput>
   }
   path: {
     /**
@@ -4512,6 +4707,8 @@ export type ResearchSessionAtomGetResponses = {
       time_updated: number
       experiments: Array<{
         exp_id: string
+        kind: "experiment" | "project_runtime"
+        runtime_key: string | null
         research_project_id: string
         exp_name: string
         exp_session_id: string | null
@@ -4532,6 +4729,16 @@ export type ResearchSessionAtomGetResponses = {
               resource_root?: string
               wandb_api_key?: string
               wandb_project_name?: string
+              network?:
+                | {
+                    mode: "direct"
+                  }
+                | {
+                    mode: "tunnel"
+                    local_proxy: string
+                    remote_port: number
+                    no_proxy?: string
+                  }
             }
           | {
               mode: "ssh_config"
@@ -4542,6 +4749,16 @@ export type ResearchSessionAtomGetResponses = {
               resource_root?: string
               wandb_api_key?: string
               wandb_project_name?: string
+              network?:
+                | {
+                    mode: "direct"
+                  }
+                | {
+                    mode: "tunnel"
+                    local_proxy: string
+                    remote_port: number
+                    no_proxy?: string
+                  }
             }
           | null
         code_path: string
@@ -4930,6 +5147,8 @@ export type ResearchExperimentBySessionResponses = {
    */
   200: {
     exp_id: string
+    kind: "experiment" | "project_runtime"
+    runtime_key: string | null
     research_project_id: string
     exp_name: string
     exp_session_id: string | null
@@ -4950,6 +5169,16 @@ export type ResearchExperimentBySessionResponses = {
           resource_root?: string
           wandb_api_key?: string
           wandb_project_name?: string
+          network?:
+            | {
+                mode: "direct"
+              }
+            | {
+                mode: "tunnel"
+                local_proxy: string
+                remote_port: number
+                no_proxy?: string
+              }
         }
       | {
           mode: "ssh_config"
@@ -4960,6 +5189,16 @@ export type ResearchExperimentBySessionResponses = {
           resource_root?: string
           wandb_api_key?: string
           wandb_project_name?: string
+          network?:
+            | {
+                mode: "direct"
+              }
+            | {
+                mode: "tunnel"
+                local_proxy: string
+                remote_port: number
+                no_proxy?: string
+              }
         }
       | null
     code_path: string
@@ -5114,6 +5353,16 @@ export type ResearchServerListResponses = {
           resource_root?: string
           wandb_api_key?: string
           wandb_project_name?: string
+          network?:
+            | {
+                mode: "direct"
+              }
+            | {
+                mode: "tunnel"
+                local_proxy: string
+                remote_port: number
+                no_proxy?: string
+              }
         }
       | {
           mode: "ssh_config"
@@ -5124,6 +5373,16 @@ export type ResearchServerListResponses = {
           resource_root?: string
           wandb_api_key?: string
           wandb_project_name?: string
+          network?:
+            | {
+                mode: "direct"
+              }
+            | {
+                mode: "tunnel"
+                local_proxy: string
+                remote_port: number
+                no_proxy?: string
+              }
         }
     time_created: number
     time_updated: number
@@ -5144,6 +5403,16 @@ export type ResearchServerCreateData = {
           resource_root?: string
           wandb_api_key?: string
           wandb_project_name?: string
+          network?:
+            | {
+                mode: "direct"
+              }
+            | {
+                mode: "tunnel"
+                local_proxy: string
+                remote_port: number
+                no_proxy?: string
+              }
         }
       | {
           mode: "ssh_config"
@@ -5154,6 +5423,16 @@ export type ResearchServerCreateData = {
           resource_root?: string
           wandb_api_key?: string
           wandb_project_name?: string
+          network?:
+            | {
+                mode: "direct"
+              }
+            | {
+                mode: "tunnel"
+                local_proxy: string
+                remote_port: number
+                no_proxy?: string
+              }
         }
       | {
           address: string
@@ -5163,6 +5442,16 @@ export type ResearchServerCreateData = {
           resource_root?: string
           wandb_api_key?: string
           wandb_project_name?: string
+          network?:
+            | {
+                mode: "direct"
+              }
+            | {
+                mode: "tunnel"
+                local_proxy: string
+                remote_port: number
+                no_proxy?: string
+              }
         }
   }
   path?: never
@@ -5189,6 +5478,16 @@ export type ResearchServerCreateResponses = {
           resource_root?: string
           wandb_api_key?: string
           wandb_project_name?: string
+          network?:
+            | {
+                mode: "direct"
+              }
+            | {
+                mode: "tunnel"
+                local_proxy: string
+                remote_port: number
+                no_proxy?: string
+              }
         }
       | {
           mode: "ssh_config"
@@ -5199,6 +5498,16 @@ export type ResearchServerCreateResponses = {
           resource_root?: string
           wandb_api_key?: string
           wandb_project_name?: string
+          network?:
+            | {
+                mode: "direct"
+              }
+            | {
+                mode: "tunnel"
+                local_proxy: string
+                remote_port: number
+                no_proxy?: string
+              }
         }
   }
 }
@@ -5244,6 +5553,16 @@ export type ResearchServerImportSshConfigResponses = {
             resource_root?: string
             wandb_api_key?: string
             wandb_project_name?: string
+            network?:
+              | {
+                  mode: "direct"
+                }
+              | {
+                  mode: "tunnel"
+                  local_proxy: string
+                  remote_port: number
+                  no_proxy?: string
+                }
           }
         | {
             mode: "ssh_config"
@@ -5254,6 +5573,16 @@ export type ResearchServerImportSshConfigResponses = {
             resource_root?: string
             wandb_api_key?: string
             wandb_project_name?: string
+            network?:
+              | {
+                  mode: "direct"
+                }
+              | {
+                  mode: "tunnel"
+                  local_proxy: string
+                  remote_port: number
+                  no_proxy?: string
+                }
           }
     }>
     skipped: Array<string>
@@ -5295,6 +5624,140 @@ export type ResearchServerDeleteResponses = {
 
 export type ResearchServerDeleteResponse = ResearchServerDeleteResponses[keyof ResearchServerDeleteResponses]
 
+export type ResearchServerUpdateData = {
+  body?: {
+    config:
+      | {
+          mode: "direct"
+          address: string
+          port: number
+          user: string
+          password?: string
+          resource_root?: string
+          wandb_api_key?: string
+          wandb_project_name?: string
+          network?:
+            | {
+                mode: "direct"
+              }
+            | {
+                mode: "tunnel"
+                local_proxy: string
+                remote_port: number
+                no_proxy?: string
+              }
+        }
+      | {
+          mode: "ssh_config"
+          host_alias: string
+          ssh_config_path?: string
+          user?: string
+          password?: string
+          resource_root?: string
+          wandb_api_key?: string
+          wandb_project_name?: string
+          network?:
+            | {
+                mode: "direct"
+              }
+            | {
+                mode: "tunnel"
+                local_proxy: string
+                remote_port: number
+                no_proxy?: string
+              }
+        }
+      | {
+          address: string
+          port: number
+          user: string
+          password?: string
+          resource_root?: string
+          wandb_api_key?: string
+          wandb_project_name?: string
+          network?:
+            | {
+                mode: "direct"
+              }
+            | {
+                mode: "tunnel"
+                local_proxy: string
+                remote_port: number
+                no_proxy?: string
+              }
+        }
+  }
+  path: {
+    serverId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/research/server/{serverId}"
+}
+
+export type ResearchServerUpdateErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ResearchServerUpdateError = ResearchServerUpdateErrors[keyof ResearchServerUpdateErrors]
+
+export type ResearchServerUpdateResponses = {
+  /**
+   * Updated remote server
+   */
+  200: {
+    id: string
+    config:
+      | {
+          mode: "direct"
+          address: string
+          port: number
+          user: string
+          password?: string
+          resource_root?: string
+          wandb_api_key?: string
+          wandb_project_name?: string
+          network?:
+            | {
+                mode: "direct"
+              }
+            | {
+                mode: "tunnel"
+                local_proxy: string
+                remote_port: number
+                no_proxy?: string
+              }
+        }
+      | {
+          mode: "ssh_config"
+          host_alias: string
+          ssh_config_path?: string
+          user?: string
+          password?: string
+          resource_root?: string
+          wandb_api_key?: string
+          wandb_project_name?: string
+          network?:
+            | {
+                mode: "direct"
+              }
+            | {
+                mode: "tunnel"
+                local_proxy: string
+                remote_port: number
+                no_proxy?: string
+              }
+        }
+  }
+}
+
+export type ResearchServerUpdateResponse = ResearchServerUpdateResponses[keyof ResearchServerUpdateResponses]
+
 export type ResearchExperimentWatchListData = {
   body?: never
   path?: never
@@ -5311,19 +5774,18 @@ export type ResearchExperimentWatchListResponses = {
    */
   200: Array<{
     watch_id: string
-    kind: "experiment"
+    kind: "experiment" | "project_runtime"
     exp_id: string
     exp_session_id: string | null
     exp_result_path: string | null
     title: string
     status: "pending" | "running" | "finished" | "failed" | "canceled"
     stage:
+      | "pending"
       | "planning"
       | "coding"
       | "deploying_code"
       | "setting_up_env"
-      | "local_downloading"
-      | "syncing_resources"
       | "remote_downloading"
       | "verifying_resources"
       | "running_experiment"
@@ -5337,10 +5799,28 @@ export type ResearchExperimentWatchListResponses = {
     wandb_entity: string | null
     wandb_project: string | null
     wandb_run_id: string | null
-    local_download_resource_name: string | null
-    local_download_local_path: string | null
-    local_download_log_path: string | null
-    local_download_status_path: string | null
+    remote_task_title: string | null
+    remote_task_kind: "resource_download" | "experiment_run" | "env_setup" | null
+    remote_task_status: "pending" | "running" | "finished" | "failed" | "crashed" | "canceled" | null
+    remote_task_target_path: string | null
+    remote_task_screen_name: string | null
+    remote_task_log_path: string | null
+    remote_task_error_message: string | null
+    remote_tasks: Array<{
+      task_id: string
+      title: string
+      kind: "resource_download" | "experiment_run" | "env_setup"
+      status: "pending" | "running" | "finished" | "failed" | "crashed" | "canceled"
+      resource_key: string | null
+      target_path: string | null
+      screen_name: string
+      log_path: string | null
+      error_message: string | null
+      source_selection: string | null
+      method: string | null
+      time_created: number
+      time_updated: number
+    }>
   }>
 }
 
@@ -5450,6 +5930,111 @@ export type ResearchExperimentWatchRefreshResponses = {
 export type ResearchExperimentWatchRefreshResponse =
   ResearchExperimentWatchRefreshResponses[keyof ResearchExperimentWatchRefreshResponses]
 
+export type ResearchExperimentWatchRefreshWandbData = {
+  body?: never
+  path: {
+    watchId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/research/experiment-watch/{watchId}/refresh-wandb"
+}
+
+export type ResearchExperimentWatchRefreshWandbErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ResearchExperimentWatchRefreshWandbError =
+  ResearchExperimentWatchRefreshWandbErrors[keyof ResearchExperimentWatchRefreshWandbErrors]
+
+export type ResearchExperimentWatchRefreshWandbResponses = {
+  /**
+   * Refresh result
+   */
+  200: {
+    success: boolean
+    message: string
+  }
+}
+
+export type ResearchExperimentWatchRefreshWandbResponse =
+  ResearchExperimentWatchRefreshWandbResponses[keyof ResearchExperimentWatchRefreshWandbResponses]
+
+export type ResearchExperimentWatchRefreshRemoteTaskData = {
+  body?: never
+  path: {
+    watchId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/research/experiment-watch/{watchId}/refresh-remote-task"
+}
+
+export type ResearchExperimentWatchRefreshRemoteTaskErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ResearchExperimentWatchRefreshRemoteTaskError =
+  ResearchExperimentWatchRefreshRemoteTaskErrors[keyof ResearchExperimentWatchRefreshRemoteTaskErrors]
+
+export type ResearchExperimentWatchRefreshRemoteTaskResponses = {
+  /**
+   * Refresh result
+   */
+  200: {
+    success: boolean
+    message: string
+  }
+}
+
+export type ResearchExperimentWatchRefreshRemoteTaskResponse =
+  ResearchExperimentWatchRefreshRemoteTaskResponses[keyof ResearchExperimentWatchRefreshRemoteTaskResponses]
+
+export type ResearchExperimentWatchLogData = {
+  body?: never
+  path: {
+    watchId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/research/experiment-watch/{watchId}/log"
+}
+
+export type ResearchExperimentWatchLogErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ResearchExperimentWatchLogError = ResearchExperimentWatchLogErrors[keyof ResearchExperimentWatchLogErrors]
+
+export type ResearchExperimentWatchLogResponses = {
+  /**
+   * Remote log content
+   */
+  200: {
+    ok: boolean
+    path: string
+    content: string
+  }
+}
+
+export type ResearchExperimentWatchLogResponse =
+  ResearchExperimentWatchLogResponses[keyof ResearchExperimentWatchLogResponses]
+
 export type ResearchExperimentDeleteData = {
   body?: never
   path: {
@@ -5515,6 +6100,8 @@ export type ResearchExperimentUpdateResponses = {
    */
   200: {
     exp_id: string
+    kind: "experiment" | "project_runtime"
+    runtime_key: string | null
     research_project_id: string
     exp_name: string
     exp_session_id: string | null
@@ -5535,6 +6122,16 @@ export type ResearchExperimentUpdateResponses = {
           resource_root?: string
           wandb_api_key?: string
           wandb_project_name?: string
+          network?:
+            | {
+                mode: "direct"
+              }
+            | {
+                mode: "tunnel"
+                local_proxy: string
+                remote_port: number
+                no_proxy?: string
+              }
         }
       | {
           mode: "ssh_config"
@@ -5545,6 +6142,16 @@ export type ResearchExperimentUpdateResponses = {
           resource_root?: string
           wandb_api_key?: string
           wandb_project_name?: string
+          network?:
+            | {
+                mode: "direct"
+              }
+            | {
+                mode: "tunnel"
+                local_proxy: string
+                remote_port: number
+                no_proxy?: string
+              }
         }
       | null
     code_path: string
@@ -5626,6 +6233,189 @@ export type ResearchProjectImportResponses = {
 }
 
 export type ResearchProjectImportResponse = ResearchProjectImportResponses[keyof ResearchProjectImportResponses]
+
+export type CollabActiveListData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/collab/active"
+}
+
+export type CollabActiveListResponses = {
+  /**
+   * Active agents
+   */
+  200: CollabActiveAgentsResponse
+}
+
+export type CollabActiveListResponse = CollabActiveListResponses[keyof CollabActiveListResponses]
+
+export type CollabPeerSessionsListData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/collab/peer-sessions"
+}
+
+export type CollabPeerSessionsListResponses = {
+  /**
+   * Peer session ids
+   */
+  200: CollabPeerSessionIdsResponse
+}
+
+export type CollabPeerSessionsListResponse = CollabPeerSessionsListResponses[keyof CollabPeerSessionsListResponses]
+
+export type CollabTreeGetData = {
+  body?: never
+  path: {
+    rootAgentId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/collab/tree/{rootAgentId}"
+}
+
+export type CollabTreeGetErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type CollabTreeGetError = CollabTreeGetErrors[keyof CollabTreeGetErrors]
+
+export type CollabTreeGetResponses = {
+  /**
+   * Tree found
+   */
+  200: CollabTreeResponse
+}
+
+export type CollabTreeGetResponse = CollabTreeGetResponses[keyof CollabTreeGetResponses]
+
+export type CollabAgentGetData = {
+  body?: never
+  path: {
+    agentId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/collab/agent/{agentId}"
+}
+
+export type CollabAgentGetErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type CollabAgentGetError = CollabAgentGetErrors[keyof CollabAgentGetErrors]
+
+export type CollabAgentGetResponses = {
+  /**
+   * Agent found
+   */
+  200: CollabAgent
+}
+
+export type CollabAgentGetResponse = CollabAgentGetResponses[keyof CollabAgentGetResponses]
+
+export type CollabAgentMessagesData = {
+  body?: never
+  path: {
+    agentId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+    kind?: "child_done" | "child_failed" | "child_progress" | "cancel" | "user_input" | "system"
+    limit?: number
+  }
+  url: "/collab/agent/{agentId}/messages"
+}
+
+export type CollabAgentMessagesErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type CollabAgentMessagesError = CollabAgentMessagesErrors[keyof CollabAgentMessagesErrors]
+
+export type CollabAgentMessagesResponses = {
+  /**
+   * Messages
+   */
+  200: CollabMessagesResponse
+}
+
+export type CollabAgentMessagesResponse = CollabAgentMessagesResponses[keyof CollabAgentMessagesResponses]
+
+export type CollabSessionAgentGetData = {
+  body?: never
+  path: {
+    sessionId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/collab/session/{sessionId}/agent"
+}
+
+export type CollabSessionAgentGetResponses = {
+  /**
+   * Lookup result (agent may be null)
+   */
+  200: CollabSessionAgentResponse
+}
+
+export type CollabSessionAgentGetResponse = CollabSessionAgentGetResponses[keyof CollabSessionAgentGetResponses]
+
+export type CollabAgentCancelData = {
+  body?: {
+    reason?: string
+  }
+  path: {
+    agentId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/collab/agent/{agentId}/cancel"
+}
+
+export type CollabAgentCancelErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type CollabAgentCancelError = CollabAgentCancelErrors[keyof CollabAgentCancelErrors]
+
+export type CollabAgentCancelResponses = {
+  /**
+   * Cancel requested
+   */
+  200: CollabCancelResponse
+}
+
+export type CollabAgentCancelResponse = CollabAgentCancelResponses[keyof CollabAgentCancelResponses]
 
 export type PermissionReplyData = {
   body?: {

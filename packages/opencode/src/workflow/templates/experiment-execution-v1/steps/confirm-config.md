@@ -18,18 +18,16 @@ Required actions:
      - optional `password`
    - in either mode, confirm:
      - `resource_root`
-3. Confirm `local_resource_root` when the plan or expected resource strategy may require local preparation before upload.
-4. Confirm W&B configuration:
+3. Confirm W&B configuration:
    - `wandb_project`
    - `wandb_api_key`
-5. If any required field is missing or empty, use `workflow.wait_interaction` and ask the user specifically for the missing fields.
-6. When the user replies, resume this same step, merge the received values into context, and only then continue.
+4. If any required field is missing or empty, use `workflow.wait_interaction` and ask the user specifically for the missing fields.
+5. When the user replies, resume this same step, merge the received values into context, and only then continue.
 
 Context writes required before `workflow.next`:
 
 - `server`
 - `resource_root`
-- `local_resource_root` when available
 - `wandb_project`
 - `wandb_api_key`
 - `config_confirmed`

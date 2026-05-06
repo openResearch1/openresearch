@@ -153,6 +153,16 @@ export namespace SessionPrompt {
           .meta({
             ref: "SubtaskPartInput",
           }),
+        MessageV2.CollabReturnPart.omit({
+          messageID: true,
+          sessionID: true,
+        })
+          .partial({
+            id: true,
+          })
+          .meta({
+            ref: "CollabReturnPartInput",
+          }),
       ]),
     ),
   })

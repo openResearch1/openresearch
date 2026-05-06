@@ -175,26 +175,40 @@ export function AtomDetailView(props: {
   const [nodes, setNodes] = createNodeStore<typeof nodeTypes>(initialNodes())
   const [edges, setEdges] = createEdgeStore(initialEdges())
 
+  // Timestamp of the last user manual action; changes within this window preserve existing positions
+  let lastUserActionTime = 0
+  const USER_ACTION_WINDOW_MS = 3000
+
   // Sync when atoms/relations change from outside
   createEffect(
     on(
       () => [props.atoms, props.relations] as const,
       ([atoms, relations]) => {
         const { positions: pos } = computeLayout(atoms, relations)
-        // Preserve existing positions for nodes that already exist
-        const existingPositions: Record<string, { x: number; y: number }> = {}
-        for (const node of nodes) {
-          existingPositions[node.id] = node.position
-        }
-        const mergedPositions = { ...pos }
-        for (const id of Object.keys(mergedPositions)) {
-          if (pendingPositions[id]) {
-            mergedPositions[id] = pendingPositions[id]
-            delete pendingPositions[id]
-          } else if (existingPositions[id]) {
-            mergedPositions[id] = existingPositions[id]
+
+        let mergedPositions: Record<string, { x: number; y: number }>
+        const isRecentUserAction = Date.now() - lastUserActionTime < USER_ACTION_WINDOW_MS
+
+        if (isRecentUserAction) {
+          // User-initiated change: preserve existing node positions, apply pending positions
+          const existingPositions: Record<string, { x: number; y: number }> = {}
+          for (const node of nodes) {
+            existingPositions[node.id] = node.position
           }
+          mergedPositions = { ...pos }
+          for (const id of Object.keys(mergedPositions)) {
+            if (pendingPositions[id]) {
+              mergedPositions[id] = pendingPositions[id]
+              delete pendingPositions[id]
+            } else if (existingPositions[id]) {
+              mergedPositions[id] = existingPositions[id]
+            }
+          }
+        } else {
+          // Programmatic change (e.g. batch generation): full dagre re-layout
+          mergedPositions = pos
         }
+
         const newNodes = atomsToNodes(atoms, mergedPositions)
         const newEdges = relationsToEdges(relations)
         setNodes(newNodes as any)
@@ -256,6 +270,7 @@ export function AtomDetailView(props: {
     // Remove the auto-added temp edge; server data will re-add it properly
     setEdges((prev: any[]) => prev.filter((e: any) => e.id !== conn.edgeId))
     setPendingConnection(null)
+    lastUserActionTime = Date.now()
     await props.onRelationCreate({
       sourceAtomId: conn.source,
       targetAtomId: conn.target,
@@ -279,6 +294,7 @@ export function AtomDetailView(props: {
     const edge = selectedEdge()
     if (!edge) return
     setSelectedEdge(null)
+    lastUserActionTime = Date.now()
     await props.onRelationDelete({
       sourceAtomId: edge.source,
       targetAtomId: edge.target,
@@ -290,6 +306,7 @@ export function AtomDetailView(props: {
     const edge = selectedEdge()
     if (!edge) return
     setSelectedEdge(null)
+    lastUserActionTime = Date.now()
     await props.onRelationUpdate({
       sourceAtomId: edge.source,
       targetAtomId: edge.target,
@@ -319,6 +336,7 @@ export function AtomDetailView(props: {
     if (!name) return
     setShowCreateForm(false)
     const flowPos = createFlowPos()
+    lastUserActionTime = Date.now()
     const atom = await props.onAtomCreate({ name, type: newAtomType() })
     if (atom?.atom_id) {
       pendingPositions[atom.atom_id] = flowPos
@@ -339,6 +357,7 @@ export function AtomDetailView(props: {
     const tag = target?.tagName
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target?.isContentEditable) return
     const selected = nodes.filter((n: any) => n.selected)
+    if (selected.length > 0) lastUserActionTime = Date.now()
     for (const node of selected) {
       await props.onAtomDelete(node.id)
     }
@@ -352,11 +371,12 @@ export function AtomDetailView(props: {
   })
 
   let containerRef!: HTMLDivElement
-  const defaultViewport = () => {
-    const gh = layoutResult().graphHeight
-    const containerH = containerRef?.clientHeight ?? window.innerHeight
-    const yOffset = Math.max(0, (containerH - gh) / 2)
-    return { x: 40, y: yOffset, zoom: 1 }
+  // Compute initial viewport once (non-reactive) to prevent SolidFlow viewport reset on atoms change
+  const initGraphHeight = computeLayout(props.atoms, props.relations).graphHeight
+  const defaultViewport = {
+    x: 40,
+    y: Math.max(0, ((containerRef?.clientHeight ?? window.innerHeight) - initGraphHeight) / 2),
+    zoom: 1,
   }
 
   return (
@@ -404,12 +424,27 @@ export function AtomDetailView(props: {
         onEdgeClick={handleEdgeClick}
         onPaneClick={handlePaneClick}
         onPaneContextMenu={handlePaneContextMenu}
-        initialViewport={defaultViewport()}
+        initialViewport={defaultViewport}
         proOptions={{ hideAttribution: true }}
         style={{ width: "100%", height: "100%" }}
         colorMode="dark"
       >
-        <Controls />
+        <Controls
+          beforeControls={
+            <button
+              title="Re-layout"
+              onClick={() => {
+                const { positions: pos } = computeLayout(props.atoms, props.relations)
+                const newNodes = atomsToNodes(props.atoms, pos)
+                setNodes(newNodes as any)
+              }}
+            >
+              <svg viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                <path d="M17.65 6.35A7.96 7.96 0 0 0 12 4C7.58 4 4.01 7.58 4.01 12S7.58 20 12 20c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z" />
+              </svg>
+            </button>
+          }
+        />
         <MiniMap />
         <Background variant={"dots" as any} />
         <FocusHandler focusAtomId={props.focusAtomId} nodes={nodes} />

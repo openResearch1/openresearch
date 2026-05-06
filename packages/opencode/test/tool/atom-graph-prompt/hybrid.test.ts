@@ -36,7 +36,11 @@ async function seedTestGraph(
   rpId: string,
   atomListDir: string,
   atoms: TestAtom[],
-  relations: Array<{ source: string; target: string; type: "motivates" | "formalizes" | "derives" | "analyzes" | "validates" | "contradicts" | "other" }>,
+  relations: Array<{
+    source: string
+    target: string
+    type: "motivates" | "formalizes" | "derives" | "analyzes" | "validates" | "contradicts" | "other"
+  }>,
 ) {
   const now = Date.now()
 

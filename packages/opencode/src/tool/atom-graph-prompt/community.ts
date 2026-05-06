@@ -157,7 +157,6 @@ function loadAtoms(articleIds?: string[]) {
 function buildGraph(articleIds?: string[]) {
   const graph = new Graph({ type: "directed" })
   const atoms = loadAtoms(articleIds)
-
   const atomIdSet = new Set(atoms.map((a) => a.atom_id))
 
   for (const atom of atoms) {

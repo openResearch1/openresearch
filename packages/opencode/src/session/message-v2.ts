@@ -223,6 +223,20 @@ export namespace MessageV2 {
   })
   export type SubtaskPart = z.infer<typeof SubtaskPart>
 
+  export const CollabReturnPart = PartBase.extend({
+    type: z.literal("collab_return"),
+    kind: z.enum(["child_done", "child_failed", "child_progress", "cancel", "user_input", "system"]),
+    childAgentId: z.string().optional(),
+    childName: z.string().optional(),
+    childSessionId: z.string().optional(),
+    headline: z.string(),
+    body: z.string(),
+    payload: z.record(z.string(), z.unknown()).optional(),
+  }).meta({
+    ref: "CollabReturnPart",
+  })
+  export type CollabReturnPart = z.infer<typeof CollabReturnPart>
+
   export const RetryPart = PartBase.extend({
     type: z.literal("retry"),
     attempt: z.number(),
@@ -387,6 +401,7 @@ export namespace MessageV2 {
       AgentPart,
       RetryPart,
       CompactionPart,
+      CollabReturnPart,
     ])
     .meta({
       ref: "Part",
@@ -597,6 +612,15 @@ export namespace MessageV2 {
             userMessage.parts.push({
               type: "text",
               text: "The following tool was executed by the user",
+            })
+          }
+          if (part.type === "collab_return") {
+            const header = part.headline?.trim() ? part.headline.trim() : `[${part.kind}]`
+            const body = part.body?.trim() ?? ""
+            const tag = `[${part.kind}]`
+            userMessage.parts.push({
+              type: "text",
+              text: body ? `${tag} ${header}\n\n${body}` : `${tag} ${header}`,
             })
           }
         }

@@ -131,7 +131,7 @@ export function AtomGraphView(props: {
     relationPrevType: "" as "" | RelationType,
     relationDeleting: false,
     focusedNodeId: "", // pinned node: dim effect locked, info card stays visible
-    layoutType: "force" as "force" | "radial" | "circular" | "dagre",
+    layoutType: "dagre" as "force" | "radial" | "circular" | "dagre",
     layoutMenuOpen: false,
     createOpen: false,
     createX: 0,
@@ -622,15 +622,7 @@ export function AtomGraphView(props: {
           shadowBlur: 0,
         },
       },
-      animation: {
-        update: [
-          {
-            fields: ["size", "fillOpacity", "strokeOpacity", "lineWidth", "shadowBlur"],
-            duration: 600,
-            easing: "ease-in-out",
-          },
-        ],
-      },
+      animation: false,
     },
     edge: {
       style: {
@@ -652,26 +644,22 @@ export function AtomGraphView(props: {
           lineWidth: 0.5,
         },
       },
-      animation: {
-        update: [{ fields: ["fillOpacity", "strokeOpacity", "lineWidth"], duration: 600, easing: "ease-in-out" }],
-      },
+      animation: false,
     },
     layout: {
-      type: "force" as const,
-      linkDistance: 150,
-      nodeStrength: 30,
-      edgeStrength: 200,
-      preventOverlap: true,
-      nodeSize: 60,
-      nodeSpacing: 20,
-      coulombDisScale: 0.003,
+      type: "dagre" as const,
+      rankdir: "TB",
+      align: "UL",
+      nodesep: 30,
+      ranksep: 70,
+      controlPoints: false,
     },
     behaviors: [
       { type: "drag-canvas", key: "drag-canvas" },
       { type: "zoom-canvas", key: "zoom-canvas" },
       { type: "drag-element", key: "drag-element", enable: true },
     ],
-    animation: { duration: 600, easing: "ease-in-out" },
+    animation: false,
   }
 
   onMount(() => {
@@ -764,15 +752,9 @@ export function AtomGraphView(props: {
           pointer-events: none;
           z-index: 1000;
           max-width: 260px;
-          opacity: 0;
-          transform: translateY(4px) scale(0.97);
-          transition: opacity 0.15s ease, transform 0.15s ease;
+          opacity: 1;
         `
         document.body.appendChild(tooltip)
-        requestAnimationFrame(() => {
-          tooltip!.style.opacity = "1"
-          tooltip!.style.transform = "translateY(0) scale(1)"
-        })
       }
       return tooltip
     }
@@ -1567,7 +1549,6 @@ export function AtomGraphView(props: {
             left: `${state.anchorX}px`,
             top: `${state.anchorY}px`,
             transform: "translate(calc(-100% - 4px), -50%)",
-            animation: "node-action-in 0.12s ease-out",
           }}
           onMouseEnter={() => {
             anchorPinned = true
@@ -1682,7 +1663,6 @@ export function AtomGraphView(props: {
           style={{
             left: `${state.createX}px`,
             top: `${state.createY}px`,
-            animation: "node-info-in 0.14s ease-out",
             "backdrop-filter": "blur(12px)",
           }}
           onClick={(evt) => evt.stopPropagation()}
@@ -1800,7 +1780,7 @@ export function AtomGraphView(props: {
 
         {/* Expanded: full legend */}
         <Show when={legendExpanded()}>
-          <div class="px-3 py-2.5 w-44" style={{ animation: "legend-expand 0.15s ease-out" }}>
+          <div class="px-3 py-2.5 w-44">
             <div class="text-[10px] mb-2 font-medium tracking-wider" style={{ color: "#64748b" }}>
               ATOM TYPES
             </div>
@@ -1910,7 +1890,6 @@ export function AtomGraphView(props: {
             transform: "translateX(-50%)",
             background: "rgba(15,23,42,0.96)",
             "backdrop-filter": "blur(12px)",
-            animation: "node-info-in 0.14s ease-out",
           }}
           onClick={(evt) => evt.stopPropagation()}
         >
@@ -2046,10 +2025,7 @@ export function AtomGraphView(props: {
       </Show>
       <Show when={state.confirmOpen}>
         <div class="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-[rgba(2,6,23,0.6)] backdrop-blur-sm">
-          <div
-            class="pointer-events-auto w-[340px] overflow-hidden rounded-2xl border border-white/10 bg-[rgba(15,23,42,0.95)] shadow-[0_24px_64px_rgba(0,0,0,0.6)]"
-            style={{ animation: "confirm-in 0.15s cubic-bezier(0.34,1.4,0.64,1)" }}
-          >
+          <div class="pointer-events-auto w-[340px] overflow-hidden rounded-2xl border border-white/10 bg-[rgba(15,23,42,0.95)] shadow-[0_24px_64px_rgba(0,0,0,0.6)]">
             <style>{`
               @keyframes confirm-in {
                 from { opacity: 0; transform: scale(0.92) translateY(8px); }

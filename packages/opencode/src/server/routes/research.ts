@@ -17,7 +17,7 @@ import {
   RemoteServerTable,
   ExperimentExecutionWatchTable,
   ExperimentWatchTable,
-  LocalDownloadWatchTable,
+  RemoteTaskTable,
 } from "@/research/research.sql"
 import { and, desc, eq } from "drizzle-orm"
 import { Session } from "@/session"
@@ -34,8 +34,9 @@ import { Snapshot } from "@/snapshot"
 import { computeExperimentDiff } from "@/util/git-diff"
 import { checkExperimentReadyByExpId } from "@/session/experiment-guard"
 import { forceRefreshWatch } from "@/research/experiment-watcher"
-import { forceRefreshLocalDownload } from "@/research/experiment-local-download-watcher"
+import { forceRefreshRemoteTask } from "@/research/experiment-remote-task-watcher"
 import { ExperimentExecutionWatch } from "@/research/experiment-execution-watch"
+import { ProjectRuntime } from "@/research/project-runtime"
 import { ZipWriter, ZipReader, BlobReader, BlobWriter } from "@zip.js/zip.js"
 // @ts-ignore - unzipper has no type declarations
 import unzipper from "unzipper"
@@ -47,6 +48,7 @@ import {
 } from "@/research/remote-server"
 import { parseSshConfig } from "@/research/ssh-config"
 import { isArticleDirectory } from "@/research/article-source"
+import { readRemoteTaskLog } from "@/research/remote-task-runner"
 
 const createSchema = z.object({
   name: z.string().min(1, "name required"),
@@ -62,6 +64,40 @@ async function copyFile(src: string, dest: string) {
 }
 
 const uniqueID = () => crypto.randomUUID()
+const REMOTE_TASK_VISIBLE_MS = 60 * 1000
+type RemoteTaskRow = typeof RemoteTaskTable.$inferSelect
+
+function taskVisible(task: RemoteTaskRow | undefined, now: number) {
+  if (!task) return false
+  if (task.status === "pending" || task.status === "running") return true
+  return task.time_updated + REMOTE_TASK_VISIBLE_MS > now
+}
+
+function taskActive(task: RemoteTaskRow) {
+  return task.status === "pending" || task.status === "running"
+}
+
+function sortTasks(rows: RemoteTaskRow[]) {
+  return [...rows].sort((a, b) => Number(taskActive(b)) - Number(taskActive(a)) || b.time_updated - a.time_updated)
+}
+
+function taskJson(task: RemoteTaskRow) {
+  return {
+    task_id: task.task_id,
+    title: task.title,
+    kind: task.kind,
+    status: task.status,
+    resource_key: task.resource_key,
+    target_path: task.target_path,
+    screen_name: task.screen_name,
+    log_path: task.log_path,
+    error_message: task.error_message,
+    source_selection: task.source_selection,
+    method: task.method,
+    time_created: task.time_created,
+    time_updated: task.time_updated,
+  }
+}
 
 function gitError(result: { stderr?: Buffer; text?: () => string }, fallback: string) {
   const text = result.stderr?.toString().trim() || result.text?.().trim() || fallback
@@ -86,6 +122,8 @@ const atomSchema = z.object({
 
 const experimentSchema = z.object({
   exp_id: z.string(),
+  kind: z.enum(["experiment", "project_runtime"]),
+  runtime_key: z.string().nullable(),
   research_project_id: z.string(),
   exp_name: z.string(),
   exp_session_id: z.string().nullable(),
@@ -105,21 +143,36 @@ const experimentSchema = z.object({
   time_updated: z.number(),
 })
 
+const remoteTaskListItemSchema = z.object({
+  task_id: z.string(),
+  title: z.string(),
+  kind: z.enum(["resource_download", "experiment_run", "env_setup"]),
+  status: z.enum(["pending", "running", "finished", "failed", "crashed", "canceled"]),
+  resource_key: z.string().nullable(),
+  target_path: z.string().nullable(),
+  screen_name: z.string(),
+  log_path: z.string().nullable(),
+  error_message: z.string().nullable(),
+  source_selection: z.string().nullable(),
+  method: z.string().nullable(),
+  time_created: z.number(),
+  time_updated: z.number(),
+})
+
 const watchListItemSchema = z.object({
   watch_id: z.string(),
-  kind: z.literal("experiment"),
+  kind: z.enum(["experiment", "project_runtime"]),
   exp_id: z.string(),
   exp_session_id: z.string().nullable(),
   exp_result_path: z.string().nullable(),
   title: z.string(),
   status: z.enum(["pending", "running", "finished", "failed", "canceled"]),
   stage: z.enum([
+    "pending",
     "planning",
     "coding",
     "deploying_code",
     "setting_up_env",
-    "local_downloading",
-    "syncing_resources",
     "remote_downloading",
     "verifying_resources",
     "running_experiment",
@@ -134,10 +187,14 @@ const watchListItemSchema = z.object({
   wandb_entity: z.string().nullable(),
   wandb_project: z.string().nullable(),
   wandb_run_id: z.string().nullable(),
-  local_download_resource_name: z.string().nullable(),
-  local_download_local_path: z.string().nullable(),
-  local_download_log_path: z.string().nullable(),
-  local_download_status_path: z.string().nullable(),
+  remote_task_title: z.string().nullable(),
+  remote_task_kind: z.enum(["resource_download", "experiment_run", "env_setup"]).nullable(),
+  remote_task_status: z.enum(["pending", "running", "finished", "failed", "crashed", "canceled"]).nullable(),
+  remote_task_target_path: z.string().nullable(),
+  remote_task_screen_name: z.string().nullable(),
+  remote_task_log_path: z.string().nullable(),
+  remote_task_error_message: z.string().nullable(),
+  remote_tasks: z.array(remoteTaskListItemSchema),
 })
 
 const articleSchema = z.object({
@@ -149,6 +206,12 @@ const articleSchema = z.object({
   status: z.enum(["pending", "parsed", "failed"]),
   time_created: z.number(),
   time_updated: z.number(),
+})
+
+const watchLogSchema = z.object({
+  ok: z.boolean(),
+  path: z.string(),
+  content: z.string(),
 })
 
 const codeSchema = z.object({
@@ -1455,7 +1518,9 @@ export const ResearchRoutes = new Hono()
       }
 
       // find experiments linked to these branches
-      const experiments = Database.use((db) => db.select().from(ExperimentTable).all())
+      const experiments = Database.use((db) =>
+        db.select().from(ExperimentTable).where(eq(ExperimentTable.kind, "experiment")).all(),
+      )
       const expByBranch = new Map<string, { expId: string; expName: string }>()
       for (const exp of experiments) {
         if (exp.exp_branch_name) {
@@ -2395,6 +2460,57 @@ export const ResearchRoutes = new Hono()
       return c.json({ id, config })
     },
   )
+  .patch(
+    "/server/:serverId",
+    describeRoute({
+      summary: "Update a remote server",
+      operationId: "research.server.update",
+      responses: {
+        200: {
+          description: "Updated remote server",
+          content: {
+            "application/json": {
+              schema: resolver(
+                z.object({
+                  id: z.string(),
+                  config: RemoteServerConfigSchema,
+                }),
+              ),
+            },
+          },
+        },
+        ...errors(404),
+      },
+    }),
+    validator(
+      "json",
+      z.object({
+        config: RemoteServerInputSchema,
+      }),
+    ),
+    async (c) => {
+      const serverId = c.req.param("serverId")
+      const row = Database.use((db) =>
+        db.select().from(RemoteServerTable).where(eq(RemoteServerTable.id, serverId)).get(),
+      )
+      if (!row) {
+        return c.json({ success: false, message: `server not found: ${serverId}` }, 404)
+      }
+      const body = c.req.valid("json")
+      const config = normalizeRemoteServerConfig(body.config)
+      Database.use((db) =>
+        db
+          .update(RemoteServerTable)
+          .set({
+            config: JSON.stringify(config),
+            time_updated: Date.now(),
+          })
+          .where(eq(RemoteServerTable.id, serverId))
+          .run(),
+      )
+      return c.json({ id: serverId, config })
+    },
+  )
   .delete(
     "/server/:serverId",
     describeRoute({
@@ -2471,21 +2587,27 @@ export const ResearchRoutes = new Hono()
       const executionWatches = Database.use((db) => db.select().from(ExperimentExecutionWatchTable).all()).filter((w) =>
         expIds.has(w.exp_id),
       )
-      const localWatches = Database.use((db) => db.select().from(LocalDownloadWatchTable).all()).filter((w) =>
-        expIds.has(w.exp_id),
+      const now = Date.now()
+      const tasks = Database.use((db) => db.select().from(RemoteTaskTable).all()).filter((task) =>
+        expIds.has(task.exp_id),
       )
-      const localMap = new Map(
-        [...localWatches].sort((a, b) => b.time_updated - a.time_updated).map((w) => [w.exp_id, w] as const),
-      )
+      const taskMap = new Map<string, RemoteTaskRow[]>()
+      for (const task of tasks) {
+        if (!taskVisible(task, now)) continue
+        const list = taskMap.get(task.exp_id) ?? []
+        list.push(task)
+        taskMap.set(task.exp_id, list)
+      }
 
       return c.json(
         executionWatches
           .map((w) => {
             const exp = expMap.get(w.exp_id)
-            const local = localMap.get(w.exp_id)
+            const tasks = sortTasks(taskMap.get(w.exp_id) ?? [])
+            const task = tasks[0]
             return {
               watch_id: w.watch_id,
-              kind: "experiment" as const,
+              kind: ProjectRuntime.is(exp ?? {}) ? ("project_runtime" as const) : ("experiment" as const),
               exp_id: w.exp_id,
               exp_session_id: exp?.exp_session_id ?? null,
               exp_result_path: exp?.exp_result_path ?? null,
@@ -2493,7 +2615,7 @@ export const ResearchRoutes = new Hono()
               status: w.status,
               stage: w.stage,
               message: w.message,
-              error_message: w.error_message,
+              error_message: w.error_message ?? null,
               started_at: w.started_at,
               finished_at: w.finished_at,
               time_created: w.time_created,
@@ -2501,10 +2623,14 @@ export const ResearchRoutes = new Hono()
               wandb_entity: w.wandb_entity,
               wandb_project: w.wandb_project,
               wandb_run_id: w.wandb_run_id,
-              local_download_resource_name: local?.resource_name ?? null,
-              local_download_local_path: local?.local_path ?? null,
-              local_download_log_path: local?.log_path ?? null,
-              local_download_status_path: local?.status_path ?? null,
+              remote_task_title: task?.title ?? null,
+              remote_task_kind: task?.kind ?? null,
+              remote_task_status: task?.status ?? null,
+              remote_task_target_path: task?.target_path ?? null,
+              remote_task_screen_name: task?.screen_name ?? null,
+              remote_task_log_path: task?.log_path ?? null,
+              remote_task_error_message: task?.error_message ?? null,
+              remote_tasks: tasks.map(taskJson),
             }
           })
           .sort((a, b) => b.time_updated - a.time_updated),
@@ -2597,9 +2723,7 @@ export const ResearchRoutes = new Hono()
         db.delete(ExperimentExecutionWatchTable).where(eq(ExperimentExecutionWatchTable.watch_id, watchId)).run(),
       )
       Database.use((db) => db.delete(ExperimentWatchTable).where(eq(ExperimentWatchTable.exp_id, watch.exp_id)).run())
-      Database.use((db) =>
-        db.delete(LocalDownloadWatchTable).where(eq(LocalDownloadWatchTable.exp_id, watch.exp_id)).run(),
-      )
+      Database.use((db) => db.delete(RemoteTaskTable).where(eq(RemoteTaskTable.exp_id, watch.exp_id)).run())
       return c.json({ success: true })
     },
   )
@@ -2633,19 +2757,175 @@ export const ResearchRoutes = new Hono()
       if (!watch) {
         return c.json({ success: false, message: `watch not found: ${watchId}` }, 404)
       }
+      const tasks = Database.use((db) =>
+        db.select().from(RemoteTaskTable).where(eq(RemoteTaskTable.exp_id, watch.exp_id)).all(),
+      )
+      const hasRemoteTask = tasks.length > 0
       const internal = watch.wandb_run_id
         ? ExperimentExecutionWatch.findInternal(watch.exp_id, watch.wandb_run_id)
         : undefined
+      const runs = await Promise.all(
+        [
+          internal ? forceRefreshWatch(internal.watch_id, { preserveStage: true }) : undefined,
+          hasRemoteTask ? forceRefreshRemoteTask(watch.exp_id, { preserveStage: true }) : undefined,
+        ].filter(Boolean) as Array<Promise<{ success: boolean; message: string }>>,
+      )
       const result =
-        watch.stage === "local_downloading"
-          ? await forceRefreshLocalDownload(watch.exp_id)
-          : internal
-            ? await forceRefreshWatch(internal.watch_id)
-            : { success: true, message: "execution watch refreshed" }
+        runs.length === 0
+          ? { success: true, message: "execution watch refreshed" }
+          : {
+              success: runs.every((item) => item.success),
+              message: runs.map((item) => item.message).join("; "),
+            }
       if (!result.success && result.message.includes("not found")) {
         return c.json(result, 404)
       }
       return c.json(result)
+    },
+  )
+  .post(
+    "/experiment-watch/:watchId/refresh-wandb",
+    describeRoute({
+      summary: "Force refresh W&B watch",
+      operationId: "research.experimentWatch.refreshWandb",
+      responses: {
+        200: {
+          description: "Refresh result",
+          content: {
+            "application/json": {
+              schema: resolver(z.object({ success: z.boolean(), message: z.string() })),
+            },
+          },
+        },
+        ...errors(404),
+      },
+    }),
+    async (c) => {
+      const watchId = c.req.param("watchId")
+      const watch = Database.use((db) =>
+        db
+          .select()
+          .from(ExperimentExecutionWatchTable)
+          .where(eq(ExperimentExecutionWatchTable.watch_id, watchId))
+          .get(),
+      )
+      if (!watch) {
+        return c.json({ success: false, message: `watch not found: ${watchId}` }, 404)
+      }
+      const internal = watch.wandb_run_id
+        ? ExperimentExecutionWatch.findInternal(watch.exp_id, watch.wandb_run_id)
+        : undefined
+      if (!internal) {
+        return c.json({ success: false, message: `wandb watch not found for: ${watchId}` }, 404)
+      }
+      const result = await forceRefreshWatch(internal.watch_id, { preserveStage: true })
+      if (!result.success && result.message.includes("not found")) {
+        return c.json(result, 404)
+      }
+      return c.json(result)
+    },
+  )
+  .post(
+    "/experiment-watch/:watchId/refresh-remote-task",
+    describeRoute({
+      summary: "Force refresh remote task watch",
+      operationId: "research.experimentWatch.refreshRemoteTask",
+      responses: {
+        200: {
+          description: "Refresh result",
+          content: {
+            "application/json": {
+              schema: resolver(z.object({ success: z.boolean(), message: z.string() })),
+            },
+          },
+        },
+        ...errors(404),
+      },
+    }),
+    async (c) => {
+      const watchId = c.req.param("watchId")
+      const watch = Database.use((db) =>
+        db
+          .select()
+          .from(ExperimentExecutionWatchTable)
+          .where(eq(ExperimentExecutionWatchTable.watch_id, watchId))
+          .get(),
+      )
+      if (!watch) {
+        return c.json({ success: false, message: `watch not found: ${watchId}` }, 404)
+      }
+      const tasks = Database.use((db) =>
+        db.select().from(RemoteTaskTable).where(eq(RemoteTaskTable.exp_id, watch.exp_id)).all(),
+      )
+      if (!tasks.length) {
+        return c.json({ success: false, message: `remote task not found for: ${watchId}` }, 404)
+      }
+      const result = await forceRefreshRemoteTask(watch.exp_id, { preserveStage: true })
+      if (!result.success && result.message.includes("not found")) {
+        return c.json(result, 404)
+      }
+      return c.json(result)
+    },
+  )
+  .get(
+    "/experiment-watch/:watchId/log",
+    describeRoute({
+      summary: "Read remote task log for a watch",
+      operationId: "research.experimentWatch.log",
+      responses: {
+        200: {
+          description: "Remote log content",
+          content: {
+            "application/json": {
+              schema: resolver(watchLogSchema),
+            },
+          },
+        },
+        ...errors(404),
+      },
+    }),
+    async (c) => {
+      const watchId = c.req.param("watchId")
+      const watch = Database.use((db) =>
+        db
+          .select()
+          .from(ExperimentExecutionWatchTable)
+          .where(eq(ExperimentExecutionWatchTable.watch_id, watchId))
+          .get(),
+      )
+      if (!watch) {
+        return c.json({ success: false, message: `watch not found: ${watchId}` }, 404)
+      }
+      const taskId = c.req.query("taskId")
+      const task = taskId
+        ? Database.use((db) => db.select().from(RemoteTaskTable).where(eq(RemoteTaskTable.task_id, taskId)).get())
+        : Database.use((db) =>
+            db
+              .select()
+              .from(RemoteTaskTable)
+              .where(eq(RemoteTaskTable.exp_id, watch.exp_id))
+              .orderBy(desc(RemoteTaskTable.time_updated))
+              .get(),
+          )
+      if (task && task.exp_id !== watch.exp_id) {
+        return c.json({ success: false, message: `remote task does not belong to watch: ${taskId}` }, 404)
+      }
+      if (!task?.log_path) {
+        return c.json({ success: false, message: `remote log not found for watch: ${watchId}` }, 404)
+      }
+      const server = normalizeRemoteServerConfig(JSON.parse(task.server))
+      const result = await readRemoteTaskLog({
+        server,
+        logPath: task.log_path,
+      })
+      if (!result.ok && !result.output) {
+        return c.json({ success: false, message: `failed to read remote log: ${task.log_path}` }, 404)
+      }
+      return c.json({
+        ok: result.ok,
+        path: task.log_path,
+        content: result.output,
+      })
     },
   )
   // ── Experiment delete & update ──
@@ -2676,7 +2956,7 @@ export const ResearchRoutes = new Hono()
       }
       // Delete experiment watchers
       Database.use((db) => db.delete(ExperimentWatchTable).where(eq(ExperimentWatchTable.exp_id, expId)).run())
-      Database.use((db) => db.delete(LocalDownloadWatchTable).where(eq(LocalDownloadWatchTable.exp_id, expId)).run())
+      Database.use((db) => db.delete(RemoteTaskTable).where(eq(RemoteTaskTable.exp_id, expId)).run())
       Database.use((db) =>
         db.delete(ExperimentExecutionWatchTable).where(eq(ExperimentExecutionWatchTable.exp_id, expId)).run(),
       )
@@ -2808,7 +3088,13 @@ export const ResearchRoutes = new Hono()
         }
 
         const experiments = Database.use((db) =>
-          db.select().from(ExperimentTable).where(eq(ExperimentTable.research_project_id, researchProjectId)).all(),
+          db
+            .select()
+            .from(ExperimentTable)
+            .where(
+              and(eq(ExperimentTable.research_project_id, researchProjectId), eq(ExperimentTable.kind, "experiment")),
+            )
+            .all(),
         )
         const articles = Database.use((db) =>
           db.select().from(ArticleTable).where(eq(ArticleTable.research_project_id, researchProjectId)).all(),
@@ -2839,11 +3125,9 @@ export const ResearchRoutes = new Hono()
                 expIds.includes(w.exp_id),
               )
             : []
-        const localDownloadWatches =
+        const remoteTasks =
           expIds.length > 0
-            ? Database.use((db) => db.select().from(LocalDownloadWatchTable).all()).filter((w) =>
-                expIds.includes(w.exp_id),
-              )
+            ? Database.use((db) => db.select().from(RemoteTaskTable).all()).filter((w) => expIds.includes(w.exp_id))
             : []
 
         // Create metadata
@@ -2861,7 +3145,7 @@ export const ResearchRoutes = new Hono()
           watches: {
             experiment_watches: experimentWatches,
             experiment_execution_watches: experimentExecutionWatches,
-            local_download_watches: localDownloadWatches,
+            remote_tasks: remoteTasks,
           },
         }
 
@@ -3095,7 +3379,7 @@ export const ResearchRoutes = new Hono()
           watches: {
             experiment_watches: (typeof ExperimentWatchTable.$inferSelect)[]
             experiment_execution_watches: (typeof ExperimentExecutionWatchTable.$inferSelect)[]
-            local_download_watches: (typeof LocalDownloadWatchTable.$inferSelect)[]
+            remote_tasks: (typeof RemoteTaskTable.$inferSelect)[]
           }
         }>(metadataPath)
 
@@ -3382,28 +3666,31 @@ export const ResearchRoutes = new Hono()
               )
             }
 
-            for (const w of metadata.watches.local_download_watches ?? []) {
+            for (const w of metadata.watches.remote_tasks ?? []) {
               const newExpId = oldToNewExpId.get(w.exp_id)
               if (!newExpId) continue
               Database.use((db) =>
                 db
-                  .insert(LocalDownloadWatchTable)
+                  .insert(RemoteTaskTable)
                   .values({
-                    watch_id: uniqueID(),
+                    task_id: uniqueID(),
                     exp_id: newExpId,
+                    kind: w.kind,
                     resource_key: w.resource_key,
-                    resource_name: w.resource_name,
-                    resource_type: w.resource_type,
+                    title: w.title,
                     status: w.status,
-                    local_resource_root: w.local_resource_root,
-                    local_path: w.local_path,
+                    server: w.server,
+                    remote_root: w.remote_root,
+                    target_path: w.target_path,
+                    screen_name: w.screen_name,
+                    command: w.command,
                     pid: null,
                     log_path: w.log_path,
-                    status_path: w.status_path,
                     source_selection: w.source_selection,
                     method: w.method,
                     error_message: w.error_message,
                     last_polled_at: w.last_polled_at,
+                    stopped_at: w.stopped_at,
                     time_created: now,
                     time_updated: now,
                   })

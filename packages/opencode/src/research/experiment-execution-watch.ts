@@ -1,13 +1,9 @@
 import { and, Database, eq } from "../storage/db"
-import {
-  ExperimentExecutionWatchTable,
-  ExperimentTable,
-  ExperimentWatchTable,
-  LocalDownloadWatchTable,
-} from "./research.sql"
+import { ExperimentExecutionWatchTable, ExperimentTable, ExperimentWatchTable, RemoteTaskTable } from "./research.sql"
 
 type ExecutionStatus = typeof ExperimentExecutionWatchTable.$inferSelect.status
 type ExecutionStage = typeof ExperimentExecutionWatchTable.$inferSelect.stage
+type Task = typeof RemoteTaskTable.$inferSelect
 
 interface UpdateInput {
   expId?: string
@@ -24,6 +20,10 @@ interface UpdateInput {
   finishedAt?: number | null
 }
 
+interface SyncOptions {
+  preserveStage?: boolean
+}
+
 function row(input: { expId?: string; watchId?: string }) {
   if (input.watchId) {
     return Database.use((db) =>
@@ -37,6 +37,41 @@ function row(input: { expId?: string; watchId?: string }) {
   if (!input.expId) return
   return Database.use((db) =>
     db.select().from(ExperimentExecutionWatchTable).where(eq(ExperimentExecutionWatchTable.exp_id, input.expId!)).get(),
+  )
+}
+
+function tasks(expId: string) {
+  return Database.use((db) => db.select().from(RemoteTaskTable).where(eq(RemoteTaskTable.exp_id, expId)).all()).sort(
+    (a, b) => b.time_updated - a.time_updated,
+  )
+}
+
+function active(task: Task) {
+  return task.status === "pending" || task.status === "running"
+}
+
+function status(task: Task): ExecutionStatus {
+  if (task.status === "finished") return "finished"
+  if (task.status === "failed" || task.status === "crashed") return "failed"
+  if (task.status === "canceled") return "canceled"
+  return "running"
+}
+
+function stage(task: Task): ExecutionStage {
+  if (task.kind === "env_setup") return "setting_up_env"
+  if (task.kind === "resource_download") return "remote_downloading"
+  return "running_experiment"
+}
+
+function message(task: Task) {
+  if (task.status === "finished") return `${task.title} finished`
+  if (task.status === "failed" || task.status === "crashed") return task.error_message ?? `${task.title} failed`
+  return task.title
+}
+
+function finished(task: Task) {
+  return (
+    task.status === "finished" || task.status === "failed" || task.status === "crashed" || task.status === "canceled"
   )
 }
 
@@ -105,78 +140,45 @@ export namespace ExperimentExecutionWatch {
     )
   }
 
-  export function syncWatch(expId: string, watch: typeof ExperimentWatchTable.$inferSelect) {
+  export function syncWatch(expId: string, watch: typeof ExperimentWatchTable.$inferSelect, _opts?: SyncOptions) {
     createOrGet(expId, title(expId))
     update({
       expId,
       status: watch.status === "finished" ? "finished" : watch.status === "running" ? "running" : "failed",
-      stage: "watching_wandb",
+      stage: undefined,
       wandbEntity: watch.wandb_entity,
       wandbProject: watch.wandb_project,
       wandbRunId: watch.wandb_run_id,
-      message:
-        watch.status === "finished"
-          ? "Experiment finished successfully"
-          : watch.status === "running"
-            ? "Monitoring W&B run"
-            : `Experiment ended with W&B state: ${watch.wandb_state ?? watch.status}`,
+      message: undefined,
       errorMessage: watch.status === "finished" ? null : watch.error_message,
       finishedAt:
         watch.status === "finished" || watch.status === "failed" || watch.status === "crashed" ? Date.now() : null,
     })
   }
 
-  export function syncLocalDownload(expId: string) {
+  export function syncRemoteTask(expId: string, _opts?: SyncOptions) {
     createOrGet(expId, title(expId))
-    const rows = Database.use((db) =>
-      db.select().from(LocalDownloadWatchTable).where(eq(LocalDownloadWatchTable.exp_id, expId)).all(),
-    )
-    if (!rows.length) {
-      update({
-        expId,
-        status: "running",
-        stage: "local_downloading",
-        message: "Waiting for local download to start",
-        errorMessage: null,
-      })
-      return
-    }
-
-    const done = rows.filter((row) => row.status === "finished").length
-    const failed = rows.find((row) => row.status === "failed" || row.status === "crashed")
-    const running = rows.find((row) => row.status === "running" || row.status === "pending")
-
-    if (failed) {
-      update({
-        expId,
-        status: "failed",
-        stage: "local_downloading",
-        message: `Local download failed for ${failed.resource_name}`,
-        errorMessage: failed.error_message,
-        finishedAt: null,
-      })
-      return
-    }
-
-    if (running) {
-      update({
-        expId,
-        status: "running",
-        stage: "local_downloading",
-        message: `Preparing local resources (${done}/${rows.length} finished)`,
-        errorMessage: null,
-        finishedAt: null,
-      })
-      return
-    }
-
+    const exp = Database.use((db) => db.select().from(ExperimentTable).where(eq(ExperimentTable.exp_id, expId)).get())
+    if (exp?.kind !== "project_runtime") return
+    const rows = tasks(expId)
+    const current = rows.filter(active)
+    const head = current[0] ?? rows[0]
+    if (!head) return
     update({
       expId,
-      status: "running",
-      stage: "local_downloading",
-      message: "Local downloads finished, waiting for experiment resume",
-      errorMessage: null,
-      finishedAt: null,
+      status: current.length ? "running" : status(head),
+      stage: current.some((item) => item.kind === "env_setup")
+        ? "setting_up_env"
+        : current.some((item) => item.kind === "resource_download")
+          ? "remote_downloading"
+          : stage(head),
+      message: current.length > 1 ? `${current.length} remote tasks running` : message(head),
+      errorMessage: current.length
+        ? null
+        : head.status === "failed" || head.status === "crashed"
+          ? head.error_message
+          : null,
+      finishedAt: current.length ? null : finished(head) ? head.time_updated : null,
     })
   }
 

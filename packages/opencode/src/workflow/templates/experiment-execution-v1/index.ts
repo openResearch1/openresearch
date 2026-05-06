@@ -72,7 +72,7 @@ export const ExperimentExecutionWorkflowTemplate = WorkflowSchema.Template.parse
       prompt: "prepare-resources",
       policy: {
         can_next: [],
-        can_wait_interaction: false,
+        can_wait_interaction: true,
         can_edit_future: true,
         allowed_edit_ops: ["insert", "delete"],
       },

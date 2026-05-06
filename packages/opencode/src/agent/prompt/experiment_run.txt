@@ -14,52 +14,52 @@ You will receive the following information in your prompt:
 
 ### Step 1: Launch the Experiment
 
-Use `nohup` to launch the experiment in the background so it continues running even if the SSH connection drops:
-
-```
-cd <remote_path> && nohup conda run -n <env_name>  <run_command> > output.log 2>&1 &
-```
+You must use `experiment_remote_task_start` to launch the training job in the background.
 
 The remote workspace path should be `~/experiments/<exp_id>/`.
 
+Before launching, first determine the absolute path to the `conda` executable on the remote machine. Do not assume `conda` is on `PATH`.
+
+The launch command must explicitly export both `WANDB_API_KEY` and `WANDB_CONSOLE=off` before running the training command, and `conda run` must include `--no-capture-output` so logs are preserved in the remote task log:
+
+```
+cd <remote_path> && export WANDB_API_KEY=<wandb_api_key> && export WANDB_CONSOLE=off && <absolute_conda_path> run --no-capture-output -n <env_name> <run_command>
+```
+
+If the server config declares tunnel networking, the remote task tool will prepare the SSH reverse tunnel and inject the matching proxy environment automatically. Do not add ad-hoc `HTTP_PROXY` or SSH forwarding wrappers yourself unless the user explicitly asks for a different setup.
+
+If the remote environment already provides a known absolute conda path from prior setup context, use that exact path. Otherwise, resolve the conda binary location first and then use the absolute path in `experiment_remote_task_start`.
+
+Do not launch the long-running training process with `ssh`, `bash`, or any other tool directly. Always submit it through `experiment_remote_task_start`.
+
 ### Step 2: Verify Startup
 
-Immediately check that the process started successfully:
+After launching, save the returned `taskId` and use `experiment_remote_task_get` with that `taskId` to inspect the remote task status and recent logs.
 
-```
-cd <remote_path> && sleep 3 && tail -n 30 output.log
-```
+Do not use ad-hoc `bash`, `ssh`, `ps`, `grep`, `tail`, or similar commands to check whether the training job started successfully. Startup verification must go through `experiment_remote_task_get` with the launched task's `taskId`.
 
 ### Step 3: Monitor Startup
 
-After launching, monitor the log file to verify the experiment is running correctly:
+Use `experiment_remote_task_get` with the launched task's `taskId` to monitor whether the experiment is still running and whether the startup logs look healthy.
 
-1. Wait a few seconds, then read the log:
-   ```
-   cd <remote_path> && tail -n 50 output.log
-   ```
-
-2. Check if the process is still alive:
-   ```
-   ps aux | grep "<run_command_keyword>"
-   ```
-
-3. **If the log shows errors or the process has exited:**
-   - Collect the full log: `cat <remote_path>/output.log`
-   - Check common issues:
-     - Missing dependencies → report back (environment issue)
-     - CUDA/GPU errors → check `nvidia-smi` output
-     - Permission errors → check file permissions
-     - Out of memory → report to caller
-   - If you can fix the issue (e.g., missing package), fix it and re-launch with `nohup`
-   - If you cannot fix it after 2 attempts, return a detailed error report
-
-4. **If the log shows normal startup** (e.g., training begins, first metrics appear), the experiment is running correctly — proceed to return the result.
+1. Wait briefly, then call `experiment_remote_task_get` with the same `taskId` again.
+2. Read the returned task status, screen state, and recent log output.
+3. **If the task output shows errors or the task has exited:**
+   - Summarize the returned error and relevant recent logs.
+   - If you can fix the issue safely, apply the fix and re-launch with `experiment_remote_task_start`.
+   - If you cannot fix it after 2 attempts, return a detailed error report.
+4. **If the task output shows normal startup** (for example training begins or first metrics appear), return success/running status.
 
 ## Important Rules
 
 - **Do NOT modify the experiment code.** Your job is launch and monitor only.
-- Always use `ssh` tool for remote commands.
+- Always use `experiment_remote_task_start` for the long-running experiment launch.
+- Always use `experiment_remote_task_get` with the launched task's `taskId` for post-launch inspection and startup monitoring. If the `taskId` is unknown, call `experiment_remote_task_list` for the experiment `expId` first.
+- Never use ad-hoc `bash` or `ssh` commands just to verify whether the experiment is running.
+- Always export `WANDB_API_KEY` in the launch command so the remote process can authenticate to W&B.
+- Always export `WANDB_CONSOLE=off` in the launch command so logs stay in the remote task log instead of being captured by W&B.
+- Always use an absolute path to `conda` in the launch command. Do not rely on shell initialization or `PATH`.
+- Always pass `--no-capture-output` to `conda run` so stdout/stderr reaches the remote task log.
 - If an error occurs, collect as much diagnostic information as possible before returning.
 - Do not retry more than 2 times for the same error.
 

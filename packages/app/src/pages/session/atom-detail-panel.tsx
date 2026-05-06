@@ -335,7 +335,13 @@ export function AtomDetailPanel(props: {
             <Show when={atomSessionId()}>
               <Show when={props.onToggleChat}>
                 <button
-                  onClick={props.onToggleChat}
+                  onClick={() => {
+                    // Sync session ID to parent synchronously before toggling chat.
+                    // On remount, the notify-parent effect may not have flushed yet,
+                    // which leaves parent's atomSessionId null and breaks the chat Show condition.
+                    props.onAtomSessionId?.(atomSessionId())
+                    props.onToggleChat?.()
+                  }}
                   title={props.chatOpen ? "Close chat panel" : "Open chat panel"}
                   class="flex items-center gap-1 px-2 py-0.5 rounded border text-[11px] cursor-pointer shrink-0 whitespace-nowrap transition-colors"
                   classList={{

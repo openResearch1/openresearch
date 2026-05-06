@@ -1,4 +1,4 @@
-import { createEffect, createMemo, on, onCleanup, Show } from "solid-js"
+import { createEffect, createMemo, createResource, For, on, onCleanup, Show } from "solid-js"
 import { createStore, produce } from "solid-js/store"
 import { useNavigate, useParams } from "@solidjs/router"
 import { Button } from "@opencode-ai/ui/button"
@@ -9,6 +9,7 @@ import { Dialog } from "@opencode-ai/ui/dialog"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
 import { animate, type AnimationPlaybackControls, clearFadeStyles, FAST_SPRING } from "@opencode-ai/ui/motion"
 import { showToast } from "@opencode-ai/ui/toast"
+import type { CollabAgent } from "@opencode-ai/sdk/v2/client"
 import { errorMessage } from "@/pages/layout/helpers"
 import { SessionContextUsage } from "@/components/session-context-usage"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
@@ -359,6 +360,58 @@ export function SessionTimelineHeader(props: {
     navigate(`/${params.dir}/session/${id}`)
   }
 
+  // Ancestor chain is immutable for the lifetime of a session: parent_agent_id
+  // never changes, and only descendants get added by spawn. So a single fetch
+  // keyed by sessionID is enough — subscribing to collab.agent.* events here
+  // would cause a cascade of refetches every time the session spawns a child,
+  // visibly flickering the whole sticky header during spawn_agent calls.
+  const [collabAgent] = createResource(
+    () => props.sessionID(),
+    async (sessionID) => {
+      if (!sessionID) return null
+      try {
+        const res = await sdk.client.collab.session.agent.get({ sessionId: sessionID, directory: sdk.directory })
+        return res.data?.agent ?? null
+      } catch {
+        return null
+      }
+    },
+  )
+
+  const [collabTree] = createResource(
+    () => collabAgent()?.root_agent_id,
+    async (rootAgentId) => {
+      if (!rootAgentId) return null
+      try {
+        const res = await sdk.client.collab.tree.get({ rootAgentId, directory: sdk.directory })
+        return res.data ?? null
+      } catch {
+        return null
+      }
+    },
+  )
+
+  const collabAncestors = createMemo<CollabAgent[]>(() => {
+    const self = collabAgent()
+    const t = collabTree()
+    if (!self || !t) return []
+    const byId = new Map(t.nodes.map((n) => [n.id, n]))
+    const chain: CollabAgent[] = []
+    let cur: CollabAgent | undefined = self
+    const seen = new Set<string>()
+    while (cur && !seen.has(cur.id)) {
+      chain.unshift(cur)
+      seen.add(cur.id)
+      if (!cur.parent_agent_id) break
+      cur = byId.get(cur.parent_agent_id)
+    }
+    return chain
+  })
+
+  const navigateToAgentSession = (agent: CollabAgent) => {
+    navigate(`/${params.dir}/session/${agent.session_id}`)
+  }
+
   function DialogDeleteSession(input: { sessionID: string }) {
     const name = createMemo(() => sync.session.get(input.sessionID)?.title ?? language.t("command.session.new"))
 
@@ -409,16 +462,49 @@ export function SessionTimelineHeader(props: {
         >
           <div class="pointer-events-auto h-12 w-full flex items-center justify-between gap-2">
             <div class="flex items-center gap-1 min-w-0 flex-1">
-              <Show when={props.parentID()}>
-                <div>
-                  <IconButton
-                    tabIndex={-1}
-                    icon="arrow-left"
-                    variant="ghost"
-                    onClick={navigateParent}
-                    aria-label={language.t("common.goBack")}
-                  />
-                </div>
+              <Show
+                when={collabAncestors().length >= 2}
+                fallback={
+                  <Show when={props.parentID()}>
+                    <div>
+                      <IconButton
+                        tabIndex={-1}
+                        icon="arrow-left"
+                        variant="ghost"
+                        onClick={navigateParent}
+                        aria-label={language.t("common.goBack")}
+                      />
+                    </div>
+                  </Show>
+                }
+              >
+                <nav
+                  class="flex items-center gap-1 min-w-0 text-13-regular text-text-weak"
+                  aria-label="collab agent ancestors"
+                >
+                  <For each={collabAncestors().slice(0, -1)}>
+                    {(agent, idx) => (
+                      <>
+                        <Show when={idx() > 0}>
+                          <span class="text-text-weaker shrink-0">/</span>
+                        </Show>
+                        <a
+                          class="truncate hover:text-text-strong cursor-pointer"
+                          href={`/${params.dir}/session/${agent.session_id}`}
+                          onClick={(e) => {
+                            if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return
+                            e.preventDefault()
+                            navigateToAgentSession(agent)
+                          }}
+                          title={agent.name}
+                        >
+                          {agent.name}
+                        </a>
+                      </>
+                    )}
+                  </For>
+                  <span class="text-text-weaker shrink-0">/</span>
+                </nav>
               </Show>
               <Show when={!!headerText.value || title.editing}>
                 <Show

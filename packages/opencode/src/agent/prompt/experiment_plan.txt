@@ -150,25 +150,23 @@ In addition to the description above, also include this structured block at the 
 List every pip package required, including `wandb` and any packages from `requirements.txt`. This block is required for `experiment_setup_env` to work.
 
 ## 8. Dataset Preparation
-- Step-by-step instructions for preparing the dataset, clearly separated into local preparation versus remote sync or remote download
-- Download commands or data transfer steps
+- Step-by-step instructions for preparing the dataset directly on the remote server
+- Download commands or remote preparation steps
 - Preprocessing scripts to run
 - If `./.openresearch/successful/<code_id>.md` matches the current `code_path`, explicitly note which recorded dataset/model/resource paths should be reused and that dataset/model preparation and download should be skipped first unless the later run proves they are no longer valid
 
 ## 9. Resource Download Plan
 - The `resource_root` to use on the remote server
-- The `local_resource_root` to use for large local caches or staging before upload, when needed
 - Every model, dataset, checkpoint, or artifact the experiment requires
 - For each resource:
   - `name`
   - `type`
   - `source`
-  - `strategy` as either `remote_download` or `local_prepare_upload`
-  - `local_path` when `strategy` is `local_prepare_upload`
+  - `strategy` as `remote_download`
   - `target_path` as a remote absolute path, typically under `resource_root`
-  - `transfer_mode` when `strategy` is `local_prepare_upload`
-  - whether `experiment_local_download` is required
-  - whether `experiment_sync_resource` is required
+  - whether it is a project-level shared resource
+  - whether `project_runtime_resource_download` is required for missing, stale, failed, invalid, or network-download resources
+  - whether `experiment_resource_prepare` is required for experiment-specific confirmation, directory creation, extraction, conversion, symlinks, manifests, copying/moving, or layout adaptation
   - whether it should be shared across experiments or be experiment-specific
   - verification checks that confirm the download is usable
   - the exact runtime CLI argument that must receive `target_path`
@@ -186,5 +184,5 @@ If a matching successful experience exists, this section must also include a sho
 - The plan must be executable on a remote server via SSH.
 - Resource paths must be planned as remote absolute paths. Do not rely on code-relative paths for large models or datasets.
 - If remote resources are needed, the plan must explicitly require corresponding CLI args in the code changes section.
-- Large datasets should default to `local_prepare_upload` unless there is a specific reason they are practical to fetch directly on the remote server.
+- Large datasets should be planned for direct remote download and preparation under `resource_root`.
 - When a matching successful experience exists for the same `code_path`, prefer direct reuse over conservative re-preparation. The plan should say so plainly.

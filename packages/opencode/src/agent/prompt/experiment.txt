@@ -58,8 +58,29 @@ Choose the smallest correct flow for the current state. If uncertain, prefer `de
 
 ## Boundaries
 
-- The workflow step prompts define when to call subagents such as `experiment_plan`, `experiment_deploy`, `experiment_setup_env`, `experiment_local_download`, `experiment_remote_download`, `experiment_sync_resource`, `experiment_run`, `experiment_success`, and `experiment_commit`.
-- Do NOT bypass those subagents when the current workflow step requires them.
+- Available experiment subagents:
+  - `task(subagent=experiment_plan)`: generate or revise the experiment plan
+  - `task(subagent=experiment_deploy)`: sync code to the remote server and return the remote code path
+  - `task(subagent=project_runtime_env_setup)`: inspect local code, adapt to the remote server, reuse or prepare a project-managed conda environment
+  - `task(subagent=project_runtime_resource_download)`: download large missing, stale, failed, or invalid project-managed resources on the remote server
+  - `task(subagent=experiment_resource_prepare)`: verify existing remote resources and perform experiment-specific remote resource preparation without downloading
+  - `task(subagent=experiment_run)`: launch the remote experiment and monitor startup
+  - `task(subagent=experiment_summary)`: summarize completed experiment results into the atom evidence output when explicitly needed
+  - `task(subagent=experiment_success)`: write reusable notes for a successful run
+  - `task(subagent=experiment_commit)`: summarize code changes and create the experiment git commit
+- You MUST treat the above list as the execution surface for experiment-specialized work.
+- When the current workflow step corresponds to one of those responsibilities, you MUST call the matching subagent instead of doing that work yourself.
+- Do NOT bypass, substitute, or merge these responsibilities. For example:
+  - planning work must go through `experiment_plan`
+  - code sync must go through `experiment_deploy`
+  - project-level environment setup must go through `project_runtime_env_setup`
+  - project-managed resource lookup must happen before deciding whether to download
+  - large resource download work must go through `project_runtime_resource_download` only after project inventory and remote reuse checks show the resource is missing, stale, failed, invalid, or needs network download
+  - experiment-specific resource verification, directory creation, extraction, conversion, symlinks, and layout preparation must go through `experiment_resource_prepare`
+  - experiment launch and startup monitoring must go through `experiment_run`
+  - experiment result summarization must go through `experiment_summary` when that work is requested
+  - success-note writing must go through `experiment_success`
+  - commit creation must go through `experiment_commit`
 - The workflow step prompts also define when `experiment_execution_watch_init` and `experiment_execution_watch_update` should be used. Follow the step prompt rather than inventing extra watch transitions.
 - SSH in this primary agent is for information gathering only. Do not use it here to run experiment scripts or other long-running execution.
 - Code writes must respect the boundaries described by the current step prompt.
