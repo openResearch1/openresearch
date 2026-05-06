@@ -1718,6 +1718,8 @@
 [data-slot="agent-card-chip"] {
   display: inline-flex;
   align-items: center;
+  flex-shrink: 0;
+  white-space: nowrap;
   gap: 4px;
   padding: 2px 8px;
   border-radius: 999px;
@@ -1735,9 +1737,31 @@
     color: var(--icon-critical-base);
   }
 
+  &[data-variant="success"] {
+    border-color: var(--surface-success-strong);
+    background-color: var(--surface-success-weak);
+    color: var(--surface-success-strong);
+  }
+
+  &[data-variant="waiting"] {
+    border-color: var(--border-base);
+    background-color: var(--surface-inset-strong);
+    color: var(--text-strong);
+  }
+
   &[data-variant="muted"] {
     color: var(--text-weak);
   }
+
+  [data-component="icon"] {
+    flex-shrink: 0;
+  }
+}
+
+[data-slot="agent-card-actions"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 [data-slot="agent-card-open"] {

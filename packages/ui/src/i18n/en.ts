@@ -117,8 +117,12 @@ export const dict: Record<string, string> = {
   "ui.tool.agent.openSession": "Open session",
   "ui.tool.agent.status.ok": "OK",
   "ui.tool.agent.status.failed": "Failed",
+  "ui.tool.agent.status.done": "Done",
   "ui.tool.agent.agentId": "agent",
   "ui.tool.agent.sessionId": "session",
+  "ui.tool.agent.childCompleted": "Child completed",
+  "ui.tool.agent.childSummary": "Summary",
+  "ui.tool.agent.waiting": "Waiting",
 
   "ui.workflow.status.running": "Running",
   "ui.workflow.status.waiting": "Waiting",
