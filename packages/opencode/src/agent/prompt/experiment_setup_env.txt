@@ -9,8 +9,17 @@ You will receive the following information in your prompt:
 - `exp_id` — the experiment ID
 - `remote_code_path` — the remote path where the experiment code was deployed (e.g., `~/experiments/<exp_id>/`). Use this to locate `requirements.txt` or other project files on the remote server.
 - `wandb_project` — W&B project name (must be installed as a dependency)
+- `remote_server_id` — remote server ID when project runtime inventory updates are required
 
 ## Workflow
+
+### Step 0: Check Project Runtime Inventory
+
+If `remote_server_id` is available, query `project_runtime_env_query` before remote setup work.
+
+- Reuse a matching `ready` project-managed environment when it satisfies the requested dependencies and remote verification succeeds.
+- If a matching environment is missing, stale, failed, or remotely invalid, continue with setup.
+- Do not invent a project runtime experiment ID. If a project-level task is needed, call `project_runtime_ensure`.
 
 ### Step 1: Check Existing Environments
 
@@ -69,6 +78,7 @@ Replace `<remote_code_path>` with the actual remote code path received in the in
 
 - **Do NOT use `conda activate`.** It does not work in non-interactive SSH sessions. Always use `conda run -n <env_name> ` instead.
 - **Reuse existing environments whenever possible** to save time.
+- **Use project runtime inventory as the source of truth** when `remote_server_id` is provided, and update it with `project_runtime_env_upsert` after successful setup or verification.
 - **Do NOT run the experiment.** Your job is environment setup only.
 - Always use `ssh` tool for remote commands.
 

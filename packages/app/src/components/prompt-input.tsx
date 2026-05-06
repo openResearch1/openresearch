@@ -100,7 +100,8 @@ const AT_AGENT_LIST = [
   "experiment_plan",
   "experiment_deploy",
   "experiment_local_download",
-  "experiment_remote_download",
+  "project_runtime_resource_download",
+  "experiment_resource_prepare",
   "experiment_sync_resource",
   "experiment_setup_env",
   "experiment_run",
@@ -108,10 +109,7 @@ const AT_AGENT_LIST = [
   "explore",
 ] as const
 
-function DialogNewIdea(props: {
-  onCancel: () => void
-  onSubmit: (idea: string) => void
-}) {
+function DialogNewIdea(props: { onCancel: () => void; onSubmit: (idea: string) => void }) {
   const dialog = useDialog()
   const [idea, setIdea] = createSignal("")
 
@@ -550,15 +548,17 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     setComposing(false)
   }
 
-  const agentList = createMemo(() =>
-    [
-      { type: "action" as const, name: "add_new_idea", display: "add_new_idea" },
-      ...sync.data.agent
+  const agentList = createMemo(() => [
+    { type: "action" as const, name: "add_new_idea", display: "add_new_idea" },
+    ...sync.data.agent
       .filter((agent) => AT_AGENT_LIST.includes(agent.name as (typeof AT_AGENT_LIST)[number]))
-      .sort((a, b) => AT_AGENT_LIST.indexOf(a.name as (typeof AT_AGENT_LIST)[number]) - AT_AGENT_LIST.indexOf(b.name as (typeof AT_AGENT_LIST)[number]))
+      .sort(
+        (a, b) =>
+          AT_AGENT_LIST.indexOf(a.name as (typeof AT_AGENT_LIST)[number]) -
+          AT_AGENT_LIST.indexOf(b.name as (typeof AT_AGENT_LIST)[number]),
+      )
       .map((agent): AtOption => ({ type: "agent", name: agent.name, display: agent.name })),
-    ],
-  )
+  ])
   const agentNames = createMemo(() => local.agent.list().map((agent) => agent.name))
 
   const startIdeaWorkflow = async (idea: string) => {
@@ -614,14 +614,21 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     if (option.type === "action") {
       closePopover()
       if (option.name === "add_new_idea") {
-        dialog.show(() => <DialogNewIdea onCancel={() => {}} onSubmit={(idea) => void startIdeaWorkflow(idea).catch((error) => {
-          console.error("Failed to start idea workflow:", error)
-          showToast({
-            title: "Idea Not Started",
-            description: error instanceof Error ? error.message : "Failed to start idea workflow.",
-            variant: "error",
-          })
-        })} />)
+        dialog.show(() => (
+          <DialogNewIdea
+            onCancel={() => {}}
+            onSubmit={(idea) =>
+              void startIdeaWorkflow(idea).catch((error) => {
+                console.error("Failed to start idea workflow:", error)
+                showToast({
+                  title: "Idea Not Started",
+                  description: error instanceof Error ? error.message : "Failed to start idea workflow.",
+                  variant: "error",
+                })
+              })
+            }
+          />
+        ))
       }
       return
     }

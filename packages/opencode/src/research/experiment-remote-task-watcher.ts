@@ -44,10 +44,19 @@ async function refresh(task: ReturnType<typeof ExperimentRemoteTask.listByExp>[n
   } else if (alive.has(meta.screen)) next = "running"
   else if (code === 0 && (task.kind === "experiment_run" || meta.target === "present" || !task.target_path))
     next = "finished"
-  else if (meta.target === "present" && task.kind === "resource_download") next = "finished"
   else if (code !== undefined) {
     next = "failed"
     err = meta.tail || `remote task exited with code ${code}`
+  } else if (meta.screen === "dead") {
+    const lines = meta.tail
+      .split("\n")
+      .map((item) => item.trim())
+      .filter(Boolean)
+    const note = lines.filter((item) => !item.startsWith("START ") && item !== "START").at(-1)
+    next = "failed"
+    err = note
+      ? `remote task screen is dead before writing completion marker: ${note}`
+      : "remote task screen is dead before writing completion marker"
   } else {
     stoppedAt = task.stopped_at ?? now
     if (stoppedAt + STOP_GRACE > now) {
@@ -87,10 +96,16 @@ async function pollAll() {
   }
 }
 
-export async function forceRefreshRemoteTask(expId: string, opts?: { preserveStage?: boolean }) {
+export async function forceRefreshRemoteTask(expId: string, opts?: { preserveStage?: boolean; taskId?: string }) {
   const tasks = ExperimentRemoteTask.listByExp(expId)
   if (!tasks.length) return { success: true, message: "no remote tasks found" }
-  const active = tasks.filter((item) => !["finished", "failed", "crashed"].includes(item.status))
+  if (opts?.taskId) {
+    const task = ExperimentRemoteTask.get(opts.taskId)
+    if (!task || task.exp_id !== expId) return { success: false, message: `remote task not found: ${opts.taskId}` }
+    await refresh(task, opts.preserveStage)
+    return { success: true, message: "remote task refresh complete" }
+  }
+  const active = tasks.filter((item) => !["finished", "failed", "crashed", "canceled"].includes(item.status))
   const rows = active.length ? active : [tasks.sort((a, b) => b.time_updated - a.time_updated)[0]]
   for (const task of rows) {
     await refresh(task, opts?.preserveStage)

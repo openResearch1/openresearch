@@ -13,9 +13,27 @@ import {
 import { normalizeRemoteServerConfig, remoteServerLabel } from "@/research/remote-server"
 import { Database, eq } from "@/storage/db"
 
-const kind = z.enum(["resource_download", "experiment_run"])
+const kind = z.enum(["resource_download", "experiment_run", "env_setup"])
 
 const blocked = [/\bscreen\s+-d/, /\bnohup\b/, /\bssh(pass)?\b/, /<<['"]?[A-Z_]+['"]?/, /\bbash\s+-s\b/]
+
+function summary(task: ReturnType<typeof ExperimentRemoteTask.listByExp>[number]) {
+  return {
+    taskId: task.task_id,
+    expId: task.exp_id,
+    kind: task.kind,
+    title: task.title,
+    status: task.status,
+    resourceKey: task.resource_key,
+    targetPath: task.target_path,
+    screenName: task.screen_name,
+    logPath: task.log_path,
+    sourceSelection: task.source_selection,
+    method: task.method,
+    timeCreated: task.time_created,
+    timeUpdated: task.time_updated,
+  }
+}
 
 export function assertRawRemoteCommand(command: string) {
   const value = command.trim()
@@ -107,15 +125,69 @@ export const ExperimentRemoteTaskStartTool = Tool.define("experiment_remote_task
 
 export const ExperimentRemoteTaskGetTool = Tool.define("experiment_remote_task_get", {
   description:
-    "Get the current remote task for an experiment. Returns one active task when present, otherwise the latest task, with current status, error, and the last 20 log lines.",
+    "Get a remote task for an experiment. Pass taskId to inspect a specific task; otherwise returns the current active task when present, then the latest task.",
   parameters: z.object({
     expId: z.string().describe("Experiment ID to inspect."),
+    taskId: z
+      .string()
+      .optional()
+      .describe("Optional remote task ID to inspect exactly. If omitted, uses legacy current-task behavior."),
+    waitForTerminal: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe(
+        "For running env_setup/resource_download tasks, wait until the remote task reaches a terminal status before returning.",
+      ),
+    waitTimeoutMs: z
+      .number()
+      .positive()
+      .optional()
+      .describe("Optional maximum time to wait for terminal status in milliseconds."),
   }),
-  async execute(params) {
-    await forceRefreshRemoteTask(params.expId)
-    const task = ExperimentRemoteTask.current(params.expId)
+  async execute(params, ctx) {
+    if (params.taskId) {
+      const existing = ExperimentRemoteTask.get(params.taskId)
+      if (!existing) throw new Error(`remote task not found: ${params.taskId}`)
+      if (existing.exp_id !== params.expId)
+        throw new Error(`remote task does not belong to experiment: ${params.taskId}`)
+    }
+    await forceRefreshRemoteTask(params.expId, { taskId: params.taskId })
+    let task = params.taskId ? ExperimentRemoteTask.get(params.taskId) : ExperimentRemoteTask.current(params.expId)
     if (!task) {
-      throw new Error(`no remote task found for experiment: ${params.expId}`)
+      throw new Error(
+        params.taskId
+          ? `remote task not found: ${params.taskId}`
+          : `no remote task found for experiment: ${params.expId}`,
+      )
+    }
+    if (task.exp_id !== params.expId) {
+      throw new Error(`remote task does not belong to experiment: ${params.taskId}`)
+    }
+    let waited = false
+    if (
+      params.waitForTerminal &&
+      task.status === "running" &&
+      (task.kind === "env_setup" || task.kind === "resource_download")
+    ) {
+      waited = true
+      await ctx.metadata({
+        title: `Waiting: ${task.title}`,
+        metadata: {
+          phase: "waiting_terminal",
+          message: "Waiting for remote task to finish",
+          taskId: task.task_id,
+          expId: params.expId,
+          kind: task.kind,
+          title: task.title,
+          status: task.status,
+        },
+      })
+      task = await ExperimentRemoteTask.waitTerminal({
+        taskId: task.task_id,
+        signal: ctx.abort,
+        timeoutMs: params.waitTimeoutMs,
+      })
     }
     const server = normalizeRemoteServerConfig(JSON.parse(task.server))
     const live = task.log_path
@@ -141,6 +213,7 @@ export const ExperimentRemoteTaskGetTool = Tool.define("experiment_remote_task_g
         `Kind: ${task.kind}`,
         `Title: ${task.title}`,
         `Status: ${task.status}`,
+        waited ? `Waited: terminal` : null,
         `Screen: ${screen}`,
         `Server: ${remoteServerLabel(server)}`,
         `Log: ${task.log_path ?? "-"}`,
@@ -153,14 +226,52 @@ export const ExperimentRemoteTaskGetTool = Tool.define("experiment_remote_task_g
         .join("\n"),
       metadata: {
         taskId: task.task_id,
+        expId: params.expId,
         kind: task.kind,
         title: task.title,
         status: task.status,
+        waited,
+        terminal: ExperimentRemoteTask.isTerminal(task.status),
+        phase: waited ? "terminal" : "inspected",
         screen,
         logPath: task.log_path,
         errorMessage: error,
         tail: tail?.output || "",
       },
+    }
+  },
+})
+
+export const ExperimentRemoteTaskListTool = Tool.define("experiment_remote_task_list", {
+  description:
+    "List all active remote tasks for an experiment ID so a caller can choose a taskId for exact inspection.",
+  parameters: z.object({
+    expId: z.string().describe("Experiment ID whose active remote tasks should be listed."),
+  }),
+  async execute(params) {
+    await forceRefreshRemoteTask(params.expId)
+    const tasks = ExperimentRemoteTask.listActiveByExp(params.expId)
+    return {
+      title: `${tasks.length} active remote task(s)`,
+      output: tasks.length
+        ? tasks
+            .map((task) => {
+              const item = summary(task)
+              return [
+                `Task ID: ${item.taskId}`,
+                `Kind: ${item.kind}`,
+                `Title: ${item.title}`,
+                `Status: ${item.status}`,
+                item.resourceKey ? `Resource: ${item.resourceKey}` : null,
+                item.targetPath ? `Target: ${item.targetPath}` : null,
+                item.logPath ? `Log: ${item.logPath}` : null,
+              ]
+                .filter(Boolean)
+                .join("\n")
+            })
+            .join("\n\n")
+        : "No active remote tasks.",
+      metadata: { tasks: tasks.map(summary) },
     }
   },
 })

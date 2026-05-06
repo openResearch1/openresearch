@@ -61,8 +61,9 @@ Choose the smallest correct flow for the current state. If uncertain, prefer `de
 - Available experiment subagents:
   - `task(subagent=experiment_plan)`: generate or revise the experiment plan
   - `task(subagent=experiment_deploy)`: sync code to the remote server and return the remote code path
-  - `task(subagent=experiment_setup_env)`: inspect, reuse, or prepare the remote conda environment
-  - `task(subagent=experiment_remote_download)`: download or verify required remote resources
+  - `task(subagent=project_runtime_env_setup)`: inspect local code, adapt to the remote server, reuse or prepare a project-managed conda environment
+  - `task(subagent=project_runtime_resource_download)`: download large missing, stale, failed, or invalid project-managed resources on the remote server
+  - `task(subagent=experiment_resource_prepare)`: verify existing remote resources and perform experiment-specific remote resource preparation without downloading
   - `task(subagent=experiment_run)`: launch the remote experiment and monitor startup
   - `task(subagent=experiment_summary)`: summarize completed experiment results into the atom evidence output when explicitly needed
   - `task(subagent=experiment_success)`: write reusable notes for a successful run
@@ -72,8 +73,10 @@ Choose the smallest correct flow for the current state. If uncertain, prefer `de
 - Do NOT bypass, substitute, or merge these responsibilities. For example:
   - planning work must go through `experiment_plan`
   - code sync must go through `experiment_deploy`
-  - environment setup must go through `experiment_setup_env`
-  - resource download or remote resource verification work must go through `experiment_remote_download`
+  - project-level environment setup must go through `project_runtime_env_setup`
+  - project-managed resource lookup must happen before deciding whether to download
+  - large resource download work must go through `project_runtime_resource_download` only after project inventory and remote reuse checks show the resource is missing, stale, failed, invalid, or needs network download
+  - experiment-specific resource verification, directory creation, extraction, conversion, symlinks, and layout preparation must go through `experiment_resource_prepare`
   - experiment launch and startup monitoring must go through `experiment_run`
   - experiment result summarization must go through `experiment_summary` when that work is requested
   - success-note writing must go through `experiment_success`

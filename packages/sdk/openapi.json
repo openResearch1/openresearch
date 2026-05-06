@@ -3172,6 +3172,9 @@
                         },
                         {
                           "$ref": "#/components/schemas/SubtaskPartInput"
+                        },
+                        {
+                          "$ref": "#/components/schemas/CollabReturnPartInput"
                         }
                       ]
                     }
@@ -3656,6 +3659,9 @@
                         },
                         {
                           "$ref": "#/components/schemas/SubtaskPartInput"
+                        },
+                        {
+                          "$ref": "#/components/schemas/CollabReturnPartInput"
                         }
                       ]
                     }
@@ -5884,6 +5890,20 @@
                                   "exp_id": {
                                     "type": "string"
                                   },
+                                  "kind": {
+                                    "type": "string",
+                                    "enum": ["experiment", "project_runtime"]
+                                  },
+                                  "runtime_key": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
                                   "research_project_id": {
                                     "type": "string"
                                   },
@@ -6001,6 +6021,41 @@
                                               },
                                               "wandb_project_name": {
                                                 "type": "string"
+                                              },
+                                              "network": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "object",
+                                                    "properties": {
+                                                      "mode": {
+                                                        "type": "string",
+                                                        "const": "direct"
+                                                      }
+                                                    },
+                                                    "required": ["mode"]
+                                                  },
+                                                  {
+                                                    "type": "object",
+                                                    "properties": {
+                                                      "mode": {
+                                                        "type": "string",
+                                                        "const": "tunnel"
+                                                      },
+                                                      "local_proxy": {
+                                                        "type": "string"
+                                                      },
+                                                      "remote_port": {
+                                                        "type": "integer",
+                                                        "exclusiveMinimum": 0,
+                                                        "maximum": 9007199254740991
+                                                      },
+                                                      "no_proxy": {
+                                                        "type": "string"
+                                                      }
+                                                    },
+                                                    "required": ["mode", "local_proxy", "remote_port"]
+                                                  }
+                                                ]
                                               }
                                             },
                                             "required": ["mode", "address", "port", "user"]
@@ -6032,6 +6087,41 @@
                                               },
                                               "wandb_project_name": {
                                                 "type": "string"
+                                              },
+                                              "network": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "object",
+                                                    "properties": {
+                                                      "mode": {
+                                                        "type": "string",
+                                                        "const": "direct"
+                                                      }
+                                                    },
+                                                    "required": ["mode"]
+                                                  },
+                                                  {
+                                                    "type": "object",
+                                                    "properties": {
+                                                      "mode": {
+                                                        "type": "string",
+                                                        "const": "tunnel"
+                                                      },
+                                                      "local_proxy": {
+                                                        "type": "string"
+                                                      },
+                                                      "remote_port": {
+                                                        "type": "integer",
+                                                        "exclusiveMinimum": 0,
+                                                        "maximum": 9007199254740991
+                                                      },
+                                                      "no_proxy": {
+                                                        "type": "string"
+                                                      }
+                                                    },
+                                                    "required": ["mode", "local_proxy", "remote_port"]
+                                                  }
+                                                ]
                                               }
                                             },
                                             "required": ["mode", "host_alias"]
@@ -6079,6 +6169,8 @@
                                 },
                                 "required": [
                                   "exp_id",
+                                  "kind",
+                                  "runtime_key",
                                   "research_project_id",
                                   "exp_name",
                                   "exp_session_id",
@@ -7011,6 +7103,20 @@
                         "exp_id": {
                           "type": "string"
                         },
+                        "kind": {
+                          "type": "string",
+                          "enum": ["experiment", "project_runtime"]
+                        },
+                        "runtime_key": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "research_project_id": {
                           "type": "string"
                         },
@@ -7128,6 +7234,41 @@
                                     },
                                     "wandb_project_name": {
                                       "type": "string"
+                                    },
+                                    "network": {
+                                      "anyOf": [
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "mode": {
+                                              "type": "string",
+                                              "const": "direct"
+                                            }
+                                          },
+                                          "required": ["mode"]
+                                        },
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "mode": {
+                                              "type": "string",
+                                              "const": "tunnel"
+                                            },
+                                            "local_proxy": {
+                                              "type": "string"
+                                            },
+                                            "remote_port": {
+                                              "type": "integer",
+                                              "exclusiveMinimum": 0,
+                                              "maximum": 9007199254740991
+                                            },
+                                            "no_proxy": {
+                                              "type": "string"
+                                            }
+                                          },
+                                          "required": ["mode", "local_proxy", "remote_port"]
+                                        }
+                                      ]
                                     }
                                   },
                                   "required": ["mode", "address", "port", "user"]
@@ -7159,6 +7300,41 @@
                                     },
                                     "wandb_project_name": {
                                       "type": "string"
+                                    },
+                                    "network": {
+                                      "anyOf": [
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "mode": {
+                                              "type": "string",
+                                              "const": "direct"
+                                            }
+                                          },
+                                          "required": ["mode"]
+                                        },
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "mode": {
+                                              "type": "string",
+                                              "const": "tunnel"
+                                            },
+                                            "local_proxy": {
+                                              "type": "string"
+                                            },
+                                            "remote_port": {
+                                              "type": "integer",
+                                              "exclusiveMinimum": 0,
+                                              "maximum": 9007199254740991
+                                            },
+                                            "no_proxy": {
+                                              "type": "string"
+                                            }
+                                          },
+                                          "required": ["mode", "local_proxy", "remote_port"]
+                                        }
+                                      ]
                                     }
                                   },
                                   "required": ["mode", "host_alias"]
@@ -7368,6 +7544,8 @@
                       },
                       "required": [
                         "exp_id",
+                        "kind",
+                        "runtime_key",
                         "research_project_id",
                         "exp_name",
                         "exp_session_id",
@@ -7728,6 +7906,41 @@
                               },
                               "wandb_project_name": {
                                 "type": "string"
+                              },
+                              "network": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "mode": {
+                                        "type": "string",
+                                        "const": "direct"
+                                      }
+                                    },
+                                    "required": ["mode"]
+                                  },
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "mode": {
+                                        "type": "string",
+                                        "const": "tunnel"
+                                      },
+                                      "local_proxy": {
+                                        "type": "string"
+                                      },
+                                      "remote_port": {
+                                        "type": "integer",
+                                        "exclusiveMinimum": 0,
+                                        "maximum": 9007199254740991
+                                      },
+                                      "no_proxy": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": ["mode", "local_proxy", "remote_port"]
+                                  }
+                                ]
                               }
                             },
                             "required": ["mode", "address", "port", "user"]
@@ -7759,6 +7972,41 @@
                               },
                               "wandb_project_name": {
                                 "type": "string"
+                              },
+                              "network": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "mode": {
+                                        "type": "string",
+                                        "const": "direct"
+                                      }
+                                    },
+                                    "required": ["mode"]
+                                  },
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "mode": {
+                                        "type": "string",
+                                        "const": "tunnel"
+                                      },
+                                      "local_proxy": {
+                                        "type": "string"
+                                      },
+                                      "remote_port": {
+                                        "type": "integer",
+                                        "exclusiveMinimum": 0,
+                                        "maximum": 9007199254740991
+                                      },
+                                      "no_proxy": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": ["mode", "local_proxy", "remote_port"]
+                                  }
+                                ]
                               }
                             },
                             "required": ["mode", "host_alias"]
@@ -7845,6 +8093,41 @@
                             },
                             "wandb_project_name": {
                               "type": "string"
+                            },
+                            "network": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "mode": {
+                                      "type": "string",
+                                      "const": "direct"
+                                    }
+                                  },
+                                  "required": ["mode"]
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "mode": {
+                                      "type": "string",
+                                      "const": "tunnel"
+                                    },
+                                    "local_proxy": {
+                                      "type": "string"
+                                    },
+                                    "remote_port": {
+                                      "type": "integer",
+                                      "exclusiveMinimum": 0,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "no_proxy": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": ["mode", "local_proxy", "remote_port"]
+                                }
+                              ]
                             }
                           },
                           "required": ["mode", "address", "port", "user"]
@@ -7876,6 +8159,41 @@
                             },
                             "wandb_project_name": {
                               "type": "string"
+                            },
+                            "network": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "mode": {
+                                      "type": "string",
+                                      "const": "direct"
+                                    }
+                                  },
+                                  "required": ["mode"]
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "mode": {
+                                      "type": "string",
+                                      "const": "tunnel"
+                                    },
+                                    "local_proxy": {
+                                      "type": "string"
+                                    },
+                                    "remote_port": {
+                                      "type": "integer",
+                                      "exclusiveMinimum": 0,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "no_proxy": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": ["mode", "local_proxy", "remote_port"]
+                                }
+                              ]
                             }
                           },
                           "required": ["mode", "host_alias"]
@@ -7924,6 +8242,41 @@
                           },
                           "wandb_project_name": {
                             "type": "string"
+                          },
+                          "network": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "mode": {
+                                    "type": "string",
+                                    "const": "direct"
+                                  }
+                                },
+                                "required": ["mode"]
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "mode": {
+                                    "type": "string",
+                                    "const": "tunnel"
+                                  },
+                                  "local_proxy": {
+                                    "type": "string"
+                                  },
+                                  "remote_port": {
+                                    "type": "integer",
+                                    "exclusiveMinimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "no_proxy": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": ["mode", "local_proxy", "remote_port"]
+                              }
+                            ]
                           }
                         },
                         "required": ["mode", "address", "port", "user"]
@@ -7955,6 +8308,41 @@
                           },
                           "wandb_project_name": {
                             "type": "string"
+                          },
+                          "network": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "mode": {
+                                    "type": "string",
+                                    "const": "direct"
+                                  }
+                                },
+                                "required": ["mode"]
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "mode": {
+                                    "type": "string",
+                                    "const": "tunnel"
+                                  },
+                                  "local_proxy": {
+                                    "type": "string"
+                                  },
+                                  "remote_port": {
+                                    "type": "integer",
+                                    "exclusiveMinimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "no_proxy": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": ["mode", "local_proxy", "remote_port"]
+                              }
+                            ]
                           }
                         },
                         "required": ["mode", "host_alias"]
@@ -7982,6 +8370,41 @@
                           },
                           "wandb_project_name": {
                             "type": "string"
+                          },
+                          "network": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "mode": {
+                                    "type": "string",
+                                    "const": "direct"
+                                  }
+                                },
+                                "required": ["mode"]
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "mode": {
+                                    "type": "string",
+                                    "const": "tunnel"
+                                  },
+                                  "local_proxy": {
+                                    "type": "string"
+                                  },
+                                  "remote_port": {
+                                    "type": "integer",
+                                    "exclusiveMinimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "no_proxy": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": ["mode", "local_proxy", "remote_port"]
+                              }
+                            ]
                           }
                         },
                         "required": ["address", "port", "user"]
@@ -8067,6 +8490,41 @@
                                   },
                                   "wandb_project_name": {
                                     "type": "string"
+                                  },
+                                  "network": {
+                                    "anyOf": [
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "mode": {
+                                            "type": "string",
+                                            "const": "direct"
+                                          }
+                                        },
+                                        "required": ["mode"]
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "mode": {
+                                            "type": "string",
+                                            "const": "tunnel"
+                                          },
+                                          "local_proxy": {
+                                            "type": "string"
+                                          },
+                                          "remote_port": {
+                                            "type": "integer",
+                                            "exclusiveMinimum": 0,
+                                            "maximum": 9007199254740991
+                                          },
+                                          "no_proxy": {
+                                            "type": "string"
+                                          }
+                                        },
+                                        "required": ["mode", "local_proxy", "remote_port"]
+                                      }
+                                    ]
                                   }
                                 },
                                 "required": ["mode", "address", "port", "user"]
@@ -8098,6 +8556,41 @@
                                   },
                                   "wandb_project_name": {
                                     "type": "string"
+                                  },
+                                  "network": {
+                                    "anyOf": [
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "mode": {
+                                            "type": "string",
+                                            "const": "direct"
+                                          }
+                                        },
+                                        "required": ["mode"]
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "mode": {
+                                            "type": "string",
+                                            "const": "tunnel"
+                                          },
+                                          "local_proxy": {
+                                            "type": "string"
+                                          },
+                                          "remote_port": {
+                                            "type": "integer",
+                                            "exclusiveMinimum": 0,
+                                            "maximum": 9007199254740991
+                                          },
+                                          "no_proxy": {
+                                            "type": "string"
+                                          }
+                                        },
+                                        "required": ["mode", "local_proxy", "remote_port"]
+                                      }
+                                    ]
                                   }
                                 },
                                 "required": ["mode", "host_alias"]
@@ -8155,6 +8648,414 @@
       }
     },
     "/research/server/{serverId}": {
+      "patch": {
+        "operationId": "research.server.update",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "serverId",
+            "required": true
+          }
+        ],
+        "summary": "Update a remote server",
+        "responses": {
+          "200": {
+            "description": "Updated remote server",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "config": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "mode": {
+                              "type": "string",
+                              "const": "direct"
+                            },
+                            "address": {
+                              "type": "string"
+                            },
+                            "port": {
+                              "type": "number"
+                            },
+                            "user": {
+                              "type": "string"
+                            },
+                            "password": {
+                              "type": "string"
+                            },
+                            "resource_root": {
+                              "type": "string"
+                            },
+                            "wandb_api_key": {
+                              "type": "string"
+                            },
+                            "wandb_project_name": {
+                              "type": "string"
+                            },
+                            "network": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "mode": {
+                                      "type": "string",
+                                      "const": "direct"
+                                    }
+                                  },
+                                  "required": ["mode"]
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "mode": {
+                                      "type": "string",
+                                      "const": "tunnel"
+                                    },
+                                    "local_proxy": {
+                                      "type": "string"
+                                    },
+                                    "remote_port": {
+                                      "type": "integer",
+                                      "exclusiveMinimum": 0,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "no_proxy": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": ["mode", "local_proxy", "remote_port"]
+                                }
+                              ]
+                            }
+                          },
+                          "required": ["mode", "address", "port", "user"]
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "mode": {
+                              "type": "string",
+                              "const": "ssh_config"
+                            },
+                            "host_alias": {
+                              "type": "string"
+                            },
+                            "ssh_config_path": {
+                              "type": "string"
+                            },
+                            "user": {
+                              "type": "string"
+                            },
+                            "password": {
+                              "type": "string"
+                            },
+                            "resource_root": {
+                              "type": "string"
+                            },
+                            "wandb_api_key": {
+                              "type": "string"
+                            },
+                            "wandb_project_name": {
+                              "type": "string"
+                            },
+                            "network": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "mode": {
+                                      "type": "string",
+                                      "const": "direct"
+                                    }
+                                  },
+                                  "required": ["mode"]
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "mode": {
+                                      "type": "string",
+                                      "const": "tunnel"
+                                    },
+                                    "local_proxy": {
+                                      "type": "string"
+                                    },
+                                    "remote_port": {
+                                      "type": "integer",
+                                      "exclusiveMinimum": 0,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "no_proxy": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": ["mode", "local_proxy", "remote_port"]
+                                }
+                              ]
+                            }
+                          },
+                          "required": ["mode", "host_alias"]
+                        }
+                      ]
+                    }
+                  },
+                  "required": ["id", "config"]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "config": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "mode": {
+                            "type": "string",
+                            "const": "direct"
+                          },
+                          "address": {
+                            "type": "string"
+                          },
+                          "port": {
+                            "type": "number"
+                          },
+                          "user": {
+                            "type": "string"
+                          },
+                          "password": {
+                            "type": "string"
+                          },
+                          "resource_root": {
+                            "type": "string"
+                          },
+                          "wandb_api_key": {
+                            "type": "string"
+                          },
+                          "wandb_project_name": {
+                            "type": "string"
+                          },
+                          "network": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "mode": {
+                                    "type": "string",
+                                    "const": "direct"
+                                  }
+                                },
+                                "required": ["mode"]
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "mode": {
+                                    "type": "string",
+                                    "const": "tunnel"
+                                  },
+                                  "local_proxy": {
+                                    "type": "string"
+                                  },
+                                  "remote_port": {
+                                    "type": "integer",
+                                    "exclusiveMinimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "no_proxy": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": ["mode", "local_proxy", "remote_port"]
+                              }
+                            ]
+                          }
+                        },
+                        "required": ["mode", "address", "port", "user"]
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "mode": {
+                            "type": "string",
+                            "const": "ssh_config"
+                          },
+                          "host_alias": {
+                            "type": "string"
+                          },
+                          "ssh_config_path": {
+                            "type": "string"
+                          },
+                          "user": {
+                            "type": "string"
+                          },
+                          "password": {
+                            "type": "string"
+                          },
+                          "resource_root": {
+                            "type": "string"
+                          },
+                          "wandb_api_key": {
+                            "type": "string"
+                          },
+                          "wandb_project_name": {
+                            "type": "string"
+                          },
+                          "network": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "mode": {
+                                    "type": "string",
+                                    "const": "direct"
+                                  }
+                                },
+                                "required": ["mode"]
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "mode": {
+                                    "type": "string",
+                                    "const": "tunnel"
+                                  },
+                                  "local_proxy": {
+                                    "type": "string"
+                                  },
+                                  "remote_port": {
+                                    "type": "integer",
+                                    "exclusiveMinimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "no_proxy": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": ["mode", "local_proxy", "remote_port"]
+                              }
+                            ]
+                          }
+                        },
+                        "required": ["mode", "host_alias"]
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "address": {
+                            "type": "string"
+                          },
+                          "port": {
+                            "type": "number"
+                          },
+                          "user": {
+                            "type": "string"
+                          },
+                          "password": {
+                            "type": "string"
+                          },
+                          "resource_root": {
+                            "type": "string"
+                          },
+                          "wandb_api_key": {
+                            "type": "string"
+                          },
+                          "wandb_project_name": {
+                            "type": "string"
+                          },
+                          "network": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "mode": {
+                                    "type": "string",
+                                    "const": "direct"
+                                  }
+                                },
+                                "required": ["mode"]
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "mode": {
+                                    "type": "string",
+                                    "const": "tunnel"
+                                  },
+                                  "local_proxy": {
+                                    "type": "string"
+                                  },
+                                  "remote_port": {
+                                    "type": "integer",
+                                    "exclusiveMinimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "no_proxy": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": ["mode", "local_proxy", "remote_port"]
+                              }
+                            ]
+                          }
+                        },
+                        "required": ["address", "port", "user"]
+                      }
+                    ]
+                  }
+                },
+                "required": ["config"]
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.research.server.update({\n  ...\n})"
+          }
+        ]
+      },
       "delete": {
         "operationId": "research.server.delete",
         "parameters": [
@@ -8253,7 +9154,7 @@
                       },
                       "kind": {
                         "type": "string",
-                        "const": "experiment"
+                        "enum": ["experiment", "project_runtime"]
                       },
                       "exp_id": {
                         "type": "string"
@@ -8288,12 +9189,11 @@
                       "stage": {
                         "type": "string",
                         "enum": [
+                          "pending",
                           "planning",
                           "coding",
                           "deploying_code",
                           "setting_up_env",
-                          "local_downloading",
-                          "syncing_resources",
                           "remote_downloading",
                           "verifying_resources",
                           "running_experiment",
@@ -8376,7 +9276,7 @@
                           }
                         ]
                       },
-                      "local_download_resource_name": {
+                      "remote_task_title": {
                         "anyOf": [
                           {
                             "type": "string"
@@ -8386,7 +9286,29 @@
                           }
                         ]
                       },
-                      "local_download_local_path": {
+                      "remote_task_kind": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": ["resource_download", "experiment_run", "env_setup"]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "remote_task_status": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": ["pending", "running", "finished", "failed", "crashed", "canceled"]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "remote_task_target_path": {
                         "anyOf": [
                           {
                             "type": "string"
@@ -8396,7 +9318,7 @@
                           }
                         ]
                       },
-                      "local_download_log_path": {
+                      "remote_task_screen_name": {
                         "anyOf": [
                           {
                             "type": "string"
@@ -8406,7 +9328,7 @@
                           }
                         ]
                       },
-                      "local_download_status_path": {
+                      "remote_task_log_path": {
                         "anyOf": [
                           {
                             "type": "string"
@@ -8415,6 +9337,122 @@
                             "type": "null"
                           }
                         ]
+                      },
+                      "remote_task_error_message": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "remote_tasks": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "task_id": {
+                              "type": "string"
+                            },
+                            "title": {
+                              "type": "string"
+                            },
+                            "kind": {
+                              "type": "string",
+                              "enum": ["resource_download", "experiment_run", "env_setup"]
+                            },
+                            "status": {
+                              "type": "string",
+                              "enum": ["pending", "running", "finished", "failed", "crashed", "canceled"]
+                            },
+                            "resource_key": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "target_path": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "screen_name": {
+                              "type": "string"
+                            },
+                            "log_path": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "error_message": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "source_selection": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "method": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "time_created": {
+                              "type": "number"
+                            },
+                            "time_updated": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "task_id",
+                            "title",
+                            "kind",
+                            "status",
+                            "resource_key",
+                            "target_path",
+                            "screen_name",
+                            "log_path",
+                            "error_message",
+                            "source_selection",
+                            "method",
+                            "time_created",
+                            "time_updated"
+                          ]
+                        }
                       }
                     },
                     "required": [
@@ -8435,10 +9473,14 @@
                       "wandb_entity",
                       "wandb_project",
                       "wandb_run_id",
-                      "local_download_resource_name",
-                      "local_download_local_path",
-                      "local_download_log_path",
-                      "local_download_status_path"
+                      "remote_task_title",
+                      "remote_task_kind",
+                      "remote_task_status",
+                      "remote_task_target_path",
+                      "remote_task_screen_name",
+                      "remote_task_log_path",
+                      "remote_task_error_message",
+                      "remote_tasks"
                     ]
                   }
                 }
@@ -8661,6 +9703,210 @@
         ]
       }
     },
+    "/research/experiment-watch/{watchId}/refresh-wandb": {
+      "post": {
+        "operationId": "research.experimentWatch.refreshWandb",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "watchId",
+            "required": true
+          }
+        ],
+        "summary": "Force refresh W&B watch",
+        "responses": {
+          "200": {
+            "description": "Refresh result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["success", "message"]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.research.experimentWatch.refreshWandb({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/research/experiment-watch/{watchId}/refresh-remote-task": {
+      "post": {
+        "operationId": "research.experimentWatch.refreshRemoteTask",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "watchId",
+            "required": true
+          }
+        ],
+        "summary": "Force refresh remote task watch",
+        "responses": {
+          "200": {
+            "description": "Refresh result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["success", "message"]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.research.experimentWatch.refreshRemoteTask({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/research/experiment-watch/{watchId}/log": {
+      "get": {
+        "operationId": "research.experimentWatch.log",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "watchId",
+            "required": true
+          }
+        ],
+        "summary": "Read remote task log for a watch",
+        "responses": {
+          "200": {
+            "description": "Remote log content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "path": {
+                      "type": "string"
+                    },
+                    "content": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["ok", "path", "content"]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.research.experimentWatch.log({\n  ...\n})"
+          }
+        ]
+      }
+    },
     "/research/experiment/{expId}": {
       "delete": {
         "operationId": "research.experiment.delete",
@@ -8761,6 +10007,20 @@
                   "properties": {
                     "exp_id": {
                       "type": "string"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": ["experiment", "project_runtime"]
+                    },
+                    "runtime_key": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     },
                     "research_project_id": {
                       "type": "string"
@@ -8879,6 +10139,41 @@
                                 },
                                 "wandb_project_name": {
                                   "type": "string"
+                                },
+                                "network": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "mode": {
+                                          "type": "string",
+                                          "const": "direct"
+                                        }
+                                      },
+                                      "required": ["mode"]
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "mode": {
+                                          "type": "string",
+                                          "const": "tunnel"
+                                        },
+                                        "local_proxy": {
+                                          "type": "string"
+                                        },
+                                        "remote_port": {
+                                          "type": "integer",
+                                          "exclusiveMinimum": 0,
+                                          "maximum": 9007199254740991
+                                        },
+                                        "no_proxy": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "required": ["mode", "local_proxy", "remote_port"]
+                                    }
+                                  ]
                                 }
                               },
                               "required": ["mode", "address", "port", "user"]
@@ -8910,6 +10205,41 @@
                                 },
                                 "wandb_project_name": {
                                   "type": "string"
+                                },
+                                "network": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "mode": {
+                                          "type": "string",
+                                          "const": "direct"
+                                        }
+                                      },
+                                      "required": ["mode"]
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "mode": {
+                                          "type": "string",
+                                          "const": "tunnel"
+                                        },
+                                        "local_proxy": {
+                                          "type": "string"
+                                        },
+                                        "remote_port": {
+                                          "type": "integer",
+                                          "exclusiveMinimum": 0,
+                                          "maximum": 9007199254740991
+                                        },
+                                        "no_proxy": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "required": ["mode", "local_proxy", "remote_port"]
+                                    }
+                                  ]
                                 }
                               },
                               "required": ["mode", "host_alias"]
@@ -8957,6 +10287,8 @@
                   },
                   "required": [
                     "exp_id",
+                    "kind",
+                    "runtime_key",
                     "research_project_id",
                     "exp_name",
                     "exp_session_id",
@@ -9024,6 +10356,555 @@
           {
             "lang": "js",
             "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.research.experiment.update({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/research/project/{researchProjectId}/export": {
+      "post": {
+        "operationId": "research.project.export",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "researchProjectId",
+            "required": true
+          }
+        ],
+        "summary": "Export research project",
+        "description": "Export research project to a zip file containing all data and files.",
+        "responses": {
+          "200": {
+            "description": "Export successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "zip_path": {
+                      "type": "string"
+                    },
+                    "zip_name": {
+                      "type": "string"
+                    },
+                    "size": {
+                      "type": "number"
+                    }
+                  },
+                  "required": ["zip_path", "zip_name", "size"]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.research.project.export({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/research/import-project": {
+      "post": {
+        "operationId": "research.project.import",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Import research project",
+        "description": "Import research project from a zip file.",
+        "responses": {
+          "200": {
+            "description": "Import successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "project_id": {
+                      "type": "string"
+                    },
+                    "research_project_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["project_id", "research_project_id"]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "zipPath": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "targetDirectory": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": ["zipPath", "targetDirectory"]
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.research.project.import({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/collab/active": {
+      "get": {
+        "operationId": "collab.active.list",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "List active Collab agents in the current project",
+        "description": "Return every collab_agent with status pending, running, or blocked_on_children for the current project.",
+        "responses": {
+          "200": {
+            "description": "Active agents",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollabActiveAgentsResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.collab.active.list({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/collab/peer-sessions": {
+      "get": {
+        "operationId": "collab.peerSessions.list",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "List session ids of all Collab peer agents (non-root) in current project",
+        "description": "Returns the set of session ids that belong to peer (non-root) Collab agents. Used by the UI sidebar to hide peer sessions from the flat session list — they are only ever reached via the parent agent's dock.",
+        "responses": {
+          "200": {
+            "description": "Peer session ids",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollabPeerSessionIdsResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.collab.peerSessions.list({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/collab/tree/{rootAgentId}": {
+      "get": {
+        "operationId": "collab.tree.get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "rootAgentId",
+            "required": true
+          }
+        ],
+        "summary": "Get the Collab agent tree",
+        "description": "Return the full tree of AgentNodes rooted at rootAgentId.",
+        "responses": {
+          "200": {
+            "description": "Tree found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollabTreeResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.collab.tree.get({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/collab/agent/{agentId}": {
+      "get": {
+        "operationId": "collab.agent.get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "agentId",
+            "required": true
+          }
+        ],
+        "summary": "Get a single Collab agent",
+        "description": "Return detail for a single AgentNode.",
+        "responses": {
+          "200": {
+            "description": "Agent found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollabAgent"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.collab.agent.get({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/collab/agent/{agentId}/messages": {
+      "get": {
+        "operationId": "collab.agent.messages",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "kind",
+            "schema": {
+              "type": "string",
+              "enum": ["child_done", "child_failed", "child_progress", "cancel", "user_input", "system"]
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 1000
+            }
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "agentId",
+            "required": true
+          }
+        ],
+        "summary": "Get an agent's inbox messages",
+        "description": "Return inbox messages (pending + consumed) for an agent.",
+        "responses": {
+          "200": {
+            "description": "Messages",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollabMessagesResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.collab.agent.messages({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/collab/session/{sessionId}/agent": {
+      "get": {
+        "operationId": "collab.session.agent.get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "sessionId",
+            "required": true
+          }
+        ],
+        "summary": "Get the Collab agent bound to a session",
+        "description": "Look up whether a session is bound to a Collab AgentNode.",
+        "responses": {
+          "200": {
+            "description": "Lookup result (agent may be null)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollabSessionAgentResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.collab.session.agent.get({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/collab/agent/{agentId}/cancel": {
+      "post": {
+        "operationId": "collab.agent.cancel",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "agentId",
+            "required": true
+          }
+        ],
+        "summary": "Cancel a Collab agent",
+        "description": "Post a cancel message to this agent and propagate to its descendants.",
+        "responses": {
+          "200": {
+            "description": "Cancel requested",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollabCancelResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.collab.agent.cancel({\n  ...\n})"
           }
         ]
       }
@@ -13406,6 +15287,51 @@
         },
         "required": ["id", "sessionID", "messageID", "type", "auto"]
       },
+      "CollabReturnPart": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "sessionID": {
+            "type": "string"
+          },
+          "messageID": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "const": "collab_return"
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["child_done", "child_failed", "child_progress", "cancel", "user_input", "system"]
+          },
+          "childAgentId": {
+            "type": "string"
+          },
+          "childName": {
+            "type": "string"
+          },
+          "childSessionId": {
+            "type": "string"
+          },
+          "headline": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "payload": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["id", "sessionID", "messageID", "type", "kind", "headline", "body"]
+      },
       "Part": {
         "anyOf": [
           {
@@ -13443,6 +15369,9 @@
           },
           {
             "$ref": "#/components/schemas/CompactionPart"
+          },
+          {
+            "$ref": "#/components/schemas/CollabReturnPart"
           }
         ]
       },
@@ -14171,6 +16100,384 @@
         },
         "required": ["type", "properties"]
       },
+      "CollabAgentPolicy": {
+        "type": "object",
+        "properties": {
+          "on_fail": {
+            "default": "fail_fast",
+            "type": "string",
+            "enum": ["fail_fast", "continue", "retry_once"]
+          },
+          "timeout_ms": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "maxChildren": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "progress_injection": {
+            "default": "latest",
+            "type": "string",
+            "enum": ["none", "latest", "all"]
+          },
+          "summarize": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CollabAgentSpec": {
+        "type": "object",
+        "properties": {
+          "initialPrompt": {
+            "type": "string"
+          },
+          "model": {
+            "type": "object",
+            "properties": {
+              "providerID": {
+                "type": "string"
+              },
+              "modelID": {
+                "type": "string"
+              }
+            },
+            "required": ["providerID", "modelID"]
+          },
+          "policy": {
+            "$ref": "#/components/schemas/CollabAgentPolicy"
+          },
+          "metadata": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["initialPrompt"]
+      },
+      "CollabAgentResult": {
+        "type": "object",
+        "properties": {
+          "summary": {
+            "type": "string"
+          },
+          "result": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        }
+      },
+      "CollabAgentError": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "required": ["code", "message"]
+      },
+      "CollabAgent": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "session_id": {
+            "type": "string"
+          },
+          "parent_agent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "root_agent_id": {
+            "type": "string"
+          },
+          "subagent_type": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "running", "blocked_on_children", "completed", "failed", "canceled"]
+          },
+          "phase": {
+            "type": "string",
+            "enum": ["main_loop", "awaiting_children", "draining"]
+          },
+          "spec": {
+            "$ref": "#/components/schemas/CollabAgentSpec"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CollabAgentResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CollabAgentError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "active_children": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "spawned_total": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "time_created": {
+            "type": "number"
+          },
+          "time_updated": {
+            "type": "number"
+          },
+          "time_started": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "time_ended": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "session_id",
+          "parent_agent_id",
+          "name",
+          "project_id",
+          "root_agent_id",
+          "subagent_type",
+          "status",
+          "phase",
+          "spec",
+          "result",
+          "error",
+          "active_children",
+          "spawned_total",
+          "time_created",
+          "time_updated",
+          "time_started",
+          "time_ended"
+        ]
+      },
+      "Event.collab.agent.created": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "collab.agent.created"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "info": {
+                "$ref": "#/components/schemas/CollabAgent"
+              }
+            },
+            "required": ["info"]
+          }
+        },
+        "required": ["type", "properties"]
+      },
+      "Event.collab.agent.status": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "collab.agent.status"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "agentId": {
+                "type": "string"
+              },
+              "rootAgentId": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": ["pending", "running", "blocked_on_children", "completed", "failed", "canceled"]
+              },
+              "phase": {
+                "type": "string",
+                "enum": ["main_loop", "awaiting_children", "draining"]
+              },
+              "active_children": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": ["agentId", "rootAgentId", "status", "phase", "active_children"]
+          }
+        },
+        "required": ["type", "properties"]
+      },
+      "Event.collab.agent.completed": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "collab.agent.completed"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "agentId": {
+                "type": "string"
+              },
+              "rootAgentId": {
+                "type": "string"
+              },
+              "summary": {
+                "type": "string"
+              }
+            },
+            "required": ["agentId", "rootAgentId"]
+          }
+        },
+        "required": ["type", "properties"]
+      },
+      "Event.collab.agent.failed": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "collab.agent.failed"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "agentId": {
+                "type": "string"
+              },
+              "rootAgentId": {
+                "type": "string"
+              },
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": ["agentId", "rootAgentId", "code", "message"]
+          }
+        },
+        "required": ["type", "properties"]
+      },
+      "Event.collab.message.posted": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "collab.message.posted"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "messageId": {
+                "type": "string"
+              },
+              "recipientAgentId": {
+                "type": "string"
+              },
+              "senderAgentId": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": ["child_done", "child_failed", "child_progress", "cancel", "user_input", "system"]
+              }
+            },
+            "required": ["messageId", "recipientAgentId", "senderAgentId", "kind"]
+          }
+        },
+        "required": ["type", "properties"]
+      },
+      "Event.collab.message.consumed": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "collab.message.consumed"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "messageId": {
+                "type": "string"
+              },
+              "recipientAgentId": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": ["child_done", "child_failed", "child_progress", "cancel", "user_input", "system"]
+              }
+            },
+            "required": ["messageId", "recipientAgentId", "kind"]
+          }
+        },
+        "required": ["type", "properties"]
+      },
       "Event.tui.prompt.append": {
         "type": "object",
         "properties": {
@@ -14404,6 +16711,9 @@
           "parentID": {
             "type": "string",
             "pattern": "^ses.*"
+          },
+          "collabPeer": {
+            "type": "boolean"
           },
           "summary": {
             "type": "object",
@@ -14902,6 +17212,24 @@
             "$ref": "#/components/schemas/Event.workflow.updated"
           },
           {
+            "$ref": "#/components/schemas/Event.collab.agent.created"
+          },
+          {
+            "$ref": "#/components/schemas/Event.collab.agent.status"
+          },
+          {
+            "$ref": "#/components/schemas/Event.collab.agent.completed"
+          },
+          {
+            "$ref": "#/components/schemas/Event.collab.agent.failed"
+          },
+          {
+            "$ref": "#/components/schemas/Event.collab.message.posted"
+          },
+          {
+            "$ref": "#/components/schemas/Event.collab.message.consumed"
+          },
+          {
             "$ref": "#/components/schemas/Event.tui.prompt.append"
           },
           {
@@ -15097,16 +17425,37 @@
               "modelscope_search": {
                 "$ref": "#/components/schemas/PermissionActionConfig"
               },
-              "experiment_resource_job_start": {
+              "research_code_query": {
                 "$ref": "#/components/schemas/PermissionActionConfig"
               },
-              "experiment_local_download_watch_init": {
+              "experiment_remote_task_start": {
                 "$ref": "#/components/schemas/PermissionActionConfig"
               },
-              "experiment_local_download_watch_update": {
+              "experiment_remote_task_get": {
                 "$ref": "#/components/schemas/PermissionActionConfig"
               },
-              "experiment_local_download_watch_refresh": {
+              "experiment_remote_task_list": {
+                "$ref": "#/components/schemas/PermissionActionConfig"
+              },
+              "project_runtime_server_query": {
+                "$ref": "#/components/schemas/PermissionActionConfig"
+              },
+              "project_runtime_env_spec_inspect": {
+                "$ref": "#/components/schemas/PermissionActionConfig"
+              },
+              "project_runtime_ensure": {
+                "$ref": "#/components/schemas/PermissionActionConfig"
+              },
+              "project_runtime_env_query": {
+                "$ref": "#/components/schemas/PermissionActionConfig"
+              },
+              "project_runtime_env_upsert": {
+                "$ref": "#/components/schemas/PermissionActionConfig"
+              },
+              "project_runtime_resource_query": {
+                "$ref": "#/components/schemas/PermissionActionConfig"
+              },
+              "project_runtime_resource_upsert": {
                 "$ref": "#/components/schemas/PermissionActionConfig"
               },
               "lsp": {
@@ -16514,6 +18863,9 @@
             "type": "string",
             "pattern": "^ses.*"
           },
+          "collabPeer": {
+            "type": "boolean"
+          },
           "summary": {
             "type": "object",
             "properties": {
@@ -16760,6 +19112,184 @@
           }
         },
         "required": ["type", "prompt", "description", "agent"]
+      },
+      "CollabReturnPartInput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "const": "collab_return"
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["child_done", "child_failed", "child_progress", "cancel", "user_input", "system"]
+          },
+          "childAgentId": {
+            "type": "string"
+          },
+          "childName": {
+            "type": "string"
+          },
+          "childSessionId": {
+            "type": "string"
+          },
+          "headline": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "payload": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["type", "kind", "headline", "body"]
+      },
+      "CollabActiveAgentsResponse": {
+        "type": "object",
+        "properties": {
+          "agents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CollabAgent"
+            }
+          }
+        },
+        "required": ["agents"]
+      },
+      "CollabPeerSessionIdsResponse": {
+        "type": "object",
+        "properties": {
+          "session_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["session_ids"]
+      },
+      "CollabTreeResponse": {
+        "type": "object",
+        "properties": {
+          "root": {
+            "$ref": "#/components/schemas/CollabAgent"
+          },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CollabAgent"
+            }
+          }
+        },
+        "required": ["root", "nodes"]
+      },
+      "CollabMessage": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "recipient_agent_id": {
+            "type": "string"
+          },
+          "sender_agent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["child_done", "child_failed", "child_progress", "cancel", "user_input", "system"]
+          },
+          "payload": {},
+          "status": {
+            "type": "string",
+            "enum": ["pending", "consumed", "dropped"]
+          },
+          "time_created": {
+            "type": "number"
+          },
+          "time_updated": {
+            "type": "number"
+          },
+          "time_consumed": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "recipient_agent_id",
+          "sender_agent_id",
+          "kind",
+          "payload",
+          "status",
+          "time_created",
+          "time_updated",
+          "time_consumed"
+        ]
+      },
+      "CollabMessagesResponse": {
+        "type": "object",
+        "properties": {
+          "agent_id": {
+            "type": "string"
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CollabMessage"
+            }
+          }
+        },
+        "required": ["agent_id", "messages"]
+      },
+      "CollabSessionAgentResponse": {
+        "type": "object",
+        "properties": {
+          "agent": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CollabAgent"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["agent"]
+      },
+      "CollabCancelResponse": {
+        "type": "object",
+        "properties": {
+          "agent_id": {
+            "type": "string"
+          },
+          "canceled": {
+            "type": "boolean"
+          }
+        },
+        "required": ["agent_id", "canceled"]
       },
       "ProviderAuthMethod": {
         "type": "object",

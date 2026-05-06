@@ -1,0 +1,14 @@
+Re-activate a previously completed / failed / canceled peer agent with a new instruction.
+
+Use this when you want a finished peer to continue working on something — maybe you've reviewed its output and want it to refine, extend, or fix. The peer resumes in its original session (full history preserved), runs a new turn against your prompt, and posts another `child_done` to your inbox when finished.
+
+Rules:
+- The target agent MUST be in a terminal state (`completed`, `failed`, or `canceled`). If it is still running, use `send_to_agent` instead (it delivers user_input to a live peer without restarting the loop).
+- Your own collab agent must still be active — you cannot resume a peer from a session that has itself finalized (the result would have no one to route back to).
+- The resumed agent runs with its original agent type / model / policy. If you want a different configuration, `spawn_agent` a new peer instead.
+
+Parameters:
+- agent_id: the target peer's id (get from `list_children` or from the session's collab agent record).
+- prompt: the new instruction. This becomes the next user message in the peer's session.
+
+Returns: the updated `{ agent_id, session_id, status }`. Status transitions back to `running`; when it finishes again you'll receive another `child_done` inbox message.

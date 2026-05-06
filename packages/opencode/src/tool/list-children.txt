@@ -1,0 +1,32 @@
+List your direct child agents and their current status **metadata only**.
+
+**DO NOT USE THIS TOOL TO POLL.** Children report back asynchronously — the framework will automatically re-invoke your LLM with a `child_done` summary when each peer completes. You should spawn peers with `spawn_agent`, then **end your turn** (stop producing text / tool calls). You will be re-woken when there is new information.
+
+If you find yourself wanting to call `list_children` repeatedly, STOP — that is the wrong pattern. Do not use `bash sleep` or any other workaround to "wait for children"; the framework handles waiting for you, and polling just burns tokens.
+
+This tool is rate-limited: calling it more than twice in the same turn will throw an error.
+
+## What this tool returns — and does NOT return
+
+This tool intentionally returns **metadata only** (status, ids, timings). It does **not** return:
+- child summaries
+- child progress payloads
+- any actual content
+
+If you need a child's actual output, call `read_agent_output(agent_id)` on that specific child. That separation is deliberate — it stops polling-for-results, which should arrive via `child_done`.
+
+## When it IS appropriate to call
+
+- Once, right after spawning, to sanity-check the agent_ids / statuses.
+- Once at the start of a resumed turn, to review overall progress before deciding the next step.
+- To look up an `agent_id` you need for `send_to_agent` / `cancel_agent` / `resume_agent` / `read_agent_output`.
+
+## Returns
+
+For each direct child:
+- `agent_id`, `name`, `subagent_type`
+- `status`: `pending` | `running` | `blocked_on_children` | `completed` | `failed` | `canceled`
+- `active_children`: how many grand-children are still running
+- `spawned_at`, `ended_at`
+
+Does not block, does not modify state, does not inject anything into your context.

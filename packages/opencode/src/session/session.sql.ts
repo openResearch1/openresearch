@@ -17,6 +17,7 @@ export const SessionTable = sqliteTable(
       .references(() => ProjectTable.id, { onDelete: "cascade" }),
     workspace_id: text(),
     parent_id: text(),
+    collab_peer: integer({ mode: "boolean" }),
     slug: text().notNull(),
     directory: text().notNull(),
     title: text().notNull(),

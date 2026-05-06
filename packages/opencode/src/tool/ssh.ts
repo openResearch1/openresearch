@@ -8,18 +8,29 @@ import { remoteServerLabel, resolveSshConfigPath, RemoteServerConfigSchema } fro
 const log = Log.create({ service: "ssh-tool" })
 
 const DEFAULT_TIMEOUT = 2 * 60 * 1000
+const ServerSchema = z.union([RemoteServerConfigSchema, z.string()])
+
+function server(input: z.infer<typeof ServerSchema>) {
+  if (typeof input !== "string") return input
+  try {
+    return RemoteServerConfigSchema.parse(JSON.parse(input))
+  } catch (err) {
+    throw new Error("server must be a remote server object or a JSON string containing one", { cause: err })
+  }
+}
 
 export const SshTool = Tool.define("ssh", {
   description: DESCRIPTION,
   parameters: z.object({
-    server: RemoteServerConfigSchema.describe(
+    server: ServerSchema.describe(
       'Server connection config. Supports direct mode {"mode":"direct","address":"example.com","port":22,"user":"root","password":"xxx"} and ssh config mode {"mode":"ssh_config","host_alias":"target-dev-machine","ssh_config_path":"~/.ssh/config"}',
     ),
     command: z.string().describe("The bash command to execute on the remote server"),
     timeout: z.number().optional().describe("Optional timeout in milliseconds (default: 120000)"),
   }),
   async execute(params, ctx) {
-    const { server, command } = params
+    const cfg = server(params.server)
+    const { command } = params
     const timeout = params.timeout ?? DEFAULT_TIMEOUT
 
     if (timeout < 0) {
@@ -27,16 +38,16 @@ export const SshTool = Tool.define("ssh", {
     }
 
     log.info("ssh executing", {
-      server: remoteServerLabel(server),
+      server: remoteServerLabel(cfg),
       command,
     })
 
     const sshArgs =
-      server.mode === "ssh_config"
+      cfg.mode === "ssh_config"
         ? [
             "-F",
-            resolveSshConfigPath(server.ssh_config_path),
-            ...(server.user ? ["-l", server.user] : []),
+            resolveSshConfigPath(cfg.ssh_config_path),
+            ...(cfg.user ? ["-l", cfg.user] : []),
             "-o",
             "StrictHostKeyChecking=no",
             "-o",
@@ -45,12 +56,12 @@ export const SshTool = Tool.define("ssh", {
             "LogLevel=ERROR",
             "-o",
             "ClearAllForwardings=yes",
-            server.host_alias,
+            cfg.host_alias,
             command,
           ]
         : [
             "-p",
-            String(server.port),
+            String(cfg.port),
             "-o",
             "StrictHostKeyChecking=no",
             "-o",
@@ -59,12 +70,12 @@ export const SshTool = Tool.define("ssh", {
             "LogLevel=ERROR",
             "-o",
             "ClearAllForwardings=yes",
-            `${server.user}@${server.address}`,
+            `${cfg.user}@${cfg.address}`,
             command,
           ]
 
-    const args = server.password ? ["-p", server.password, "ssh", ...sshArgs] : ["ssh", ...sshArgs]
-    const cmd = server.password ? "sshpass" : "ssh"
+    const args = cfg.password ? ["-p", cfg.password, "ssh", ...sshArgs] : ["ssh", ...sshArgs]
+    const cmd = cfg.password ? "sshpass" : "ssh"
     const proc = spawn(cmd, args, {
       stdio: ["ignore", "pipe", "pipe"],
       env: {
@@ -79,7 +90,7 @@ export const SshTool = Tool.define("ssh", {
     ctx.metadata({
       metadata: {
         output: "",
-        description: `SSH ${remoteServerLabel(server)}`,
+        description: `SSH ${remoteServerLabel(cfg)}`,
       },
     })
 
@@ -90,7 +101,7 @@ export const SshTool = Tool.define("ssh", {
       ctx.metadata({
         metadata: {
           output: output.length > MAX_METADATA_LENGTH ? output.slice(0, MAX_METADATA_LENGTH) + "\n\n..." : output,
-          description: `SSH ${remoteServerLabel(server)}`,
+          description: `SSH ${remoteServerLabel(cfg)}`,
         },
       })
     }
@@ -160,11 +171,11 @@ export const SshTool = Tool.define("ssh", {
     }
 
     return {
-      title: `SSH ${remoteServerLabel(server)}`,
+      title: `SSH ${remoteServerLabel(cfg)}`,
       metadata: {
         output: output.length > MAX_METADATA_LENGTH ? output.slice(0, MAX_METADATA_LENGTH) + "\n\n..." : output,
         exit: proc.exitCode,
-        description: `SSH ${remoteServerLabel(server)}`,
+        description: `SSH ${remoteServerLabel(cfg)}`,
       },
       output,
     }

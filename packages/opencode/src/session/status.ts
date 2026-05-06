@@ -59,6 +59,15 @@ export namespace SessionStatus {
   }
 
   export function set(sessionID: string, status: Info) {
+    // Update state BEFORE publishing so subscribers that synchronously call
+    // get() from their handler observe the new status. Otherwise Idle
+    // handlers (e.g. CollabAutoWake.maybeWakeOrBlock) synchronously see the
+    // stale `busy` value still in the map and bail out, missing the wake.
+    if (status.type === "idle") {
+      delete state()[sessionID]
+    } else {
+      state()[sessionID] = status
+    }
     Bus.publish(Event.Status, {
       sessionID,
       status,
@@ -68,9 +77,6 @@ export namespace SessionStatus {
       Bus.publish(Event.Idle, {
         sessionID,
       })
-      delete state()[sessionID]
-      return
     }
-    state()[sessionID] = status
   }
 }

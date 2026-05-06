@@ -1,0 +1,9 @@
+Cancel a running child (and recursively all of its descendants).
+
+You may only cancel agents in your own subtree. The cancellation is asynchronous: the target receives a `cancel` message, aborts its current LLM turn, marks itself `canceled`, and posts a `child_failed{reason:"canceled"}` back to its parent.
+
+Parameters:
+- agent_id: the agent to cancel
+- reason: optional short explanation
+
+Use this when a child is going off-track, has become redundant, or you want to stop a whole branch to conserve budget.

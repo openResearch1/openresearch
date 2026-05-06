@@ -12,6 +12,8 @@ export namespace Identifier {
     pty: "pty",
     tool: "tool",
     workspace: "wrk",
+    collab_agent: "cag",
+    collab_msg: "cmg",
   } as const
 
   export function schema(prefix: keyof typeof prefixes) {

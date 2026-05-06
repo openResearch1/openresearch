@@ -36,7 +36,7 @@ import { checkExperimentReadyByExpId } from "@/session/experiment-guard"
 import { forceRefreshWatch } from "@/research/experiment-watcher"
 import { forceRefreshRemoteTask } from "@/research/experiment-remote-task-watcher"
 import { ExperimentExecutionWatch } from "@/research/experiment-execution-watch"
-import { ExperimentRemoteTask } from "@/research/experiment-remote-task"
+import { ProjectRuntime } from "@/research/project-runtime"
 import { ZipWriter, ZipReader, BlobReader, BlobWriter } from "@zip.js/zip.js"
 // @ts-ignore - unzipper has no type declarations
 import unzipper from "unzipper"
@@ -47,6 +47,7 @@ import {
   RemoteServerInputSchema,
 } from "@/research/remote-server"
 import { parseSshConfig } from "@/research/ssh-config"
+import { isArticleDirectory } from "@/research/article-source"
 import { readRemoteTaskLog } from "@/research/remote-task-runner"
 
 const createSchema = z.object({
@@ -62,26 +63,40 @@ async function copyFile(src: string, dest: string) {
   await fs.promises.cp(src, dest, { force: false, recursive: await Filesystem.isDir(src) })
 }
 
-/**
- * Check whether a directory looks like a single article source (e.g. LaTeX project)
- * rather than a container that holds multiple articles.
- *
- * A directory is considered an article if it contains at least one `.tex` file at
- * the top level.  A directory that only contains `.pdf` files or sub-directories
- * (but no `.tex` files) is treated as a container folder — not a single article.
- */
-async function isArticleDirectory(dir: string): Promise<boolean> {
-  const entries = await fs.promises.readdir(dir, { withFileTypes: true })
-  return entries.some((e) => !e.isDirectory() && e.name.endsWith(".tex"))
-}
-
 const uniqueID = () => crypto.randomUUID()
 const REMOTE_TASK_VISIBLE_MS = 60 * 1000
+type RemoteTaskRow = typeof RemoteTaskTable.$inferSelect
 
-function taskVisible(task: ReturnType<typeof ExperimentRemoteTask.current>, now: number) {
+function taskVisible(task: RemoteTaskRow | undefined, now: number) {
   if (!task) return false
   if (task.status === "pending" || task.status === "running") return true
   return task.time_updated + REMOTE_TASK_VISIBLE_MS > now
+}
+
+function taskActive(task: RemoteTaskRow) {
+  return task.status === "pending" || task.status === "running"
+}
+
+function sortTasks(rows: RemoteTaskRow[]) {
+  return [...rows].sort((a, b) => Number(taskActive(b)) - Number(taskActive(a)) || b.time_updated - a.time_updated)
+}
+
+function taskJson(task: RemoteTaskRow) {
+  return {
+    task_id: task.task_id,
+    title: task.title,
+    kind: task.kind,
+    status: task.status,
+    resource_key: task.resource_key,
+    target_path: task.target_path,
+    screen_name: task.screen_name,
+    log_path: task.log_path,
+    error_message: task.error_message,
+    source_selection: task.source_selection,
+    method: task.method,
+    time_created: task.time_created,
+    time_updated: task.time_updated,
+  }
 }
 
 function gitError(result: { stderr?: Buffer; text?: () => string }, fallback: string) {
@@ -107,6 +122,8 @@ const atomSchema = z.object({
 
 const experimentSchema = z.object({
   exp_id: z.string(),
+  kind: z.enum(["experiment", "project_runtime"]),
+  runtime_key: z.string().nullable(),
   research_project_id: z.string(),
   exp_name: z.string(),
   exp_session_id: z.string().nullable(),
@@ -126,15 +143,32 @@ const experimentSchema = z.object({
   time_updated: z.number(),
 })
 
+const remoteTaskListItemSchema = z.object({
+  task_id: z.string(),
+  title: z.string(),
+  kind: z.enum(["resource_download", "experiment_run", "env_setup"]),
+  status: z.enum(["pending", "running", "finished", "failed", "crashed", "canceled"]),
+  resource_key: z.string().nullable(),
+  target_path: z.string().nullable(),
+  screen_name: z.string(),
+  log_path: z.string().nullable(),
+  error_message: z.string().nullable(),
+  source_selection: z.string().nullable(),
+  method: z.string().nullable(),
+  time_created: z.number(),
+  time_updated: z.number(),
+})
+
 const watchListItemSchema = z.object({
   watch_id: z.string(),
-  kind: z.literal("experiment"),
+  kind: z.enum(["experiment", "project_runtime"]),
   exp_id: z.string(),
   exp_session_id: z.string().nullable(),
   exp_result_path: z.string().nullable(),
   title: z.string(),
   status: z.enum(["pending", "running", "finished", "failed", "canceled"]),
   stage: z.enum([
+    "pending",
     "planning",
     "coding",
     "deploying_code",
@@ -154,12 +188,13 @@ const watchListItemSchema = z.object({
   wandb_project: z.string().nullable(),
   wandb_run_id: z.string().nullable(),
   remote_task_title: z.string().nullable(),
-  remote_task_kind: z.enum(["resource_download", "experiment_run"]).nullable(),
-  remote_task_status: z.enum(["pending", "running", "finished", "failed", "canceled"]).nullable(),
+  remote_task_kind: z.enum(["resource_download", "experiment_run", "env_setup"]).nullable(),
+  remote_task_status: z.enum(["pending", "running", "finished", "failed", "crashed", "canceled"]).nullable(),
   remote_task_target_path: z.string().nullable(),
   remote_task_screen_name: z.string().nullable(),
   remote_task_log_path: z.string().nullable(),
   remote_task_error_message: z.string().nullable(),
+  remote_tasks: z.array(remoteTaskListItemSchema),
 })
 
 const articleSchema = z.object({
@@ -1483,7 +1518,9 @@ export const ResearchRoutes = new Hono()
       }
 
       // find experiments linked to these branches
-      const experiments = Database.use((db) => db.select().from(ExperimentTable).all())
+      const experiments = Database.use((db) =>
+        db.select().from(ExperimentTable).where(eq(ExperimentTable.kind, "experiment")).all(),
+      )
       const expByBranch = new Map<string, { expId: string; expName: string }>()
       for (const exp of experiments) {
         if (exp.exp_branch_name) {
@@ -2453,7 +2490,9 @@ export const ResearchRoutes = new Hono()
     ),
     async (c) => {
       const serverId = c.req.param("serverId")
-      const row = Database.use((db) => db.select().from(RemoteServerTable).where(eq(RemoteServerTable.id, serverId)).get())
+      const row = Database.use((db) =>
+        db.select().from(RemoteServerTable).where(eq(RemoteServerTable.id, serverId)).get(),
+      )
       if (!row) {
         return c.json({ success: false, message: `server not found: ${serverId}` }, 404)
       }
@@ -2549,24 +2588,26 @@ export const ResearchRoutes = new Hono()
         expIds.has(w.exp_id),
       )
       const now = Date.now()
-      const taskMap = new Map(
-        executionWatches
-          .map((w) => {
-            const task =
-              w.status === "failed" ? ExperimentRemoteTask.latest(w.exp_id) : ExperimentRemoteTask.current(w.exp_id)
-            return taskVisible(task, now) ? ([w.exp_id, task] as const) : null
-          })
-          .filter(Boolean) as Array<readonly [string, ReturnType<typeof ExperimentRemoteTask.current>]>,
+      const tasks = Database.use((db) => db.select().from(RemoteTaskTable).all()).filter((task) =>
+        expIds.has(task.exp_id),
       )
+      const taskMap = new Map<string, RemoteTaskRow[]>()
+      for (const task of tasks) {
+        if (!taskVisible(task, now)) continue
+        const list = taskMap.get(task.exp_id) ?? []
+        list.push(task)
+        taskMap.set(task.exp_id, list)
+      }
 
       return c.json(
         executionWatches
           .map((w) => {
             const exp = expMap.get(w.exp_id)
-            const task = taskMap.get(w.exp_id)
+            const tasks = sortTasks(taskMap.get(w.exp_id) ?? [])
+            const task = tasks[0]
             return {
               watch_id: w.watch_id,
-              kind: "experiment" as const,
+              kind: ProjectRuntime.is(exp ?? {}) ? ("project_runtime" as const) : ("experiment" as const),
               exp_id: w.exp_id,
               exp_session_id: exp?.exp_session_id ?? null,
               exp_result_path: exp?.exp_result_path ?? null,
@@ -2589,6 +2630,7 @@ export const ResearchRoutes = new Hono()
               remote_task_screen_name: task?.screen_name ?? null,
               remote_task_log_path: task?.log_path ?? null,
               remote_task_error_message: task?.error_message ?? null,
+              remote_tasks: tasks.map(taskJson),
             }
           })
           .sort((a, b) => b.time_updated - a.time_updated),
@@ -2854,14 +2896,20 @@ export const ResearchRoutes = new Hono()
       if (!watch) {
         return c.json({ success: false, message: `watch not found: ${watchId}` }, 404)
       }
-      const task = Database.use((db) =>
-        db
-          .select()
-          .from(RemoteTaskTable)
-          .where(eq(RemoteTaskTable.exp_id, watch.exp_id))
-          .orderBy(desc(RemoteTaskTable.time_updated))
-          .get(),
-      )
+      const taskId = c.req.query("taskId")
+      const task = taskId
+        ? Database.use((db) => db.select().from(RemoteTaskTable).where(eq(RemoteTaskTable.task_id, taskId)).get())
+        : Database.use((db) =>
+            db
+              .select()
+              .from(RemoteTaskTable)
+              .where(eq(RemoteTaskTable.exp_id, watch.exp_id))
+              .orderBy(desc(RemoteTaskTable.time_updated))
+              .get(),
+          )
+      if (task && task.exp_id !== watch.exp_id) {
+        return c.json({ success: false, message: `remote task does not belong to watch: ${taskId}` }, 404)
+      }
       if (!task?.log_path) {
         return c.json({ success: false, message: `remote log not found for watch: ${watchId}` }, 404)
       }
@@ -3040,7 +3088,13 @@ export const ResearchRoutes = new Hono()
         }
 
         const experiments = Database.use((db) =>
-          db.select().from(ExperimentTable).where(eq(ExperimentTable.research_project_id, researchProjectId)).all(),
+          db
+            .select()
+            .from(ExperimentTable)
+            .where(
+              and(eq(ExperimentTable.research_project_id, researchProjectId), eq(ExperimentTable.kind, "experiment")),
+            )
+            .all(),
         )
         const articles = Database.use((db) =>
           db.select().from(ArticleTable).where(eq(ArticleTable.research_project_id, researchProjectId)).all(),

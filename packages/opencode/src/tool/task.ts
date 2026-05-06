@@ -10,6 +10,7 @@ import { iife } from "@/util/iife"
 import { defer } from "@/util/defer"
 import { Config } from "../config/config"
 import { PermissionNext } from "@/permission/next"
+import { Collab } from "@/collab"
 
 const parameters = z.object({
   description: z.string().describe("A short (3-5 words) description of the task"),
@@ -120,6 +121,12 @@ export const TaskTool = Tool.define("task", async (ctx) => {
 
       function cancel() {
         SessionPrompt.cancel(session.id)
+        // If the subagent turn spawned a Collab supervisor, tear that whole
+        // subtree down too — otherwise aborting the task leaks runaway peers.
+        const root = Collab.getBySession(session.id)
+        if (root && !root.parent_agent_id) {
+          void Collab.cancel(root.id, "task aborted").catch(() => {})
+        }
       }
       ctx.abort.addEventListener("abort", cancel)
       using _ = defer(() => ctx.abort.removeEventListener("abort", cancel))
@@ -142,7 +149,20 @@ export const TaskTool = Tool.define("task", async (ctx) => {
         parts: promptParts,
       })
 
-      const text = result.parts.findLast((x) => x.type === "text")?.text ?? ""
+      // If the turn called `spawn_agent`, the session is now a Collab root
+      // whose supervisor loop is still running (children will report back,
+      // AutoWake will drive a summary turn, etc.). `result` only captures the
+      // initial turn — wait for the root to settle and re-read the session so
+      // we return the final summary, not the "I've spawned N children" ping.
+      const collabRoot = Collab.getBySession(session.id)
+      let text: string
+      if (collabRoot && !collabRoot.parent_agent_id) {
+        await Collab.waitForRootSettled(session.id, collabRoot.id, ctx.abort)
+        const freshMsgs = await Session.messages({ sessionID: session.id })
+        text = findLastAssistantText(freshMsgs) ?? result.parts.findLast((x) => x.type === "text")?.text ?? ""
+      } else {
+        text = result.parts.findLast((x) => x.type === "text")?.text ?? ""
+      }
 
       const output = [
         `task_id: ${session.id} (for resuming to continue this task if needed)`,
@@ -163,3 +183,17 @@ export const TaskTool = Tool.define("task", async (ctx) => {
     },
   }
 })
+
+function findLastAssistantText(msgs: MessageV2.WithParts[]): string | undefined {
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const m = msgs[i]
+    if (m.info.role !== "assistant") continue
+    for (let j = m.parts.length - 1; j >= 0; j--) {
+      const p = m.parts[j]
+      if (p.type !== "text") continue
+      const txt = (p as MessageV2.TextPart).text
+      if (typeof txt === "string" && txt.trim().length > 0) return txt
+    }
+  }
+  return undefined
+}

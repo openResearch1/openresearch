@@ -1,0 +1,34 @@
+Spawn a peer agent asynchronously to collaborate with you on a task. The spawned agent runs in its own independent session with its own conversation history; you are NOT blocked and can continue your own reasoning or spawn more peers.
+
+Unlike the `task` tool (which is strictly a one-shot subagent call), `spawn_agent` is designed for **multi-agent collaboration**: any agent type (primary or subagent) can be spawned, they run in parallel, and they report back via your inbox so you can compose their outputs.
+
+## Available agent types
+
+You can pass any of these as `agent_type`:
+{agents}
+
+## How results come back
+
+- When an agent finishes, you receive a `child_done` message with its summary (up to 8KB).
+- If it fails or is canceled, you receive a `child_failed` message.
+- While running, `child_progress` messages are auto-pushed after each of its turns (you don't query them; they accumulate per your `progress_injection` policy).
+- If the summary you receive is truncated (marked with `[truncated]`) and you need the full text, call `read_agent_output(agent_id)` AFTER being re-woken.
+
+## Typical flow
+
+1. Call `spawn_agent` one or more times — either same type fanned out, or different types collaborating.
+2. End your turn immediately. Do NOT call `list_children` to poll, do NOT use `bash sleep`, do NOT keep producing text "waiting" — the framework auto-resumes your LLM as soon as a peer completes.
+3. On resumption, you see the peer's summary injected as a "child return" block in your context. Compose your response based on those summaries.
+
+## Parameters
+
+- `agent_type`: name of the agent to spawn (see list above — primary or subagent).
+- `name`: short, human-readable label for this task (stored as the spawned agent's name).
+- `prompt`: initial task / question. This becomes the spawned agent's first user message.
+- `model`: optional `{ providerID, modelID }` override. If omitted, the spawned agent inherits **your current model**.
+- `policy.on_fail`: `fail_fast` (default) | `continue` | `retry_once`. What happens to you if this peer fails.
+- `policy.progress_injection`: `none` | `latest` (default) | `all`. How accumulated peer progress is folded into your context when you wake.
+- `policy.timeout_ms`: optional per-peer timeout.
+- `policy.maxChildren`: optional cap on your own direct peers.
+
+Returns: `{ agent_id, session_id, status }`. Save `agent_id` for use with `list_children` / `cancel_agent` / `send_to_agent` / `read_agent_output`.

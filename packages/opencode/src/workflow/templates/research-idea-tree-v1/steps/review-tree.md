@@ -24,7 +24,7 @@ Required actions:
      - `build_idea_tree`
      - `link_idea_tree`
      - `review_tree`
-     after the current step, then continue
+       after the current step, then continue
 
 Context writes required before `workflow.next`:
 

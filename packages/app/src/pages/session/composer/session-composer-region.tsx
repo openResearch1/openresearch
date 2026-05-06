@@ -1,4 +1,5 @@
 import { Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js"
+import { useNavigate } from "@solidjs/router"
 import { createStore } from "solid-js/store"
 import { useSessionID } from "@/context/session-id"
 import { useSpring } from "@opencode-ai/ui/motion-spring"
@@ -11,9 +12,12 @@ import { SessionQuestionDock } from "@/pages/session/composer/session-question-d
 import type { SessionComposerState } from "@/pages/session/composer/session-composer-state"
 import { SessionTodoDock } from "@/pages/session/composer/session-todo-dock"
 import { SessionWorkflowDock } from "@/pages/session/composer/session-workflow-dock"
+import { SessionCollabDock } from "@/pages/session/composer/session-collab-dock"
+import type { CollabActivity } from "@/pages/session/composer/session-collab-activity"
 
 export function SessionComposerRegion(props: {
   state: SessionComposerState
+  collabActivity: CollabActivity
   ready: boolean
   centered: boolean
   inputRef: (el: HTMLDivElement) => void
@@ -43,6 +47,7 @@ export function SessionComposerRegion(props: {
   const params = useSessionID()
   const prompt = usePrompt()
   const language = useLanguage()
+  const navigate = useNavigate()
 
   const sessionKey = createMemo(() => `${params.dir}${params.id ? "/" + params.id : ""}`)
   const handoffPrompt = createMemo(() => getSessionHandoff(sessionKey())?.prompt)
@@ -206,6 +211,21 @@ export function SessionComposerRegion(props: {
                         />
                       </div>
                     )}
+                  </Show>
+                  <Show when={params.id}>
+                    <div class="mb-3">
+                      <SessionCollabDock
+                        activity={props.collabActivity}
+                        title={language.t("session.collab.title")}
+                        collapseLabel={language.t("session.collab.collapse")}
+                        expandLabel={language.t("session.collab.expand")}
+                        runningLabel={language.t("session.collab.running")}
+                        blockedLabel={language.t("session.collab.blocked")}
+                        pendingLabel={language.t("session.collab.pending")}
+                        emptyLabel={language.t("session.collab.empty")}
+                        onOpenAgent={(agent) => navigate(`/${params.dir}/session/${agent.session_id}`)}
+                      />
+                    </div>
                   </Show>
                   <Show when={props.state.todos().length > 0}>
                     <SessionTodoDock
