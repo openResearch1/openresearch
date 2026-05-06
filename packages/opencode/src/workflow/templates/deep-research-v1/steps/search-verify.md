@@ -1,4 +1,4 @@
-# 搜索与事实核查 — Phase 2/4: Search-Verify
+# Search & Fact Verification — Phase 2/4: Search-Verify
 
 Execute multi-source information retrieval and cross factual verification by dispatching parallel `deep_research_search_verify` subagents — one per subtask from the research plan. Results are collected in-memory and passed to the generate phase via workflow context.
 
@@ -10,10 +10,11 @@ Required actions:
 
 1. Retrieve the research plan from workflow context (`plan_text` field). Parse all subtasks from the structured format (each `## Subtask N: <title>` block).
 2. For each subtask, prepare a focused task prompt that includes:
-   - The subtask objective and search keywords
+   - The subtask objective and search keywords (in the user's language)
    - The specified source types and verification focus
    - Instruction to return results directly in the task response (NOT write to files)
-   - Required output format: search queries used, sources found, verification assessment per source, valid materials (target ~2 per subtask), rejected materials (with reasons), conflicts noted
+   - Required output format: search queries used, sources found, verification assessment per source, valid materials (target ~3 per subtask), rejected materials (with reasons), conflicts noted
+   - Language: search queries and results should match the user's language
 3. Launch ALL tasks in a **single message as parallel calls**. Each call MUST include all three required parameters (`description`, `subagent_type`, `prompt`):
    ```
    task(description="Search: <subtask title>", subagent_type="deep_research_search_verify", prompt="<focused prompt>")
@@ -27,23 +28,36 @@ Required actions:
 5. If any critical subtask failed or produced no valid results:
    - **Individual failures**: Mark the gap in `information_gaps` context and continue with available materials. The generate phase can work with partial results.
    - **Systemic failure (ALL subtasks failed with zero valid materials)**: Call `workflow` tool with action `"fail"`, a `code` (e.g. `"SEARCH_FAILED"`), and a `message` explaining which subtasks failed and why. Do NOT use `edit` — this step does not support it.
-6. **MUST call `workflow` tool**: action = `"next"`, with `instance_id`, `result` object, and `context_patch` object — to advance to the generate phase. **`context_patch` MUST be a JSON object, NOT a string.** Format:
+6. **MUST call `workflow` tool**: action = `"next"`, with `instance_id`, `result`, and `context_patch` — to advance to the generate phase.
+
+   **CRITICAL: `result` and `context_patch` are NATIVE JSON OBJECTS, not strings.**
+   
+   **WRONG** (context_patch is a string — will fail with "expected record, received string"):
    ```
-   workflow(
-     action="next",
-     instance_id="<instance_id>",
-     result={"summary": "Searched N subtasks, collected M valid materials. Key conclusions: ..."},
-     context_patch={
-       "verified_materials": {"<subtask_slug>": "<full subagent response text>", ...},
-       "verified_subtasks": ["<subtask_slug>", ...],
-       "information_gaps": ["<subtask_slug with reason>", ...],
-       "search_complete": true
-     }
-   )
+   workflow(action="next", instance_id="wf_123", context_patch="{\"search_complete\": true}")
    ```
-   - `result`: summary object with counts and key conclusions (see below)
-   - `context_patch` keys: `verified_materials` (object mapping subtask slugs to full subagent response text), `verified_subtasks` (array of slugs), `information_gaps` (array of gap descriptions), `search_complete` (boolean `true`)
-   - Do NOT start generating the report yourself — `workflow.next` will transition to the generate step automatically.
+   
+   **RIGHT** (context_patch is a native object — no outer quotes):
+   ```
+   workflow(action="next", instance_id="wf_123", context_patch={"search_complete": true})
+   ```
+
+   **Compress subagent responses before embedding.** The full subagent response can be very long. For each subtask, extract only:
+   - Search queries used (1 line)
+   - Valid materials found: title, URL, 1-2 sentence summary per material (max 3 materials)
+   - Key verified conclusions (2-3 bullets)
+   
+   Strip all boilerplate, rejected materials, verification details, and verbose descriptions. Target max 2000 chars per subtask entry.
+
+   Example `context_patch` (native object):
+   ```
+   context_patch={"verified_materials": {"subtask_1": "Search: ...\nSource 1: [《Title》](URL) — summary.\nSource 2: ...\nConclusions: ...", "subtask_2": "..."}, "verified_subtasks": ["subtask_1", "subtask_2"], "information_gaps": [], "search_complete": true}
+   ```
+   - `verified_materials`: object mapping subtask slugs to compressed results
+   - `verified_subtasks`: array of successfully searched subtask slugs
+   - `information_gaps`: array of gap descriptions (subtasks with no results)
+   - `search_complete`: boolean `true`
+   - Do NOT start generating the report — `workflow.next` transitions to the generate step automatically.
 
 Context writes required before `workflow.next`:
 
@@ -76,7 +90,7 @@ Important rules:
 - **After the `workflow` tool (action `"next"`) returns, the generate step becomes active. Immediately execute the generate step instructions without stopping or asking the user.**
 - All search agents run in parallel — do NOT call them sequentially.
 - Each subagent returns results in its task response — no file writing.
-- Each subtask should collect ~2 validated materials — quality over quantity.
+- Each subtask should collect ~3 validated materials — quality over quantity.
 - Do NOT ignore conflicting facts or forcibly unify contradictory content.
 - Do NOT create any directories or write intermediate files.
 - Pass all collected materials to the generate phase via `verified_materials` context field.

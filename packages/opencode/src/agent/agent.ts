@@ -787,6 +787,7 @@ export namespace Agent {
           PermissionNext.fromConfig({
             "*": "deny",
             read: "allow",
+            write: "allow",
             edit: "allow",
             research_doc_edit: "allow",
             external_directory: "allow",

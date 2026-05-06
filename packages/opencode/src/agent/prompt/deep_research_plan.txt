@@ -8,6 +8,7 @@ You receive from the calling agent:
 - The user's original research topic and core requirements
 - Research scope boundaries and depth expectations
 - Any special demands for fact-checking or multi-angle analysis
+- Language: Write the plan in the same language as the user's original query
 
 ## Output
 
@@ -29,7 +30,7 @@ You must produce a concise, structured research plan that the calling agent will
 
 ## Planning Rules
 
-- **Total subtasks: 1-2 (maximum 2).** Keep the plan focused and concise.
+- **Total subtasks: 3-4.** Keep the plan focused and concise.
 - Each subtask = one distinct research dimension + searchable keywords + verification criteria.
 - Search directions should cover: industry data, academic views, practical cases, mainstream conclusions, and counter-arguments where relevant.
 - Each subtask must be independently executable — a search agent should understand it with only the subtask description.

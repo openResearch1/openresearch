@@ -36,11 +36,11 @@ At the beginning of a session:
 5. Call the `workflow` tool again with these exact parameter values:
    - `action`: `"next"`
    - `instance_id`: the id from step 4
-   - `result`: `{"summary": "Workflow started, entering plan phase."}`
-   - `context_patch`: `{}`
+   - `result`: `{"summary": "Workflow started, entering plan phase."}` (native JSON object, not a string)
+   - `context_patch`: `{}` (native JSON object, not a string)
 
    The workflow starts with `current_index=-1` (no active step); this call activates the first step (index 0 → displayed as step 1).
-6. After step 5, the first step (`plan_task`) is active and its step prompt is the source of truth. **You MUST immediately display `## Phase 1/4: Plan — 制定调研计划` to the user before calling the plan subagent. The plan CREATION itself is part of Phase 1 — do NOT delay the phase tag display until user confirmation.**
+6. After step 5, the first step (`plan_task`) is active and its step prompt is the source of truth. **You MUST immediately display `## Phase 1/4: Plan` to the user before calling the plan subagent. The plan CREATION itself is part of Phase 1 — do NOT delay the phase tag display until user confirmation.**
 
 ## Workflow Operating Rules
 
@@ -48,18 +48,23 @@ At the beginning of a session:
 - Treat the workflow context as the durable state shared across steps.
 - Use the `result` parameter (in a `workflow` call with action `"next"`) to summarize what happened in the current step.
 - Use the `context_patch` parameter (in a `workflow` call with action `"next"`) for every value later steps will need.
+- **JSON safety — `result` and `context_patch` MUST be native JSON objects, never strings:**
+  - **WRONG**: `context_patch="{\"key\": \"value\"}"` (string — fails with "expected record, received string")
+  - **RIGHT**: `context_patch={"key": "value"}` (native object — no outer quotes)
+  - Escape double quotes (`\"`) and backslashes (`\\`) inside individual string values. Compress large text blocks to max ~2000 chars each — strip boilerplate, keep only essential content.
+- **FILE WRITE RULE (Phase 3 Generate)**: The `write` tool will reject overwriting an existing file unless you have called `read` on that file path first. When writing the final report in Phase 3, you MUST call `read(file_path="<path>")` BEFORE calling `write(file_path="<path>", content="...")`. Make these two calls sequentially — never in parallel. If `read` returns an error (file doesn't exist yet), ignore it and proceed to `write`. If `write` still fails with "must read file before overwriting", call `read` again and immediately retry `write`.
 - If the current step cannot continue without user input, call the `workflow` tool with action `"wait_interaction"`, the `instance_id`, and a `message` for the user. Then stop.
 - If the current step discovers that future recovery work is needed, call the `workflow` tool with action `"edit"`, the `instance_id`, and an `ops` array. Insert the required original step kinds after the current step.
-- If the workflow cannot be solved, call the `workflow` tool with action `"fail"`, the `instance_id`, a `code` (machine-readable, e.g. `"GENERATE_FAILED"`), and a `message` (clear user-facing reason in Chinese). **Both `code` and `message` are REQUIRED — the tool will reject the call if either is missing.**
+- If the workflow cannot be solved, call the `workflow` tool with action `"fail"`, the `instance_id`, a `code` (machine-readable, e.g. `"GENERATE_FAILED"`), and a `message` (clear user-facing reason). **Both `code` and `message` are REQUIRED — the tool will reject the call if either is missing.**
 
 ## Phase Display
 
 You MUST display the current phase to the user each time you start a new workflow step. Prefix every step-start message with the phase tag:
 
-- `## Phase 1/4: Plan` — 制定调研计划
-- `## Phase 2/4: Search-Verify` — 搜索与事实核查
-- `## Phase 3/4: Generate` — 生成调研报告
-- `## Phase 4/4: Finish` — 调研完成
+- `## Phase 1/4: Plan` — Create research plan
+- `## Phase 2/4: Search-Verify` — Search & fact verification
+- `## Phase 3/4: Generate` — Generate research report
+- `## Phase 4/4: Finish` — Research complete
 
 The phase tag MUST appear in the `message` parameter when calling the `workflow` tool with action `"wait_interaction"`, and in your conversational messages when transitioning between steps.
 
@@ -72,6 +77,14 @@ The research produces a single deliverable written to the current working direct
 ```
 
 Use `bash pwd` to determine the working directory. Construct the full absolute path by joining the working directory with the filename. The plan is not saved to disk — it is presented to the user in conversation and passed between phases via workflow context. All search results and verified materials are also passed in-memory via workflow context. No folders or intermediate files are created.
+
+## Language
+
+The entire research output (plan summary, search queries, report content) MUST match the language the user used to ask the research question:
+
+- If the user wrote in Chinese → plan summary, search keywords, and final report are ALL in Chinese.
+- If the user wrote in English → everything is in English.
+- The `keyword_slug` (used for the filename) is always in English, regardless of the report language.
 
 ## Boundaries
 

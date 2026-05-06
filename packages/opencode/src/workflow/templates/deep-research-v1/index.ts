@@ -6,41 +6,41 @@ export const DeepResearchWorkflowTemplate = WorkflowSchema.Template.parse({
   id: "deep_research_v1",
   name: "Deep Research Workflow",
   version: "1.0",
-  description: "深度调研全流程：规划→并行搜索验证→生成报告",
+  description: "Deep research full workflow: Plan → Parallel Search-Verify → Generate Report",
 
   defs: {
     plan_task: {
       kind: "agent_task",
-      title: "制定调研计划",
-      summary: "分析研究主题，调用 deep_research_plan 子 Agent 生成结构化研究计划（约1-2个子任务），在对话中呈现计划并等待用户确认（不写入文件）",
+      title: "Create Research Plan",
+      summary: "Analyze the research topic, invoke the deep_research_plan subagent to generate a structured research plan (~3-4 subtasks), present the plan in conversation and wait for user confirmation (no file writes)",
       prompt: "plan",
       policy: { can_next: ["plan_complete"], can_wait_interaction: true }
     },
     search_verify_task: {
       kind: "agent_task",
-      title: "搜索与事实核查",
-      summary: "解析计划文本中的子任务，并行启动多个 deep_research_search_verify 子 Agent 进行多源检索和交叉事实验证，每个子任务收集约2篇材料，结果通过 context 传递至生成阶段",
+      title: "Search & Fact Verification",
+      summary: "Parse subtasks from plan text, launch multiple deep_research_search_verify subagents in parallel for multi-source retrieval and cross fact verification, collect ~3 materials per subtask, pass results to generate phase via context",
       prompt: "search-verify",
       policy: { can_next: ["search_complete"] }
     },
     generate_task: {
       kind: "agent_task",
-      title: "生成调研报告",
-      summary: "整合所有已验证材料，调用 deep_research_generate 子 Agent 生成 {keyword_slug}-YYYY-MM-DD.md 报告文件",
+      title: "Generate Research Report",
+      summary: "Integrate all verified materials, invoke the deep_research_generate subagent to produce the {keyword_slug}-YYYY-MM-DD.md report file",
       prompt: "generate",
       policy: { can_next: ["report_complete"] }
     },
     finish: {
       kind: "finish",
-      title: "调研完成",
-      summary: "深度调研流程收尾，确认报告文件存在，向用户总结关键结论和文件路径",
+      title: "Research Complete",
+      summary: "Finalize the deep research workflow, confirm the report file exists, summarize key conclusions and file path to the user",
       prompt: "finish",
       policy: {}
     },
     report_failure: {
       kind: "report_failure",
-      title: "报告失败并等待用户决策",
-      summary: "诊断当前阶段失败原因，展示给用户，根据用户决策动态插入恢复步骤或终止工作流",
+      title: "Report Failure & Await User Decision",
+      summary: "Diagnose the failure cause at the current phase, present to the user, and dynamically insert recovery steps or terminate the workflow based on user decision",
       prompt: "report-failure",
       policy: {
         can_next: [],
@@ -53,7 +53,7 @@ export const DeepResearchWorkflowTemplate = WorkflowSchema.Template.parse({
 
   flows: {
     default: {
-      title: "Deep Research 默认流程",
+      title: "Deep Research Default Flow",
       summary: "default",
       steps: ["plan_task", "search_verify_task", "generate_task", "finish"]
     },

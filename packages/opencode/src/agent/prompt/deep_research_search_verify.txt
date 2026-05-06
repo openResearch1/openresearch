@@ -65,7 +65,7 @@ You MUST return results in your task response using this standard format:
 
 ## Search & Verify Rules
 
-- Select only the ~2 most relevant, highest-quality sources for inclusion as verified materials. Depth over quantity — each material must substantively support the subtask objective
+- Select only the ~3 most relevant, highest-quality sources for inclusion as verified materials. Depth over quantity — each material must substantively support the subtask objective
 - Prioritize authoritative sources: official institutions, peer-reviewed academic papers, top industry reports, standardized public data
 - Reject fragmented low-quality content, advertising content, and unsubstantiated claims from non-public sources
 - For time-sensitive content, prioritize the latest valid information and mark time attributes

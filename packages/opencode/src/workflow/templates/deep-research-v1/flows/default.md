@@ -10,7 +10,7 @@ This flow converts user research demands into standardized, complete research re
 
 ### 1. Plan Phase (`plan_task`)
 - Analyze the user's research topic, scope, and depth requirements
-- Invoke `deep_research_plan` subagent via `task` tool to produce a structured research plan (1-2 subtasks, max 2)
+- Invoke `deep_research_plan` subagent via `task` tool to produce a structured research plan (~3-4 subtasks)
 - Present the plan to the user and wait for confirmation via `workflow.wait_interaction`
 - Pass `plan_text` and `keyword_slug` through workflow context
 - Context gate: `plan_complete`
@@ -19,7 +19,7 @@ This flow converts user research demands into standardized, complete research re
 ### 2. Search & Verify Phase (`search_verify_task`)
 - Parse `plan_text` from workflow context to extract subtasks (each `## Subtask N:` block)
 - Launch parallel `task` calls — one `deep_research_search_verify` subagent per subtask
-- Each subagent searches, verifies, and returns ~2 materials in its task response (quality over quantity)
+- Each subagent searches, verifies, and returns ~3 materials in its task response (quality over quantity)
 - Consolidate results from all subagent responses, identify information gaps and cross-subtask conflicts
 - Pass collected materials to the generate phase via workflow context (`verified_materials`)
 - On subtask failures: mark gaps in context or insert `report_failure` via `workflow.edit`
