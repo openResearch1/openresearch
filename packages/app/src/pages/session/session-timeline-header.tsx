@@ -412,6 +412,71 @@ export function SessionTimelineHeader(props: {
     navigate(`/${params.dir}/session/${agent.session_id}`)
   }
 
+  // Collab breadcrumb should display each ancestor's SESSION TITLE (what the
+  // user recognizes — e.g. the turn summary), not the raw agent name like
+  // "root" or "general". Pull titles from the sync store when cached; fall
+  // back to an SDK fetch only for ancestors the user hasn't visited yet.
+  const [collabAncestorTitles] = createResource(
+    () => {
+      const ancestors = collabAncestors().slice(0, -1)
+      if (ancestors.length === 0) return undefined
+      return ancestors.map((a) => a.session_id)
+    },
+    async (sessionIDs) => {
+      const entries = await Promise.all(
+        sessionIDs.map(async (sid) => {
+          const cached = sync.session.get(sid)
+          if (cached) return [sid, cached.title?.trim() || ""] as const
+          try {
+            const res = await sdk.client.session.get({ sessionID: sid, directory: sdk.directory })
+            return [sid, res.data?.title?.trim() || ""] as const
+          } catch {
+            return [sid, ""] as const
+          }
+        }),
+      )
+      return new Map(entries)
+    },
+  )
+
+  const collabAgentLabel = (agent: CollabAgent) => {
+    const map = collabAncestorTitles()
+    const title = map?.get(agent.session_id)
+    if (title) return title
+    // While titles resolve, show the agent name so the row isn't blank.
+    return agent.name
+  }
+
+  // For a plain subtask child (task tool spawns a session with parentID set, no
+  // Collab tree), mirror the Collab breadcrumb: show "ParentTitle /" linking
+  // back to the parent. sync.session.get returns the cached entry when the
+  // user navigated here from the parent; fall back to an SDK fetch for cold
+  // loads (direct URL / reload).
+  const [parentSessionInfo] = createResource(
+    () => {
+      // Collab breadcrumb already covers collab sessions — don't double-render.
+      if (collabAncestors().length >= 2) return undefined
+      return props.parentID()
+    },
+    async (sessionID) => {
+      if (!sessionID) return null
+      const cached = sync.session.get(sessionID)
+      if (cached) return cached
+      try {
+        const res = await sdk.client.session.get({ sessionID, directory: sdk.directory })
+        return res.data ?? null
+      } catch {
+        return null
+      }
+    },
+  )
+
+  const parentTitle = createMemo(() => {
+    const info = parentSessionInfo()
+    if (!info) return undefined
+    return info.title?.trim() || language.t("command.session.new")
+  })
+
   function DialogDeleteSession(input: { sessionID: string }) {
     const name = createMemo(() => sync.session.get(input.sessionID)?.title ?? language.t("command.session.new"))
 
@@ -465,16 +530,40 @@ export function SessionTimelineHeader(props: {
               <Show
                 when={collabAncestors().length >= 2}
                 fallback={
-                  <Show when={props.parentID()}>
-                    <div>
-                      <IconButton
-                        tabIndex={-1}
-                        icon="arrow-left"
-                        variant="ghost"
-                        onClick={navigateParent}
-                        aria-label={language.t("common.goBack")}
-                      />
-                    </div>
+                  <Show
+                    when={props.parentID() && parentTitle()}
+                    fallback={
+                      <Show when={props.parentID()}>
+                        <div>
+                          <IconButton
+                            tabIndex={-1}
+                            icon="arrow-left"
+                            variant="ghost"
+                            onClick={navigateParent}
+                            aria-label={language.t("common.goBack")}
+                          />
+                        </div>
+                      </Show>
+                    }
+                  >
+                    <nav
+                      class="flex items-center gap-1 min-w-0 text-13-regular text-text-weak"
+                      aria-label="parent session"
+                    >
+                      <a
+                        class="truncate hover:text-text-strong cursor-pointer"
+                        href={`/${params.dir}/session/${props.parentID()}`}
+                        onClick={(e) => {
+                          if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return
+                          e.preventDefault()
+                          navigateParent()
+                        }}
+                        title={parentTitle()}
+                      >
+                        {parentTitle()}
+                      </a>
+                      <span class="text-text-weaker shrink-0">/</span>
+                    </nav>
                   </Show>
                 }
               >
@@ -496,9 +585,9 @@ export function SessionTimelineHeader(props: {
                             e.preventDefault()
                             navigateToAgentSession(agent)
                           }}
-                          title={agent.name}
+                          title={collabAgentLabel(agent)}
                         >
-                          {agent.name}
+                          {collabAgentLabel(agent)}
                         </a>
                       </>
                     )}

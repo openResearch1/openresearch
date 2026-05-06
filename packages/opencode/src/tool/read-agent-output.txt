@@ -1,0 +1,29 @@
+Read the full output of a specific child agent (completed, failed, or canceled).
+
+Use this tool when:
+- The `summary` in a `child_done` card you received was truncated (marked with "[truncated]") and you need the complete text.
+- You need the full `error` detail of a failed child (not just the short message).
+- You want to review a specific child's step-by-step `child_progress` history.
+
+DO NOT use this tool for polling. A child's summary is already injected into your context via `child_done` when it completes; only call this when that summary is insufficient.
+
+## Parameters
+
+- `agent_id` (required): the child's agent_id. Get it from `spawn_agent` output, `list_children`, or the `child_done` card.
+- `include_progress` (optional, default false): include the full `child_progress` event history. Progress data can be large; only enable it if you specifically need step-by-step context.
+- `max_bytes` (optional, default 65536): cap on the returned summary text length. Content exceeding the cap is truncated with a "[truncated]" marker. Set higher only if you actually need a long result.
+
+## Returns
+
+JSON with:
+- `agent_id`, `name`, `subagent_type`, `status`
+- `spawned_at`, `ended_at`
+- `summary`: full final assistant text (up to `max_bytes`)
+- `summary_truncated`: whether the content was cut off
+- `summary_bytes`: the real byte length of the full summary (useful to decide whether to re-request with a larger `max_bytes`)
+- `error`: populated only if the child failed or was canceled
+- `progress`: populated only when `include_progress` is true
+
+## Permissions
+
+You can only read agents in your own subtree (same `root_agent_id`). Reading siblings from unrelated roots is denied.

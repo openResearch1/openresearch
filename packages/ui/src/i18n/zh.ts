@@ -120,8 +120,12 @@ export const dict = {
   "ui.tool.agent.openSession": "打开会话",
   "ui.tool.agent.status.ok": "成功",
   "ui.tool.agent.status.failed": "失败",
+  "ui.tool.agent.status.done": "已完成",
   "ui.tool.agent.agentId": "agent",
   "ui.tool.agent.sessionId": "会话",
+  "ui.tool.agent.childCompleted": "子任务完成",
+  "ui.tool.agent.childSummary": "结论",
+  "ui.tool.agent.waiting": "等待中",
 
   "ui.workflow.status.running": "进行中",
   "ui.workflow.status.waiting": "等待输入",

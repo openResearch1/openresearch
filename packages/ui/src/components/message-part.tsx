@@ -1140,6 +1140,7 @@ PART_MAPPING["reasoning"] = function ReasoningPartDisplay(props) {
 
 PART_MAPPING["collab_return"] = function CollabReturnPartDisplay(props) {
   const data = useData()
+  const i18n = useI18n()
   const part = () =>
     props.part as unknown as {
       id: string
@@ -1158,8 +1159,6 @@ PART_MAPPING["collab_return"] = function CollabReturnPartDisplay(props) {
   // the subagent dock already shows live status, and the visible message
   // stream should only flag "this child's work landed, here's what it said."
   if (part().kind !== "child_done") return null as unknown as JSX.Element
-
-  const style = { color: "#2ea043", label: "Completed" }
 
   const childHref = createMemo(() => {
     const sid = part().childSessionId
@@ -1191,49 +1190,65 @@ PART_MAPPING["collab_return"] = function CollabReturnPartDisplay(props) {
     }, 50)
   }
 
-  const row = () => (
-    <div
-      data-slot="collab-return-trigger"
-      style={{
-        display: "flex",
-        gap: "8px",
-        "align-items": "center",
-        padding: "4px 10px",
-        "border-left": `3px solid ${style.color}`,
-        background: "rgba(127,127,127,0.05)",
-        "font-size": "12px",
-        width: "100%",
-      }}
-    >
-      <span style={{ color: style.color, "font-weight": 600 }}>{style.label}</span>
-      <span style={{ opacity: 0.85 }}>{part().headline}</span>
-      <Show when={part().childSessionId}>
-        {(sid) => (
-          <a
-            href={childHref() ?? "#"}
-            onClick={onChildClick}
-            style={{ "margin-left": "auto", "font-size": "11px", opacity: 0.65 }}
-          >
-            {sid().slice(0, 10)}…
-          </a>
-        )}
-      </Show>
-      <Icon name="chevron-grabber-vertical" size="small" />
+  const openAction = () => {
+    const url = childHref()
+    if (!url) return undefined
+    return (
+      <a
+        data-slot="agent-card-open"
+        class="clickable subagent-link"
+        href={url}
+        onClick={onChildClick}
+      >
+        <span>{i18n.t("ui.tool.agent.openSession")}</span>
+        <Icon name="square-arrow-top-right" size="small" />
+      </a>
+    )
+  }
+
+  // Title = the child task's actual name (passed to spawn_agent). Falls back
+  // to the generic "Child completed" label if a name wasn't provided. This
+  // avoids the redundancy of having both a "Child completed" title and a
+  // "Done" chip saying the same thing.
+  const title = () => part().childName?.trim() || i18n.t("ui.tool.agent.childCompleted")
+
+  // Custom trigger: put the success chip BEFORE the title so the status
+  // reads left-to-right as "Done: <childName>". The ToolTriggerRow helper
+  // only accepts a plain string title, so we render the structured row
+  // ourselves to keep the chip as the leading element in the main slot.
+  const trigger = () => (
+    <div data-slot="basic-tool-tool-info-structured">
+      <div data-slot="basic-tool-tool-info-main">
+        <span data-slot="agent-card-chip" data-variant="success">
+          <Icon name="check-small" size="small" />
+          <span>{i18n.t("ui.tool.agent.status.done")}</span>
+        </span>
+        <span data-slot="basic-tool-tool-title">{title()}</span>
+      </div>
+      <Show when={openAction()}>{(action) => action()}</Show>
     </div>
   )
 
   return (
-    <div data-component="collab-return-part" style={{ margin: "2px 0" }}>
-      <Accordion multiple>
-        <Accordion.Item value={part().id}>
-          <Accordion.Trigger>{row()}</Accordion.Trigger>
-          <Accordion.Content>
-            <div data-slot="collab-return-body" style={{ padding: "8px 12px", background: "rgba(127,127,127,0.04)" }}>
-              <Markdown text={part().body} cacheKey={part().id} />
+    <div data-component="agent-tool-card">
+      <ToolCall
+        variant="panel"
+        icon="circle-check"
+        animate
+        springContent
+        trigger={trigger()}
+      >
+        <div data-component="agent-card">
+          <Show when={part().body?.trim()}>
+            <div data-slot="agent-card-block">
+              <div data-slot="agent-card-label">{i18n.t("ui.tool.agent.childSummary")}</div>
+              <div data-slot="agent-card-body">
+                <Markdown text={part().body} cacheKey={part().id} />
+              </div>
             </div>
-          </Accordion.Content>
-        </Accordion.Item>
-      </Accordion>
+          </Show>
+        </div>
+      </ToolCall>
     </div>
   )
 }
@@ -1482,23 +1497,6 @@ function WebfetchMeta(props: { url: string; animate?: boolean }) {
         <Icon name="square-arrow-top-right" size="small" />
       </div>
     </span>
-  )
-}
-
-function TaskLink(props: { href: string; text: string; onClick: (e: MouseEvent) => void; animate?: boolean }) {
-  let ref: HTMLAnchorElement | undefined
-  useToolFade(() => ref, { wipe: true, animate: props.animate })
-
-  return (
-    <a
-      ref={ref}
-      data-slot="basic-tool-tool-subtitle"
-      class="clickable subagent-link"
-      href={props.href}
-      onClick={props.onClick}
-    >
-      {props.text}
-    </a>
   )
 }
 
@@ -1962,19 +1960,21 @@ ToolRegistry.register({
     const title = createMemo(() => agentTitle(i18n, type()))
     const description = createMemo(() => {
       const value = props.input.description
-      if (typeof value === "string") return value
+      if (typeof value === "string" && value.length > 0) return value
       return undefined
     })
-    const running = createMemo(() => busy(props.status))
-    const reveal = useToolReveal(running, () => props.reveal !== false)
+    const prompt = createMemo(() => {
+      const value = props.input.prompt
+      if (typeof value === "string" && value.length > 0) return value
+      return undefined
+    })
+    const pending = createMemo(() => busy(props.status))
 
     const href = createMemo(() => {
       const sessionId = childSessionId()
       if (!sessionId) return
-
       const direct = data.sessionHref?.(sessionId)
       if (direct) return direct
-
       if (typeof window === "undefined") return
       const path = window.location.pathname
       const idx = path.indexOf("/session")
@@ -1986,14 +1986,10 @@ ToolRegistry.register({
       const sessionId = childSessionId()
       const url = href()
       if (!sessionId || !url) return
-
       e.stopPropagation()
-
       if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
-
       const nav = data.navigateToSession
       if (!nav || typeof window === "undefined") return
-
       e.preventDefault()
       const handled = nav(sessionId)
       if (handled) return
@@ -2004,29 +2000,89 @@ ToolRegistry.register({
       }, 50)
     }
 
+    const openAction = () => {
+      const url = href()
+      if (!url) return undefined
+      return (
+        <a
+          data-slot="agent-card-open"
+          class="clickable subagent-link"
+          href={url}
+          onClick={handleLinkClick}
+        >
+          <span>{i18n.t("ui.tool.agent.openSession")}</span>
+          <Icon name="square-arrow-top-right" size="small" />
+        </a>
+      )
+    }
+
+    // Distinguish subtask from async collab (spawn_agent): while the subtask is
+    // running we show a "Waiting" chip to signal the parent turn is paused
+    // until the child returns. On completion/error the chip flips to
+    // "Done"/"Failed" so stale cards no longer claim to be waiting.
+    const chip = createMemo<{ variant: string; icon: IconProps["name"]; label: string }>(() => {
+      if (pending()) {
+        return { variant: "waiting", icon: "refresh", label: i18n.t("ui.tool.agent.waiting") }
+      }
+      if (props.status === "error") {
+        return { variant: "error", icon: "warning", label: i18n.t("ui.tool.agent.status.failed") }
+      }
+      return { variant: "success", icon: "check", label: i18n.t("ui.tool.agent.status.done") }
+    })
+
     const trigger = () => (
       <div data-slot="basic-tool-tool-info-structured">
         <div data-slot="basic-tool-tool-info-main">
+          <span data-slot="agent-card-chip" data-variant={chip().variant}>
+            <Icon name={chip().icon} size="small" />
+            <span>{chip().label}</span>
+          </span>
           <span data-slot="basic-tool-tool-title">
-            <TextShimmer text={title()} active={running()} />
+            <TextShimmer text={title()} active={pending()} />
           </span>
           <Show when={description()}>
-            <Switch>
-              <Match when={href()}>
-                {(url) => (
-                  <TaskLink href={url()} text={description() ?? ""} onClick={handleLinkClick} animate={reveal()} />
-                )}
-              </Match>
-              <Match when={true}>
-                <ToolText text={description() ?? ""} delay={0.02} animate={reveal()} />
-              </Match>
-            </Switch>
+            {(text) => <ToolText text={text()} delay={0.02} animate={props.reveal} />}
           </Show>
         </div>
+        <Show when={openAction()}>{(action) => action()}</Show>
       </div>
     )
 
-    return <ToolCall variant="row" icon="task" status={props.status} trigger={trigger()} animate />
+    return (
+      <div data-component="agent-tool-card" data-kind="subtask">
+        <ToolCall
+          variant="panel"
+          icon="task"
+          status={props.status}
+          animate
+          springContent
+          trigger={trigger()}
+        >
+          <div data-component="agent-card">
+            <Show when={prompt()}>
+              {(text) => (
+                <div data-slot="agent-card-block">
+                  <div data-slot="agent-card-label">{i18n.t("ui.tool.agent.prompt")}</div>
+                  <div data-slot="agent-card-body">
+                    <Markdown text={text()} />
+                  </div>
+                </div>
+              )}
+            </Show>
+            <Show when={childSessionId()}>
+              {(sid) => (
+                <div data-slot="agent-card-meta">
+                  <span>
+                    <span data-slot="agent-card-meta-key">{i18n.t("ui.tool.agent.sessionId")}:</span>{" "}
+                    <code>{sid()}</code>
+                  </span>
+                </div>
+              )}
+            </Show>
+          </div>
+        </ToolCall>
+      </div>
+    )
   },
 })
 
