@@ -105,19 +105,21 @@
 
 ### 已实现
 
-- embedding 缓存与回退
+- embedding 缓存、真实 API 接入与回退
 - hybrid semantic search
 - Louvain 社区检测
 - 社区摘要、关键词、主导类型、密度
 - 社区缓存
+- 社区剪枝模块（规则型，可独立执行）
+- 图谱质量评估模块（可独立执行）
 - 项目范围隔离
 
 ### 未实现
 
 - 增量更新机制
-- 社区剪枝
+- 社区剪枝默认接入主检索前置门控
 - 社区演化追踪
-- 图谱质量评估
+- 图谱质量评估默认接入检索前质量门控
 - 潜在关系发掘
 - 潜在延伸节点发掘
 
@@ -169,6 +171,7 @@
 
 - semantic + traversal 混合检索
 - 5 维评分
+- atom-wise quality scoring + query-aware reranking
 - 多样性选择
 - token budget
 - 社区过滤
@@ -248,6 +251,7 @@
 不只回答“已有内容”，还要回答：
 
 - 哪些社区值得保留
+- 两篇论文的 community similarity 是否接近
 - 哪些关系可能缺失
 - 哪些主题在演化
 - 哪些方向值得延伸
@@ -258,6 +262,8 @@
 - 基础社区检测
 - 社区查询
 - 社区过滤
+- 论文级子图 community similarity 比较（内部边、对称 similarity、双向 coverage）
+- 两个真实研究项目上的 paper similarity 实跑验证
 
 ### 未实现
 
@@ -326,6 +332,7 @@
 - community
 - prune
 - quality
+- paper similarity
 - relation candidates
 - extension candidates
 
@@ -351,4 +358,4 @@
 
 ---
 
-最后更新: 2026-04-16
+最后更新: 2026-05-06

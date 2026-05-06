@@ -5,8 +5,8 @@ import { Database, inArray, eq } from "../../storage/db"
 import { AtomTable, AtomRelationTable, ResearchProjectTable } from "../../research/research.sql"
 import { Filesystem } from "../../util/filesystem"
 import { Instance } from "../../project/instance"
-import type { AtomType, RelationType, Community } from "./types"
-import { loadEmbeddingCache, getAtomEmbedding, cosineSimilarity } from "./embedding"
+import type { AtomType, RelationType, Community, ArticleCommunityComparisonReport } from "./types"
+import { loadEmbeddingCache, getAtomEmbedding, cosineSimilarity, saveEmbeddingCache } from "./embedding"
 
 /**
  * 社区缓存结构
@@ -25,6 +25,13 @@ export interface CommunityDetectionOptions {
   resolution?: number // Louvain 分辨率参数
   minCommunitySize?: number // 最小社区大小
   forceRefresh?: boolean // 强制刷新缓存
+  articleIds?: string[] // 限制到指定文章子图
+}
+
+export interface ArticleCommunityComparisonOptions {
+  resolution?: number
+  minCommunitySize?: number
+  coverageThreshold?: number
 }
 
 /**
@@ -40,6 +47,36 @@ export interface CommunityQueryOptions {
 
 const CACHE_FILE = ".atom-communities-cache.json"
 const CACHE_VERSION = "1.0"
+const TYPES: AtomType[] = ["fact", "method", "theorem", "verification"]
+const RELS: RelationType[] = ["motivates", "formalizes", "derives", "analyzes", "validates", "contradicts", "other"]
+const EVS = ["math", "experiment"] as const
+const STATS = ["pending", "in_progress", "proven", "disproven"] as const
+const FLOWS = TYPES.flatMap((source) => TYPES.map((target) => `${source}->${target}`))
+const MATCH = {
+  semantic: 0.3,
+  type: 0.2,
+  evidence: 0.1,
+  relation: 0.2,
+  flow: 0.1,
+  structure: 0.07,
+  keywords: 0.03,
+} as const
+
+type Feat = {
+  articleId: string
+  community: Community
+  emb: number[]
+  type: number[]
+  ev: number[]
+  stat: number[]
+  rel: number[]
+  flow: number[]
+  share: number
+  mass: number
+  density: number
+  hub: number
+  keywords: Set<string>
+}
 
 /**
  * 获取缓存文件路径
@@ -101,17 +138,25 @@ function getResearchProjectId(): string | undefined {
 /**
  * 构建 Atom Graph（只包含当前项目的 atoms）
  */
-function buildGraph(): Graph {
-  const graph = new Graph({ type: "directed" })
-
+function loadAtoms(articleIds?: string[]) {
   const researchProjectId = getResearchProjectId()
-
-  // 添加当前项目的 atoms 作为节点
   const atoms = researchProjectId
     ? Database.use((db) =>
         db.select().from(AtomTable).where(eq(AtomTable.research_project_id, researchProjectId)).all(),
       )
     : Database.use((db) => db.select().from(AtomTable).all())
+
+  if (!articleIds || articleIds.length === 0) {
+    return atoms
+  }
+
+  const ids = new Set(articleIds)
+  return atoms.filter((atom) => atom.article_id && ids.has(atom.article_id))
+}
+
+function buildGraph(articleIds?: string[]) {
+  const graph = new Graph({ type: "directed" })
+  const atoms = loadAtoms(articleIds)
 
   const atomIdSet = new Set(atoms.map((a) => a.atom_id))
 
@@ -138,17 +183,78 @@ function buildGraph(): Graph {
     }
   }
 
-  return graph
+  return { graph, atoms, rels: relations.filter((rel) => atomIdSet.has(rel.atom_id_source) && atomIdSet.has(rel.atom_id_target)) }
+}
+
+async function buildCommunityCache(
+  graph: Graph,
+  options: Pick<Required<CommunityDetectionOptions>, "resolution" | "minCommunitySize">,
+): Promise<CommunityCache> {
+  if (graph.order === 0) {
+    return {
+      version: CACHE_VERSION,
+      lastUpdated: Date.now(),
+      communities: {},
+      atomToCommunity: {},
+    }
+  }
+
+  const assignments = louvain(graph, { resolution: options.resolution })
+  const groups = new Map<string, string[]>()
+
+  for (const [atomId, communityId] of Object.entries(assignments)) {
+    const id = String(communityId)
+    if (!groups.has(id)) {
+      groups.set(id, [])
+    }
+    groups.get(id)!.push(atomId)
+  }
+
+  const communities: Record<string, Community> = {}
+  const atomToCommunity: Record<string, string> = {}
+
+  for (const [id, atomIds] of groups.entries()) {
+    if (atomIds.length < options.minCommunitySize) {
+      continue
+    }
+
+    const community: Community = {
+      id,
+      atomIds,
+      summary: "",
+      keywords: [],
+      dominantType: getDominantType(graph, atomIds),
+      size: atomIds.length,
+      density: calculateCommunityDensity(graph, atomIds),
+      timestamp: Date.now(),
+    }
+
+    const meta = await generateCommunitySummary(atomIds)
+    community.summary = meta.summary
+    community.keywords = meta.keywords
+    communities[id] = community
+
+    for (const atomId of atomIds) {
+      atomToCommunity[atomId] = id
+    }
+  }
+
+  return {
+    version: CACHE_VERSION,
+    lastUpdated: Date.now(),
+    communities,
+    atomToCommunity,
+  }
 }
 
 /**
  * 使用 Louvain 算法检测社区
  */
 export async function detectCommunities(options: CommunityDetectionOptions = {}): Promise<CommunityCache> {
-  const { resolution = 1.0, minCommunitySize = 2, forceRefresh = false } = options
+  const { resolution = 1.0, minCommunitySize = 2, forceRefresh = false, articleIds } = options
 
   // 检查缓存
-  if (!forceRefresh) {
+  if (!forceRefresh && (!articleIds || articleIds.length === 0)) {
     const cached = await loadCommunityCache()
     if (cached) {
       return cached
@@ -156,67 +262,12 @@ export async function detectCommunities(options: CommunityDetectionOptions = {})
   }
 
   // 构建图
-  const graph = buildGraph()
+  const { graph } = buildGraph(articleIds)
+  const cache = await buildCommunityCache(graph, { resolution, minCommunitySize })
 
-  // 运行 Louvain 算法
-  const assignments = louvain(graph, { resolution })
-
-  // 按社区分组 atoms
-  const communityGroups = new Map<string, string[]>()
-
-  for (const [atomId, communityId] of Object.entries(assignments)) {
-    const commId = String(communityId)
-    if (!communityGroups.has(commId)) {
-      communityGroups.set(commId, [])
-    }
-    communityGroups.get(commId)!.push(atomId)
+  if (!articleIds || articleIds.length === 0) {
+    await saveCommunityCache(cache)
   }
-
-  // 过滤小社区并生成社区信息
-  const communities: Record<string, Community> = {}
-  const atomToCommunity: Record<string, string> = {}
-
-  for (const [commId, atomIds] of communityGroups.entries()) {
-    if (atomIds.length < minCommunitySize) {
-      continue
-    }
-
-    // 计算社区密度
-    const density = calculateCommunityDensity(graph, atomIds)
-
-    // 确定主导类型
-    const dominantType = getDominantType(graph, atomIds)
-
-    // 生成摘要和关键词
-    const { summary, keywords } = await generateCommunitySummary(atomIds)
-
-    const community: Community = {
-      id: commId,
-      atomIds,
-      summary,
-      keywords,
-      dominantType,
-      size: atomIds.length,
-      density,
-      timestamp: Date.now(),
-    }
-
-    communities[commId] = community
-
-    // 建立 atom 到社区的映射
-    for (const atomId of atomIds) {
-      atomToCommunity[atomId] = commId
-    }
-  }
-
-  const cache: CommunityCache = {
-    version: CACHE_VERSION,
-    lastUpdated: Date.now(),
-    communities,
-    atomToCommunity,
-  }
-
-  await saveCommunityCache(cache)
 
   return cache
 }
@@ -304,6 +355,324 @@ async function generateCommunitySummary(atomIds: string[]): Promise<{ summary: s
   const summary = `Community of ${atoms.length} atoms (${typeDesc}). Key topics: ${keywords.slice(0, 3).join(", ")}.`
 
   return { summary, keywords }
+}
+
+function fixed(value: number) {
+  return Number(value.toFixed(4))
+}
+
+function clamp(value: number) {
+  if (value < 0) return 0
+  if (value > 1) return 1
+  return fixed(value)
+}
+
+function avg(items: number[]) {
+  if (items.length === 0) return 0
+  return fixed(items.reduce((sum, item) => sum + item, 0) / items.length)
+}
+
+function center(items: number[][]) {
+  if (items.length === 0) return []
+  const dim = items[0]?.length ?? 0
+  return Array.from({ length: dim }, (_, idx) => avg(items.map((item) => item[idx] ?? 0)))
+}
+
+function hist(items: string[], keys: string[]) {
+  const total = items.length
+  const counts = new Map(keys.map((key) => [key, 0]))
+
+  for (const item of items) {
+    counts.set(item, (counts.get(item) || 0) + 1)
+  }
+
+  return keys.map((key) => (total > 0 ? (counts.get(key) || 0) / total : 0))
+}
+
+function hub(rels: Array<{ atom_id_source: string; atom_id_target: string }>) {
+  const degree = new Map<string, number>()
+
+  for (const rel of rels) {
+    degree.set(rel.atom_id_source, (degree.get(rel.atom_id_source) || 0) + 1)
+    degree.set(rel.atom_id_target, (degree.get(rel.atom_id_target) || 0) + 1)
+  }
+
+  const vals = Array.from(degree.values())
+  const total = vals.reduce((sum, item) => sum + item, 0)
+  const top = vals.reduce((max, item) => Math.max(max, item), 0)
+  return total > 0 ? top / total : 0
+}
+
+function keys(items: string[]) {
+  return new Set(items.map((item) => item.trim().toLowerCase()).filter(Boolean))
+}
+
+function jaccard(left: Set<string>, right: Set<string>) {
+  if (left.size === 0 && right.size === 0) return 1
+  const overlap = Array.from(left).filter((item) => right.has(item)).length
+  const union = new Set([...left, ...right]).size
+  return union > 0 ? overlap / union : 0
+}
+
+function kl(left: number[], right: number[]) {
+  let score = 0
+
+  for (let i = 0; i < left.length; i++) {
+    if (left[i] === 0 || right[i] === 0) continue
+    score += left[i] * Math.log2(left[i] / right[i])
+  }
+
+  return score
+}
+
+function dist(left: number[], right: number[]) {
+  const l = left.reduce((sum, item) => sum + item, 0)
+  const r = right.reduce((sum, item) => sum + item, 0)
+
+  if (l === 0 && r === 0) return 1
+  if (l === 0 || r === 0) return 0
+
+  const a = left.map((item) => item / l)
+  const b = right.map((item) => item / r)
+  const mid = a.map((item, idx) => (item + b[idx]) / 2)
+  return clamp(1 - (kl(a, mid) + kl(b, mid)) / 2)
+}
+
+function sim(left: number[], right: number[]) {
+  if (left.length === 0 || right.length === 0) return 0
+  if (left.length !== right.length) return 0
+  return clamp(cosineSimilarity(left, right))
+}
+
+function read(file: string | null) {
+  if (!file) return Promise.resolve("")
+  return Filesystem.exists(file).then((exists) => {
+    if (!exists) return ""
+    return Filesystem.readText(file).then((text) => text.trim())
+  })
+}
+
+async function inspect(
+  articleId: string,
+  options: Pick<Required<ArticleCommunityComparisonOptions>, "resolution" | "minCommunitySize">,
+  cache: Awaited<ReturnType<typeof loadEmbeddingCache>>,
+) {
+  const { graph, atoms, rels } = buildGraph([articleId])
+  const communities = await buildCommunityCache(graph, options)
+  const rows = new Map(atoms.map((atom) => [atom.atom_id, atom]))
+  const base = atoms.length || 1
+  const kept = Object.values(communities.communities)
+  const total = kept.reduce((sum, community) => sum + community.size, 0) || 1
+
+  const items = await Promise.all(
+    kept.map(async (community) => {
+      const ids = new Set(community.atomIds)
+      const members = community.atomIds.flatMap((id) => {
+        const row = rows.get(id)
+        return row ? [row] : []
+      })
+      const inner = rels.filter((rel) => ids.has(rel.atom_id_source) && ids.has(rel.atom_id_target))
+      const embs = await Promise.all(
+        members.map(async (atom) => getAtomEmbedding(atom.atom_id, (await read(atom.atom_claim_path)) || atom.atom_name, cache)),
+      )
+
+      return {
+        articleId,
+        community,
+        emb: center(embs),
+        type: hist(
+          members.map((atom) => atom.atom_type),
+          TYPES,
+        ),
+        ev: hist(
+          members.map((atom) => atom.atom_evidence_type),
+          [...EVS],
+        ),
+        stat: hist(
+          members.map((atom) => atom.atom_evidence_status),
+          [...STATS],
+        ),
+        rel: hist(
+          inner.map((rel) => rel.relation_type),
+          RELS,
+        ),
+        flow: hist(
+          inner.flatMap((rel) => {
+            const source = rows.get(rel.atom_id_source)
+            const target = rows.get(rel.atom_id_target)
+            return source && target ? [`${source.atom_type}->${target.atom_type}`] : []
+          }),
+          FLOWS,
+        ),
+        share: community.size / base,
+        mass: community.size / total,
+        density: community.density,
+        hub: hub(inner),
+        keywords: keys(community.keywords),
+      } satisfies Feat
+    }),
+  )
+
+  return { atoms, communities: kept, items }
+}
+
+function pair(left: Feat, right: Feat) {
+  const semantic = sim(left.emb, right.emb)
+  const type = dist(left.type, right.type)
+  const evidence = avg([dist(left.ev, right.ev), dist(left.stat, right.stat)])
+  const relation = dist(left.rel, right.rel)
+  const flow = dist(left.flow, right.flow)
+  const structure = avg([
+    left.share > 0 && right.share > 0 ? Math.min(left.share, right.share) / Math.max(left.share, right.share) : 1,
+    clamp(1 - Math.abs(left.density - right.density)),
+    clamp(1 - Math.abs(left.hub - right.hub)),
+  ])
+  const keywords = clamp(jaccard(left.keywords, right.keywords))
+  const score = fixed(
+    semantic * MATCH.semantic +
+      type * MATCH.type +
+      evidence * MATCH.evidence +
+      relation * MATCH.relation +
+      flow * MATCH.flow +
+      structure * MATCH.structure +
+      keywords * MATCH.keywords,
+  )
+
+  return {
+    semantic,
+    type,
+    evidence,
+    relation,
+    flow,
+    structure,
+    keywords,
+    score,
+  }
+}
+
+function match(source: Feat[], target: Feat[], threshold: number) {
+  if (source.length === 0) {
+    return { articleId: "", score: 0, coverage: 0, matches: [] }
+  }
+
+  const articleId = source[0].articleId
+  if (target.length === 0) {
+    return {
+      articleId,
+      score: 0,
+      coverage: 0,
+      matches: source.map((item) => ({
+        sourceCommunityId: item.community.id,
+        targetCommunityId: null,
+        sourceSize: item.community.size,
+        targetSize: null,
+        sourceWeight: fixed(item.mass),
+        targetWeight: null,
+        score: 0,
+        breakdown: {
+          semantic: 0,
+          type: 0,
+          evidence: 0,
+          relation: 0,
+          flow: 0,
+          structure: 0,
+          keywords: 0,
+        },
+      })),
+    }
+  }
+
+  const matches = source.map((item) => {
+    const best = target
+      .map((other) => ({ other, score: pair(item, other) }))
+      .sort((a, b) => b.score.score - a.score.score)[0]
+
+    return {
+      sourceCommunityId: item.community.id,
+      targetCommunityId: best.other.community.id,
+      sourceSize: item.community.size,
+      targetSize: best.other.community.size,
+      sourceWeight: fixed(item.mass),
+      targetWeight: fixed(best.other.mass),
+      score: best.score.score,
+      breakdown: {
+        semantic: best.score.semantic,
+        type: best.score.type,
+        evidence: best.score.evidence,
+        relation: best.score.relation,
+        flow: best.score.flow,
+        structure: best.score.structure,
+        keywords: best.score.keywords,
+      },
+    }
+  })
+
+  const score = fixed(
+    matches.reduce((sum, item) => {
+      const sourceWeight = source.find((feat) => feat.community.id === item.sourceCommunityId)?.mass || 0
+      return sum + sourceWeight * item.score
+    }, 0),
+  )
+  const coverage = fixed(
+    matches.reduce((sum, item) => {
+      const sourceWeight = source.find((feat) => feat.community.id === item.sourceCommunityId)?.mass || 0
+      return sum + (item.score >= threshold ? sourceWeight : 0)
+    }, 0),
+  )
+
+  return {
+    articleId,
+    score,
+    coverage,
+    matches: matches.sort((a, b) => b.score - a.score),
+  }
+}
+
+export async function compareArticleCommunities(
+  leftId: string,
+  rightId: string,
+  options: ArticleCommunityComparisonOptions = {},
+): Promise<ArticleCommunityComparisonReport> {
+  const resolution = options.resolution ?? 1
+  const minCommunitySize = options.minCommunitySize ?? 1
+  const threshold = options.coverageThreshold ?? 0.6
+  const cache = await loadEmbeddingCache()
+  const [left, right] = await Promise.all([
+    inspect(leftId, { resolution, minCommunitySize }, cache),
+    inspect(rightId, { resolution, minCommunitySize }, cache),
+  ])
+  await saveEmbeddingCache(cache)
+
+  const leftToRight = match(left.items, right.items, threshold)
+  const rightToLeft = match(right.items, left.items, threshold)
+  leftToRight.articleId = leftId
+  rightToLeft.articleId = rightId
+
+  return {
+    articleIds: [leftId, rightId],
+    similarity: fixed((leftToRight.score + rightToLeft.score) / 2),
+    threshold: fixed(threshold),
+    articles: {
+      left: {
+        articleId: leftId,
+        atomCount: left.atoms.length,
+        communityCount: left.communities.length,
+      },
+      right: {
+        articleId: rightId,
+        atomCount: right.atoms.length,
+        communityCount: right.communities.length,
+      },
+    },
+    communities: {
+      left: left.communities,
+      right: right.communities,
+    },
+    directional: {
+      leftToRight,
+      rightToLeft,
+    },
+  }
 }
 
 /**

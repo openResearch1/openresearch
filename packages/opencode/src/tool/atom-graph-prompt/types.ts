@@ -118,3 +118,82 @@ export interface AtomQualityMetrics {
   informationScore: number
   score: number
 }
+
+export interface GraphQualityReport {
+  structure: {
+    totalCommunities: number
+    avgCommunitySize: number
+    avgDensity: number
+    isolatedAtomRatio: number
+    bridgeAtomRatio: number
+  }
+  semantic: {
+    intraCommunitySimilarity: number
+    interCommunitySeparation: number
+    summaryCoherence: number
+    keywordUniqueness: number
+  }
+  research: {
+    typeCoverage: number
+    evidenceCoverage: number
+    verificationCoverage: number
+    contradictionExposure: number
+  }
+  stability: {
+    pruneRetentionRatio: number
+    relationSuggestionConfidence: number
+    extensionSuggestionConfidence: number
+  }
+}
+
+export interface ArticleCommunityComparisonBreakdown {
+  semantic: number
+  type: number
+  evidence: number
+  relation: number
+  flow: number
+  structure: number
+  keywords: number
+}
+
+export interface ArticleCommunityMatch {
+  sourceCommunityId: string
+  targetCommunityId: string | null
+  sourceSize: number
+  targetSize: number | null
+  sourceWeight: number
+  targetWeight: number | null
+  score: number
+  breakdown: ArticleCommunityComparisonBreakdown
+}
+
+export interface ArticleCommunityDirection {
+  articleId: string
+  score: number
+  coverage: number
+  matches: ArticleCommunityMatch[]
+}
+
+export interface ArticleCommunitySummary {
+  articleId: string
+  atomCount: number
+  communityCount: number
+}
+
+export interface ArticleCommunityComparisonReport {
+  articleIds: [string, string]
+  similarity: number
+  threshold: number
+  articles: {
+    left: ArticleCommunitySummary
+    right: ArticleCommunitySummary
+  }
+  communities: {
+    left: Community[]
+    right: Community[]
+  }
+  directional: {
+    leftToRight: ArticleCommunityDirection
+    rightToLeft: ArticleCommunityDirection
+  }
+}
