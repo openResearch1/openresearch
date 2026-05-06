@@ -55,6 +55,10 @@ function num(value: unknown) {
   if (Number.isFinite(parsed)) return parsed
 }
 
+function bool(value: string | undefined) {
+  if (!value) return false
+  return value === "1" || value.toLowerCase() === "true"
+}
 function record(value: unknown): Record<string, string> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {}
   return Object.fromEntries(
@@ -70,6 +74,25 @@ function active(target: Target | null) {
   return target.signature
 }
 
+function strict() {
+  return bool(Env.get("OPENCODE_EMBEDDING_STRICT"))
+}
+
+function retries() {
+  return Math.max(0, num(Env.get("OPENCODE_EMBEDDING_RETRIES")) ?? 2)
+}
+
+function retryable(status: number) {
+  return status === 408 || status === 409 || status === 425 || status === 429 || status >= 500
+}
+
+function delay(retryAfter: string | null, attempt: number) {
+  const header = Number(retryAfter)
+  if (Number.isFinite(header) && header > 0) {
+    return Math.ceil(header * 1000) + 250
+  }
+  return Math.min(10_000, 1_000 * 2 ** attempt)
+}
 async function target() {
   const cfg = await Config.get()
   const env = Env.get("OPENCODE_EMBEDDING_MODEL")
@@ -159,29 +182,47 @@ async function remote(texts: string[], target: Target) {
 
   if (target.dims) body.dimensions = target.dims
 
-  const response = await fetch(target.url, {
-    method: "POST",
-    headers: target.headers,
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(30_000),
-  })
+  for (let attempt = 0; attempt <= retries(); attempt++) {
+    try {
+      const response = await fetch(target.url, {
+        method: "POST",
+        headers: target.headers,
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(30_000),
+      })
 
-  if (!response.ok) {
-    throw new Error(`Embedding API error ${response.status}: ${await response.text()}`)
+      if (!response.ok) {
+        const errorText = await response.text()
+        if (attempt < retries() && retryable(response.status)) {
+          await Bun.sleep(delay(response.headers.get("retry-after"), attempt))
+          continue
+        }
+        throw new Error(`Embedding API error ${response.status}: ${errorText}`)
+      }
+
+      const data = (await response.json()) as {
+        data?: Array<{
+          embedding?: number[]
+        }>
+      }
+
+      const embeddings = data.data
+        ?.map((item) => item.embedding)
+        .filter((item): item is number[] => Array.isArray(item))
+      if (!embeddings || embeddings.length !== texts.length) {
+        throw new Error("Embedding API returned an unexpected payload")
+      }
+
+      return embeddings
+    } catch (err) {
+      if (attempt >= retries()) {
+        throw err
+      }
+      await Bun.sleep(delay(null, attempt))
+    }
   }
 
-  const data = (await response.json()) as {
-    data?: Array<{
-      embedding?: number[]
-    }>
-  }
-
-  const embeddings = data.data?.map((item) => item.embedding).filter((item): item is number[] => Array.isArray(item))
-  if (!embeddings || embeddings.length !== texts.length) {
-    throw new Error("Embedding API returned an unexpected payload")
-  }
-
-  return embeddings
+  throw new Error("Embedding API retry loop exited unexpectedly")
 }
 
 async function generate(texts: string[], cache: EmbeddingCache) {
@@ -191,6 +232,9 @@ async function generate(texts: string[], cache: EmbeddingCache) {
     try {
       return await remote(texts, next)
     } catch (err) {
+      if (strict()) {
+        throw err
+      }
       console.warn("Embedding API failed, falling back to simple embedding:", err)
       mode().simple = true
       cache.model = SIMPLE_MODEL
@@ -198,6 +242,9 @@ async function generate(texts: string[], cache: EmbeddingCache) {
     }
   }
 
+  if (strict()) {
+    throw new Error("Embedding API strict mode enabled but no remote embedding target is available")
+  }
   return Promise.all(texts.map((text) => generateSimpleEmbedding(text)))
 }
 
