@@ -45,23 +45,6 @@
 
 ---
 
-## 当前进度快照
-
-- ✅ `docs/graphRAG-workflow.md` 已建立，并作为 relation 分支的总骨架持续维护
-- ✅ 真实 embedding API 仍保留在分支中，并在父分支基础上增加了 strict mode 与 retry 控制
-- ✅ `community-prune.ts` 已实现社区级规则剪枝，默认基线已落在 `DEFAULT_PRUNE_OPTIONS`
-- ✅ `community-prune.test.ts` 与 `test/eval/longmemeval/pruning-eval.ts` 已落地
-- ✅ `atom-quality.ts` / `atom-rerank.ts` 已落地，`hybrid.ts` 已接入 atom-wise quality + query-aware reranking
-- 🟡 `graph-quality.ts` 已落地首版 assessment，覆盖结构 / 语义 / 研究 / 稳定性基础指标
-- ✅ 论文级 community similarity 已落地：按 `article_id` 构建内部子图、分别做社区检测，并输出对称 similarity + 双向 coverage
-- ✅ 已在 `research_project_1` 与 `research_project_2` 上完成真实 paper similarity 验证，并补充了评分细则文档
-- ⚠️ 社区 pruning 目前主要用于评估和手动过滤，还没有默认接入主检索 workflow
-- ⚠️ graph assessment 已有独立模块，但还没有默认接入 workflow 质量门控
-- ⚠️ 真实项目结果显示 paper similarity 分数整体偏高，主题区分度仍需继续增强
-- 🔲 潜在关系发掘、潜在延伸节点发掘、社区演化追踪仍未实现
-
----
-
 ## 范围
 
 ### 本分支包含
@@ -89,10 +72,7 @@
 当前可以直接复用的模块：
 
 - `packages/opencode/src/tool/atom-graph-prompt/community.ts`
-- `packages/opencode/src/tool/atom-graph-prompt/community-prune.ts`
 - `packages/opencode/src/tool/atom-graph-prompt/hybrid.ts`
-- `packages/opencode/src/tool/atom-graph-prompt/atom-quality.ts`
-- `packages/opencode/src/tool/atom-graph-prompt/atom-rerank.ts`
 - `packages/opencode/src/tool/atom-graph-prompt/traversal.ts`
 - `packages/opencode/src/tool/atom-graph-prompt/scoring.ts`
 - `packages/opencode/src/tool/atom-graph-prompt/types.ts`
@@ -107,8 +87,8 @@
 
 当前仍缺少：
 
-- 社区剪枝默认接入主检索链路
-- 图谱质量评估默认接入检索前质量门控
+- 从研究输入到图谱回写的完整 workflow 文档化与持续维护
+- 社区剪枝规则
 - 社区时间切片与演化追踪
 - 缺失关系建议
 - 延伸节点建议
@@ -157,20 +137,11 @@
 
 ---
 
-## Milestone 1: 社区剪枝 ✅
+## Milestone 1: 社区剪枝
 
 ### 目标
 
 识别并剔除低价值、低密度、低解释性的社区，提升检索与分析的稳定性。
-
-### 当前实现
-
-- 已实现 `community-prune.ts`
-- 已实现 `pruneCommunities()` / `scoreCommunity()` / `summarizePruning()`
-- 已在 `types.ts` 中补齐 `CommunityPruneOptions`、`PrunedCommunity`、`CommunityPruneResult`
-- 已有 `community-prune.test.ts` 覆盖核心规则
-- 已有 `test/eval/longmemeval/pruning-eval.ts` 用于真实评估
-- 当前默认策略为激进配置，但仍未默认挂到主检索 workflow
 
 ### 首版策略
 
@@ -213,8 +184,10 @@
 ```ts
 pruneCommunities(options): Promise<{
   kept: Community[]
-  removed: PrunedCommunity[]
-  decisions: PrunedCommunity[]
+  removed: Array<{
+    community: Community
+    reason: string
+  }>
 }>
 ```
 
@@ -227,7 +200,7 @@ pruneCommunities(options): Promise<{
 
 ---
 
-## Milestone 2: 图谱质量评估指标 🟡
+## Milestone 2: 图谱质量评估指标
 
 ### 目标
 
@@ -269,23 +242,6 @@ pruneCommunities(options): Promise<{
 evaluateGraphQuality(options): Promise<GraphQualityReport>
 ```
 
-### 当前实现
-
-- 已实现 `packages/opencode/src/tool/atom-graph-prompt/graph-quality.ts`
-- 已实现 `evaluateGraphQuality()` 独立 API
-- 已实现首版指标：
-  - 结构质量：`totalCommunities` / `avgCommunitySize` / `avgDensity` / `isolatedAtomRatio` / `bridgeAtomRatio`
-  - 语义质量：`intraCommunitySimilarity` / `interCommunitySeparation` / `summaryCoherence` / `keywordUniqueness`
-  - 研究质量：`typeCoverage` / `evidenceCoverage` / `verificationCoverage` / `contradictionExposure`
-  - 稳定性质量：`pruneRetentionRatio`
-- 已补 `graph-quality.test.ts`
-
-### 当前仍未完成
-
-- 质量报告还没有默认接入 workflow 质量门控
-- `relationSuggestionConfidence` / `extensionSuggestionConfidence` 仍为占位值
-- 后续仍需在真实研究项目上验证指标解释力
-
 ### 首版优先指标
 
 - `avgDensity`
@@ -293,80 +249,6 @@ evaluateGraphQuality(options): Promise<GraphQualityReport>
 - `intraCommunitySimilarity`
 - `typeCoverage`
 - `verificationCoverage`
-
----
-
-## Milestone 2.5: 论文子图 Community Similarity ✅
-
-### 目标
-
-比较两篇论文在同一 research project 内部的知识组织是否接近，且比较对象不是整图，而是各自 `article_id` 对应的内部子图社区结构。
-
-### 当前实现
-
-- 已在 `packages/opencode/src/tool/atom-graph-prompt/community.ts` 落地 `compareArticleCommunities()`
-- `detectCommunities()` 已支持临时 article-scoped 子图检测，但只对项目级检测保留原缓存语义
-- 评分流程：
-  - 先按 `article_id` 切论文内部子图
-  - 对两篇论文分别做 Louvain 社区检测
-  - 对每个社区提取语义 / 类型 / 证据 / 关系 / type-flow / 结构 / 关键词特征
-  - 计算 community-to-community pair score
-  - 用双向 best-match 聚合成对称总分
-- 输出：
-  - 总体 `similarity`
-  - `leftToRight` / `rightToLeft` 方向分数
-  - 双向 `coverage`
-  - 每个社区的最佳匹配及分项 breakdown
-
-### 当前 metric 组成
-
-- `semantic`
-- `type`
-- `evidence`
-- `relation`
-- `flow`
-- `structure`
-- `keywords`
-
-### 默认聚合原则
-
-- 不使用 Hungarian 作为主聚合器
-- 使用双向 best-match：
-  - 更稳地处理社区拆分 / 合并不一致
-  - 天然兼容未来方向性覆盖分析
-
-### 建议 API
-
-```ts
-compareArticleCommunities(leftArticleId, rightArticleId, options?): Promise<ArticleCommunityComparisonReport>
-```
-
-### 测试
-
-- 已新增 `packages/opencode/test/tool/atom-graph-prompt/community-similarity.test.ts`
-- 覆盖：
-  - 相似论文 vs 不相关论文
-  - split / merge community 场景
-  - 空论文边界
-
-### 评分细则文档
-
-- `docs/article-community-similarity-scoring.md`
-
-### 真实项目验证
-
-- 已在 `~/research_project_1` 与 `~/research_project_2` 上完成真实数据评分测试
-- 验证过程中发现：如果历史数据把“论文目录”错误记录成单个 `article`，需要先修复 `article_id` 归属，才能得到可靠的 paper similarity 结果
-- 当前结果说明：
-  - 相似度能力已经能稳定运行在真实项目上
-  - 但当前权重更偏结构相似，主题级区分度仍不够强
-
-### 后续仍可增强
-
-- 支持方向性覆盖报告的上层 tool/agent 暴露
-- 引入 Hungarian 作为解释型匹配视图，而非主评分器
-- 把 paper similarity 接到更高层的 paper bench / research analysis workflow
-- 结合真实项目结果继续调权重，提高同主题论文的相对区分度
 
 ---
 
@@ -521,8 +403,10 @@ traceCommunityEvolution(options): Promise<CommunityEvolution[]>
 
 建议新增文件：
 
+- `packages/opencode/src/tool/atom-graph-prompt/community-prune.ts`
 - `packages/opencode/src/tool/atom-graph-prompt/relation-analysis.ts`
 - `packages/opencode/src/tool/atom-graph-prompt/community-evolution.ts`
+- `packages/opencode/src/tool/atom-graph-prompt/graph-quality.ts`
 
 建议扩展：
 
@@ -581,8 +465,10 @@ interface GraphQualityReport {
 
 建议新增测试：
 
+- `community-prune.test.ts`
 - `relation-analysis.test.ts`
 - `community-evolution.test.ts`
+- `graph-quality.test.ts`
 
 建议覆盖：
 
@@ -597,11 +483,11 @@ interface GraphQualityReport {
 
 ## 研发 TODO
 
-1. ~~创建并维护 `docs/graphRAG-workflow.md`~~ ✅
-2. ~~将 workflow 作为 relation 分支后续模块的总骨架~~ ✅
-3. ~~扩展 `types.ts` 定义剪枝与 atom-wise 相关类型~~ ✅，继续补 relation / quality 类型
-4. ~~实现社区剪枝模块~~ ✅
-5. ~~实现图谱质量评估模块（首版）~~ ✅，继续补质量门控与真实验证
+1. 创建并维护 `docs/graphRAG-workflow.md`
+2. 将 workflow 作为 relation 分支后续模块的总骨架
+3. 扩展 `types.ts` 定义关系分析与质量分析类型
+4. 实现社区剪枝模块
+5. 实现图谱质量评估模块
 6. 实现潜在关系发掘模块
 7. 实现潜在延伸节点发掘模块
 8. 实现社区演化追踪模块
@@ -638,4 +524,4 @@ feat: add community pruning and graph quality analysis
 
 ---
 
-最后更新: 2026-04-19
+最后更新: 2026-04-16

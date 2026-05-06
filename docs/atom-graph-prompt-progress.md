@@ -1,8 +1,8 @@
-# Atom Graph Prompt 工具开发进展 (graphRAG / graphRAG-relation 分支)
+# Atom Graph Prompt 工具开发进展 (graphRAG 分支)
 
 ## 项目概述
 
-本文档记录 graphRAG 基线以及 graphRAG-relation 分支上的增量开发进展。
+本文档记录 graphRAG 分支的开发进展，包含 Phase 1、Phase 2 和 Phase 3.1 的完整实现。
 
 ---
 
@@ -242,141 +242,11 @@ buildCommunityPrompt(
 
 ---
 
-### 2026-04-19 - graphRAG-relation 状态核对 ✅
-
-#### Embedding API
-
-- `embedding.ts` 继续保留了真实 embedding API 接入，不再只是简单的本地 mock 向量
-- 当前仍使用 OpenAI-compatible `/embeddings` 接口，并支持从 `provider.options` 或环境变量解析：
-  - `OPENCODE_EMBEDDING_MODEL`
-  - `OPENCODE_EMBEDDING_BASE_URL`
-  - `OPENCODE_EMBEDDING_API_KEY`
-  - `OPENCODE_EMBEDDING_DIMENSIONS`
-- 相比父分支 `graphRAG`，本分支额外增加了：
-  - `OPENCODE_EMBEDDING_STRICT`：严格模式下远程 embedding 失败直接报错，不回退 simple embedding
-  - `OPENCODE_EMBEDDING_RETRIES`：对 408/409/425/429/5xx 做重试与退避
-- 仍保留 384 维 simple embedding 作为 fallback 路径，缓存版本已升级到 `2.0`
-
-#### Pruning / atom-wise
-
-- 新增 `community-prune.ts`，已实现社区级规则剪枝：`size / density / internalEdges / keywordCount / hubRatio`
-- 当前默认 pruning 基线已落在 `DEFAULT_PRUNE_OPTIONS`
-- 新增 `atom-quality.ts` 与 `atom-rerank.ts`
-- 新增 `graph-quality.ts`，提供首版 graph assessment / quality report API
-- `hybrid.ts` 已接入 atom-wise quality scoring + query-aware reranking
-- 当前状态需要区分：
-  - 社区 pruning 模块、测试和 LongMemEval 评估脚本已落地
-  - 但 pruning 还没有默认接入主检索 workflow，当前主要用于评估与手动过滤
-  - graph assessment 已有独立模块，但还没有默认接入 workflow 质量门控
-
-#### 本次核对验证
-
-- `bun test test/tool/atom-graph-prompt/community-prune.test.ts` 通过（4 tests）
-- `bun test --timeout 30000 test/tool/atom-graph-prompt/atom-wise.test.ts` 通过（4 tests）
-- `bun test --timeout 30000 test/tool/atom-graph-prompt/graph-quality.test.ts` 通过（2 tests）
-- `embedding.test.ts` 仍有旧版断言与超时假设，测试尚未完全跟上当前 embedding v2 实现
-
----
-
-### 2026-04-22 - 论文级 Community Similarity ✅
-
-#### 实现内容
-
-- 在 `community.ts` 中新增 `compareArticleCommunities(leftId, rightId, options?)`
-- 社区检测补充 article-scoped 子图模式：
-  - 用 `AtomTable.article_id` 切论文内部 atoms
-  - 只保留论文内部边
-  - 不污染现有项目级 community cache
-- 为每个社区提取以下比较特征：
-  - 语义 centroid embedding
-  - atom type 分布
-  - evidence type / status 分布
-  - relation type 分布
-  - `source_type -> target_type` flow 分布
-  - size / density / hub ratio 结构特征
-  - keywords
-- 聚合方式采用双向 best-match：
-  - `leftToRight`
-  - `rightToLeft`
-  - 对称 `similarity = (ltr + rtl) / 2`
-  - 双向 `coverage`
-
-#### 测试
-
-- 新增 `community-similarity.test.ts`
-- 覆盖 3 类场景：
-  - 相似论文得分高于不相关论文
-  - split / merge community 下仍能稳定比较
-  - 空论文边界返回 0 similarity
-
-#### 文档同步
-
-- 更新 `docs/graphRAG-relation-plan.md`
-- 更新 `docs/graphRAG-workflow.md`
-- 更新 `docs/atom-graph-prompt-progress.md`
-
----
-
-### 2026-05-06 - 真实项目 Similarity 验证 + 评分文档 ✅
-
-#### 真实项目验证
-
-- 已在两个真实项目上完成真实数据 similarity 测试：
-  - `~/research_project_1`
-  - `~/research_project_2`
-- 在真实测试中发现：
-  - 部分项目历史上将“论文目录”作为单个 `article` 导入
-  - 导致多个来源论文共用同一个 `article_id`
-  - 需要先修正 `article_id`，才能可靠地执行 paper similarity
-
-#### Project 1
-
-- 修复后得到 3 篇真实论文子图：
-  - `AutoSchemaKG`
-  - `Text-to-LoRA`
-  - `Doc-to-LoRA`
-- pairwise similarity：
-  - `AutoSchemaKG` vs `Text-to-LoRA` = `0.7661`
-  - `AutoSchemaKG` vs `Doc-to-LoRA` = `0.7726`
-  - `Text-to-LoRA` vs `Doc-to-LoRA` = `0.7580`
-
-#### Project 2
-
-- 修复后得到 4 篇真实论文子图：
-  - `Doc-to-LoRA`
-  - `Long-Document QA / CoST / LITECOST`
-  - `SHINE`
-  - `MemoryBank`
-- 最高分 pair：
-  - `Doc-to-LoRA` vs `Long-Document QA / CoST` = `0.8514`
-
-#### Embedding / quality 验证
-
-- strict probe 再次确认远端 embedding API 可连通：
-  - `openai/text-embedding-3-small@https://api.openai.com/v1`
-  - `1536` 维
-- `graph-quality.test.ts` 在真实 embedding 路径下通过：
-  - `OPENCODE_EMBEDDING_STRICT=1`
-  - `OPENCODE_EMBEDDING_RETRIES=0`
-  - `bun test --timeout 120000 test/tool/atom-graph-prompt/graph-quality.test.ts`
-
-#### 文档
-
-- 新增评分细则文档：
-  - `docs/article-community-similarity-scoring.md`
-
-#### 当前结论
-
-- paper similarity 已能稳定跑通真实项目
-- 但当前权重更偏结构相似，主题区分度仍然有限
-
----
-
-## graphRAG 基线状态快照 + graphRAG-relation 增量
+## 当前状态 (graphRAG 分支)
 
 ### 代码库统计
 
-**总代码量**: ~1,960 行（graphRAG 基线的 atom-graph-prompt 模块）
+**总代码量**: ~1,960 行（atom-graph-prompt 模块）
 
 **文件结构**:
 
@@ -392,7 +262,7 @@ packages/opencode/src/tool/atom-graph-prompt/
 └── types.ts          (55 行)  - 类型定义 + 社区类型
 ```
 
-**测试文件**（graphRAG 基线时 70 个测试全部通过）:
+**测试文件** (70 个测试全部通过):
 
 ```
 packages/opencode/test/tool/atom-graph-prompt/
@@ -413,7 +283,6 @@ packages/opencode/test/tool/atom-graph-prompt/
 - `docs/atom-graph-prompt-plan.md` - 开发计划
 - `docs/atom-graph-prompt-phase2-test-design.md` - Phase 2 测试设计
 - `docs/atom-graph-prompt-progress.md` - 本文档
-- `docs/article-community-similarity-scoring.md` - 论文级 similarity 评分细则
 - `packages/opencode/src/agent/prompt/research.txt` - Agent GraphRAG 指导
 
 ### 功能完成度
@@ -426,8 +295,7 @@ packages/opencode/test/tool/atom-graph-prompt/
 | Phase 3.1 测试补全       | ✅ 完成 | 100%   | graphRAG |
 | 文档与 Agent 集成        | ✅ 完成 | 100%   | graphRAG |
 | 真实数据测试 + Bug 修复  | ✅ 完成 | 100%   | graphRAG |
-| Phase 3.2: 社区分析增强  | 🟡 进行中 | 40%  | graphRAG-relation |
-| Atom-wise reranking      | ✅ 完成 | 100%   | graphRAG-relation |
+| Phase 3.2: 社区分析增强  | 🔲 长期 | 0%     | -        |
 | Phase 4: 高级功能        | 🔲 长期 | 0%     | -        |
 | Phase 5: Memory Subagent | 🔲 长期 | 0%     | -        |
 
@@ -515,8 +383,7 @@ await agent.useTool("atom_graph_prompt_smart", {
 ### 中优先级
 
 7. **功能增强**
-   - 补齐 `embedding.test.ts` 到当前 `CACHE_VERSION=2.0` 与远程 embedding 行为
-   - 评估是否将 community pruning 默认接入主检索 workflow
+   - 集成真实的 embedding API（OpenAI/HuggingFace）
    - 性能测试和优化
 
 ### 长期
@@ -543,9 +410,9 @@ await agent.useTool("atom_graph_prompt_smart", {
    - `research_project_id` 是 NOT NULL 字段
    - 需要先创建 ResearchProject 才能创建 Atom
 
-2. **Embedding 测试与当前实现不同步**
-   - 当前代码已支持真实 embedding API + fallback/strict/retry
-   - `embedding.test.ts` 仍以旧版缓存版本和 5 秒默认超时为前提
+2. **Embedding 模拟**: 当前使用模拟数据
+   - 需要集成真实的 embedding API
+   - 考虑使用 OpenAI 或 HuggingFace
 
 3. **社区质量**: ✅ 已在实际数据上验证
    - 社区大小合理（4-5 个 atoms/社区，resolution=1.0）
@@ -560,7 +427,7 @@ await agent.useTool("atom_graph_prompt_smart", {
 
 1. **性能基准**: 建立性能基准测试
 2. **用户反馈**: 在实际使用中收集反馈
-3. **Embedding 测试**: 补齐远程 API、strict mode、重试和空文本行为测试
+3. **真实 Embedding**: 集成 OpenAI/HuggingFace embedding API 替换模拟数据
 
 ---
 
@@ -568,9 +435,8 @@ await agent.useTool("atom_graph_prompt_smart", {
 
 ### 短期（1-2 周）
 
-1. 同步 embedding 测试与文档到当前 v2 实现
-2. 评估 community pruning 的默认接入点
-3. 收集用户反馈和改进建议
+1. 集成真实的 embedding API（OpenAI/HuggingFace）
+2. 收集用户反馈和改进建议
 
 ### 中期（1 个月）
 
@@ -599,10 +465,10 @@ await agent.useTool("atom_graph_prompt_smart", {
 ## 贡献者
 
 - **开发**: zj45
-- **分支**: graphRAG -> graphRAG-relation
-- **时间**: 2026-04-06 至今
-- **代码量**: ~5,100+ 行（含测试和文档）
+- **分支**: graphRAG
+- **时间**: 2026-04-06 至 2026-04-12
+- **代码量**: ~5,100 行（含测试和文档）
 
 ---
 
-最后更新: 2026-05-06
+最后更新: 2026-04-12
