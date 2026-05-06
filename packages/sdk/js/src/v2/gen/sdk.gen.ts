@@ -13,6 +13,18 @@ import type {
   AuthRemoveResponses,
   AuthSetErrors,
   AuthSetResponses,
+  CollabActiveListResponses,
+  CollabAgentCancelErrors,
+  CollabAgentCancelResponses,
+  CollabAgentGetErrors,
+  CollabAgentGetResponses,
+  CollabAgentMessagesErrors,
+  CollabAgentMessagesResponses,
+  CollabPeerSessionsListResponses,
+  CollabReturnPartInput,
+  CollabSessionAgentGetResponses,
+  CollabTreeGetErrors,
+  CollabTreeGetResponses,
   CommandListResponses,
   Config as Config3,
   ConfigGetResponses,
@@ -1989,7 +2001,7 @@ export class Session2 extends HeyApiClient {
       format?: OutputFormat
       system?: string
       variant?: string
-      parts?: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
+      parts?: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput | CollabReturnPartInput>
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -2121,7 +2133,7 @@ export class Session2 extends HeyApiClient {
       format?: OutputFormat
       system?: string
       variant?: string
-      parts?: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
+      parts?: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput | CollabReturnPartInput>
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -4298,6 +4310,281 @@ export class Research extends HeyApiClient {
   }
 }
 
+export class Active extends HeyApiClient {
+  /**
+   * List active Collab agents in the current project
+   *
+   * Return every collab_agent with status pending, running, or blocked_on_children for the current project.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<CollabActiveListResponses, unknown, ThrowOnError>({
+      url: "/collab/active",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class PeerSessions extends HeyApiClient {
+  /**
+   * List session ids of all Collab peer agents (non-root) in current project
+   *
+   * Returns the set of session ids that belong to peer (non-root) Collab agents. Used by the UI sidebar to hide peer sessions from the flat session list — they are only ever reached via the parent agent's dock.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<CollabPeerSessionsListResponses, unknown, ThrowOnError>({
+      url: "/collab/peer-sessions",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Tree extends HeyApiClient {
+  /**
+   * Get the Collab agent tree
+   *
+   * Return the full tree of AgentNodes rooted at rootAgentId.
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters: {
+      rootAgentId: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "rootAgentId" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<CollabTreeGetResponses, CollabTreeGetErrors, ThrowOnError>({
+      url: "/collab/tree/{rootAgentId}",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Agent extends HeyApiClient {
+  /**
+   * Get a single Collab agent
+   *
+   * Return detail for a single AgentNode.
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters: {
+      agentId: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "agentId" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<CollabAgentGetResponses, CollabAgentGetErrors, ThrowOnError>({
+      url: "/collab/agent/{agentId}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get an agent's inbox messages
+   *
+   * Return inbox messages (pending + consumed) for an agent.
+   */
+  public messages<ThrowOnError extends boolean = false>(
+    parameters: {
+      agentId: string
+      directory?: string
+      workspace?: string
+      kind?: "child_done" | "child_failed" | "child_progress" | "cancel" | "user_input" | "system"
+      limit?: number
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "agentId" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "kind" },
+            { in: "query", key: "limit" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<CollabAgentMessagesResponses, CollabAgentMessagesErrors, ThrowOnError>({
+      url: "/collab/agent/{agentId}/messages",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Cancel a Collab agent
+   *
+   * Post a cancel message to this agent and propagate to its descendants.
+   */
+  public cancel<ThrowOnError extends boolean = false>(
+    parameters: {
+      agentId: string
+      directory?: string
+      workspace?: string
+      reason?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "agentId" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "reason" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<CollabAgentCancelResponses, CollabAgentCancelErrors, ThrowOnError>({
+      url: "/collab/agent/{agentId}/cancel",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class Agent2 extends HeyApiClient {
+  /**
+   * Get the Collab agent bound to a session
+   *
+   * Look up whether a session is bound to a Collab AgentNode.
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionId: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionId" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<CollabSessionAgentGetResponses, unknown, ThrowOnError>({
+      url: "/collab/session/{sessionId}/agent",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Session6 extends HeyApiClient {
+  private _agent?: Agent2
+  get agent(): Agent2 {
+    return (this._agent ??= new Agent2({ client: this.client }))
+  }
+}
+
+export class Collab extends HeyApiClient {
+  private _active?: Active
+  get active(): Active {
+    return (this._active ??= new Active({ client: this.client }))
+  }
+
+  private _peerSessions?: PeerSessions
+  get peerSessions(): PeerSessions {
+    return (this._peerSessions ??= new PeerSessions({ client: this.client }))
+  }
+
+  private _tree?: Tree
+  get tree(): Tree {
+    return (this._tree ??= new Tree({ client: this.client }))
+  }
+
+  private _agent?: Agent
+  get agent(): Agent {
+    return (this._agent ??= new Agent({ client: this.client }))
+  }
+
+  private _session?: Session6
+  get session(): Session6 {
+    return (this._session ??= new Session6({ client: this.client }))
+  }
+}
+
 export class Question extends HeyApiClient {
   /**
    * List pending questions
@@ -5916,6 +6203,11 @@ export class OpencodeClient extends HeyApiClient {
   private _research?: Research
   get research(): Research {
     return (this._research ??= new Research({ client: this.client }))
+  }
+
+  private _collab?: Collab
+  get collab(): Collab {
+    return (this._collab ??= new Collab({ client: this.client }))
   }
 
   private _question?: Question

@@ -56,7 +56,14 @@ export const ResearchIdeaTreeWorkflowTemplate = WorkflowSchema.Template.parse({
     default: {
       title: "Default",
       summary: "default",
-      steps: ["gather_idea", "clarify_idea", "find_existing_context", "build_idea_tree", "link_idea_tree", "review_tree"],
+      steps: [
+        "gather_idea",
+        "clarify_idea",
+        "find_existing_context",
+        "build_idea_tree",
+        "link_idea_tree",
+        "review_tree",
+      ],
     },
   },
   default_flow: "default",

@@ -33,6 +33,7 @@ import { usePrompt } from "@/context/prompt"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { createSessionComposerState, SessionComposerRegion } from "@/pages/session/composer"
+import { useCollabActivity } from "@/pages/session/composer/session-collab-activity"
 import { createOpenReviewFile, createSizing } from "@/pages/session/helpers"
 import { MessageTimeline } from "@/pages/session/message-timeline"
 import { type DiffStyle, SessionReviewTab, type SessionReviewTabProps } from "@/pages/session/review-tab"
@@ -84,7 +85,11 @@ export default function Page() {
     },
   })
 
-  const composer = createSessionComposerState()
+  const collabActivity = useCollabActivity(() => params.id)
+  const composer = createSessionComposerState({
+    extraActive: collabActivity.active,
+    extraDone: collabActivity.done,
+  })
 
   const sessionKey = createMemo(() => `${params.dir}${params.id ? "/" + params.id : ""}`)
   const workspaceKey = createMemo(() => params.dir ?? "")
@@ -1184,6 +1189,7 @@ export default function Page() {
 
           <SessionComposerRegion
             state={composer}
+            collabActivity={collabActivity}
             ready={!store.deferRender && messagesReady()}
             centered={centered()}
             inputRef={(el) => {

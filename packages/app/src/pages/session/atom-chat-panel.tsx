@@ -11,6 +11,7 @@ import { SessionIDProvider } from "@/context/session-id"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
 import { SessionComposerRegion } from "@/pages/session/composer/session-composer-region"
 import { createSessionComposerState } from "@/pages/session/composer/session-composer-state"
+import { useCollabActivity } from "@/pages/session/composer/session-collab-activity"
 import { createSessionHistoryWindow } from "@/pages/session/history-window"
 import { createTimelineStaging } from "@/pages/session/timeline-staging"
 
@@ -150,7 +151,11 @@ export function AtomChatPanel(props: { atomSessionId: string; onClose: () => voi
 function AtomChatInner(props: { sessionID: string; canGoBack: boolean; onGoBack: () => void }) {
   const settings = useSettings()
   const sync = useSync()
-  const composer = createSessionComposerState()
+  const collabActivity = useCollabActivity(() => props.sessionID)
+  const composer = createSessionComposerState({
+    extraActive: collabActivity.active,
+    extraDone: collabActivity.done,
+  })
   let scroller: HTMLDivElement | undefined
 
   const emptyMessages: Message[] = []
@@ -364,6 +369,7 @@ function AtomChatInner(props: { sessionID: string; canGoBack: boolean; onGoBack:
       <div class="shrink-0">
         <SessionComposerRegion
           state={composer}
+          collabActivity={collabActivity}
           ready={true}
           centered={false}
           inputRef={() => {}}

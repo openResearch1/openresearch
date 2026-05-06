@@ -26,6 +26,7 @@ import { type ServerConnection, ServerProvider, useServer } from "@/context/serv
 import { SettingsProvider } from "@/context/settings"
 import { TerminalProvider } from "@/context/terminal"
 import DirectoryLayout from "@/pages/directory-layout"
+import { CollabPeersProvider } from "@/context/collab-peers"
 import Layout from "@/pages/layout"
 import { ErrorPage } from "./pages/error"
 import { Dynamic } from "solid-js/web"
@@ -152,16 +153,18 @@ export function AppInterface(props: {
       <ServerKey>
         <GlobalSDKProvider>
           <GlobalSyncProvider>
-            <Dynamic
-              component={props.router ?? Router}
-              root={(routerProps) => <RouterRoot appChildren={props.children}>{routerProps.children}</RouterRoot>}
-            >
-              <Route path="/" component={HomeRoute} />
-              <Route path="/:dir" component={DirectoryLayout}>
-                <Route path="/" component={SessionIndexRoute} />
-                <Route path="/session/:id?" component={SessionRoute} />
-              </Route>
-            </Dynamic>
+            <CollabPeersProvider>
+              <Dynamic
+                component={props.router ?? Router}
+                root={(routerProps) => <RouterRoot appChildren={props.children}>{routerProps.children}</RouterRoot>}
+              >
+                <Route path="/" component={HomeRoute} />
+                <Route path="/:dir" component={DirectoryLayout}>
+                  <Route path="/" component={SessionIndexRoute} />
+                  <Route path="/session/:id?" component={SessionRoute} />
+                </Route>
+              </Dynamic>
+            </CollabPeersProvider>
           </GlobalSyncProvider>
         </GlobalSDKProvider>
       </ServerKey>

@@ -570,6 +570,14 @@ export const dict = {
   "session.workflow.failedAuto": "Stopped to prevent retry loop",
   "session.workflow.cancelled": "Cancelled",
 
+  "session.collab.title": "Subagents",
+  "session.collab.collapse": "Collapse subagents",
+  "session.collab.expand": "Expand subagents",
+  "session.collab.running": "Running",
+  "session.collab.blocked": "Waiting",
+  "session.collab.pending": "Idle",
+  "session.collab.empty": "No subagents.",
+
   "session.new.title": "Build anything",
   "session.new.worktree.main": "Main branch",
   "session.new.worktree.mainWithBranch": "Main branch ({{branch}})",

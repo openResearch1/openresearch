@@ -70,7 +70,9 @@ function message(task: Task) {
 }
 
 function finished(task: Task) {
-  return task.status === "finished" || task.status === "failed" || task.status === "crashed" || task.status === "canceled"
+  return (
+    task.status === "finished" || task.status === "failed" || task.status === "crashed" || task.status === "canceled"
+  )
 }
 
 export namespace ExperimentExecutionWatch {
@@ -171,7 +173,11 @@ export namespace ExperimentExecutionWatch {
           ? "remote_downloading"
           : stage(head),
       message: current.length > 1 ? `${current.length} remote tasks running` : message(head),
-      errorMessage: current.length ? null : head.status === "failed" || head.status === "crashed" ? head.error_message : null,
+      errorMessage: current.length
+        ? null
+        : head.status === "failed" || head.status === "crashed"
+          ? head.error_message
+          : null,
       finishedAt: current.length ? null : finished(head) ? head.time_updated : null,
     })
   }

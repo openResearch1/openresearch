@@ -513,6 +513,22 @@ export type CompactionPart = {
   overflow?: boolean
 }
 
+export type CollabReturnPart = {
+  id: string
+  sessionID: string
+  messageID: string
+  type: "collab_return"
+  kind: "child_done" | "child_failed" | "child_progress" | "cancel" | "user_input" | "system"
+  childAgentId?: string
+  childName?: string
+  childSessionId?: string
+  headline: string
+  body: string
+  payload?: {
+    [key: string]: unknown
+  }
+}
+
 export type Part =
   | TextPart
   | SubtaskPart
@@ -526,6 +542,7 @@ export type Part =
   | AgentPart
   | RetryPart
   | CompactionPart
+  | CollabReturnPart
 
 export type EventMessagePartUpdated = {
   type: "message.part.updated"
@@ -795,6 +812,116 @@ export type EventWorkflowUpdated = {
   }
 }
 
+export type CollabAgentPolicy = {
+  on_fail?: "fail_fast" | "continue" | "retry_once"
+  timeout_ms?: number
+  maxChildren?: number
+  progress_injection?: "none" | "latest" | "all"
+  summarize?: boolean
+}
+
+export type CollabAgentSpec = {
+  initialPrompt: string
+  model?: {
+    providerID: string
+    modelID: string
+  }
+  policy?: CollabAgentPolicy
+  metadata?: {
+    [key: string]: unknown
+  }
+}
+
+export type CollabAgentResult = {
+  summary?: string
+  result?: {
+    [key: string]: unknown
+  }
+}
+
+export type CollabAgentError = {
+  code: string
+  message: string
+  detail?: string
+}
+
+export type CollabAgent = {
+  id: string
+  session_id: string
+  parent_agent_id: string | null
+  name: string
+  project_id: string
+  root_agent_id: string
+  subagent_type: string
+  status: "pending" | "running" | "blocked_on_children" | "completed" | "failed" | "canceled"
+  phase: "main_loop" | "awaiting_children" | "draining"
+  spec: CollabAgentSpec
+  result: CollabAgentResult | null
+  error: CollabAgentError | null
+  active_children: number
+  spawned_total: number
+  time_created: number
+  time_updated: number
+  time_started: number | null
+  time_ended: number | null
+}
+
+export type EventCollabAgentCreated = {
+  type: "collab.agent.created"
+  properties: {
+    info: CollabAgent
+  }
+}
+
+export type EventCollabAgentStatus = {
+  type: "collab.agent.status"
+  properties: {
+    agentId: string
+    rootAgentId: string
+    status: "pending" | "running" | "blocked_on_children" | "completed" | "failed" | "canceled"
+    phase: "main_loop" | "awaiting_children" | "draining"
+    active_children: number
+  }
+}
+
+export type EventCollabAgentCompleted = {
+  type: "collab.agent.completed"
+  properties: {
+    agentId: string
+    rootAgentId: string
+    summary?: string
+  }
+}
+
+export type EventCollabAgentFailed = {
+  type: "collab.agent.failed"
+  properties: {
+    agentId: string
+    rootAgentId: string
+    code: string
+    message: string
+  }
+}
+
+export type EventCollabMessagePosted = {
+  type: "collab.message.posted"
+  properties: {
+    messageId: string
+    recipientAgentId: string
+    senderAgentId: string | null
+    kind: "child_done" | "child_failed" | "child_progress" | "cancel" | "user_input" | "system"
+  }
+}
+
+export type EventCollabMessageConsumed = {
+  type: "collab.message.consumed"
+  properties: {
+    messageId: string
+    recipientAgentId: string
+    kind: "child_done" | "child_failed" | "child_progress" | "cancel" | "user_input" | "system"
+  }
+}
+
 export type EventTuiPromptAppend = {
   type: "tui.prompt.append"
   properties: {
@@ -891,6 +1018,7 @@ export type Session = {
   workspaceID?: string
   directory: string
   parentID?: string
+  collabPeer?: boolean
   summary?: {
     additions: number
     deletions: number
@@ -1064,6 +1192,12 @@ export type Event =
   | EventTodoUpdated
   | EventResearchAtomsUpdated
   | EventWorkflowUpdated
+  | EventCollabAgentCreated
+  | EventCollabAgentStatus
+  | EventCollabAgentCompleted
+  | EventCollabAgentFailed
+  | EventCollabMessagePosted
+  | EventCollabMessageConsumed
   | EventTuiPromptAppend
   | EventTuiCommandExecute
   | EventTuiToastShow
@@ -1772,6 +1906,7 @@ export type GlobalSession = {
   workspaceID?: string
   directory: string
   parentID?: string
+  collabPeer?: boolean
   summary?: {
     additions: number
     deletions: number
@@ -1853,6 +1988,59 @@ export type SubtaskPartInput = {
     modelID: string
   }
   command?: string
+}
+
+export type CollabReturnPartInput = {
+  id?: string
+  type: "collab_return"
+  kind: "child_done" | "child_failed" | "child_progress" | "cancel" | "user_input" | "system"
+  childAgentId?: string
+  childName?: string
+  childSessionId?: string
+  headline: string
+  body: string
+  payload?: {
+    [key: string]: unknown
+  }
+}
+
+export type CollabActiveAgentsResponse = {
+  agents: Array<CollabAgent>
+}
+
+export type CollabPeerSessionIdsResponse = {
+  session_ids: Array<string>
+}
+
+export type CollabTreeResponse = {
+  root: CollabAgent
+  nodes: Array<CollabAgent>
+}
+
+export type CollabMessage = {
+  id: string
+  recipient_agent_id: string
+  sender_agent_id: string | null
+  kind: "child_done" | "child_failed" | "child_progress" | "cancel" | "user_input" | "system"
+  payload: unknown
+  status: "pending" | "consumed" | "dropped"
+  time_created: number
+  time_updated: number
+  time_consumed: number | null
+}
+
+export type CollabMessagesResponse = {
+  agent_id: string
+  messages: Array<CollabMessage>
+}
+
+export type CollabSessionAgentResponse = {
+  agent: CollabAgent | null
+}
+
+export type CollabCancelResponse = {
+  agent_id: string
+  canceled: boolean
 }
 
 export type ProviderAuthMethod = {
@@ -3455,7 +3643,7 @@ export type SessionPromptData = {
     format?: OutputFormat
     system?: string
     variant?: string
-    parts: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
+    parts: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput | CollabReturnPartInput>
   }
   path: {
     /**
@@ -3688,7 +3876,7 @@ export type SessionPromptAsyncData = {
     format?: OutputFormat
     system?: string
     variant?: string
-    parts: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
+    parts: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput | CollabReturnPartInput>
   }
   path: {
     /**
@@ -6045,6 +6233,189 @@ export type ResearchProjectImportResponses = {
 }
 
 export type ResearchProjectImportResponse = ResearchProjectImportResponses[keyof ResearchProjectImportResponses]
+
+export type CollabActiveListData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/collab/active"
+}
+
+export type CollabActiveListResponses = {
+  /**
+   * Active agents
+   */
+  200: CollabActiveAgentsResponse
+}
+
+export type CollabActiveListResponse = CollabActiveListResponses[keyof CollabActiveListResponses]
+
+export type CollabPeerSessionsListData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/collab/peer-sessions"
+}
+
+export type CollabPeerSessionsListResponses = {
+  /**
+   * Peer session ids
+   */
+  200: CollabPeerSessionIdsResponse
+}
+
+export type CollabPeerSessionsListResponse = CollabPeerSessionsListResponses[keyof CollabPeerSessionsListResponses]
+
+export type CollabTreeGetData = {
+  body?: never
+  path: {
+    rootAgentId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/collab/tree/{rootAgentId}"
+}
+
+export type CollabTreeGetErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type CollabTreeGetError = CollabTreeGetErrors[keyof CollabTreeGetErrors]
+
+export type CollabTreeGetResponses = {
+  /**
+   * Tree found
+   */
+  200: CollabTreeResponse
+}
+
+export type CollabTreeGetResponse = CollabTreeGetResponses[keyof CollabTreeGetResponses]
+
+export type CollabAgentGetData = {
+  body?: never
+  path: {
+    agentId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/collab/agent/{agentId}"
+}
+
+export type CollabAgentGetErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type CollabAgentGetError = CollabAgentGetErrors[keyof CollabAgentGetErrors]
+
+export type CollabAgentGetResponses = {
+  /**
+   * Agent found
+   */
+  200: CollabAgent
+}
+
+export type CollabAgentGetResponse = CollabAgentGetResponses[keyof CollabAgentGetResponses]
+
+export type CollabAgentMessagesData = {
+  body?: never
+  path: {
+    agentId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+    kind?: "child_done" | "child_failed" | "child_progress" | "cancel" | "user_input" | "system"
+    limit?: number
+  }
+  url: "/collab/agent/{agentId}/messages"
+}
+
+export type CollabAgentMessagesErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type CollabAgentMessagesError = CollabAgentMessagesErrors[keyof CollabAgentMessagesErrors]
+
+export type CollabAgentMessagesResponses = {
+  /**
+   * Messages
+   */
+  200: CollabMessagesResponse
+}
+
+export type CollabAgentMessagesResponse = CollabAgentMessagesResponses[keyof CollabAgentMessagesResponses]
+
+export type CollabSessionAgentGetData = {
+  body?: never
+  path: {
+    sessionId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/collab/session/{sessionId}/agent"
+}
+
+export type CollabSessionAgentGetResponses = {
+  /**
+   * Lookup result (agent may be null)
+   */
+  200: CollabSessionAgentResponse
+}
+
+export type CollabSessionAgentGetResponse = CollabSessionAgentGetResponses[keyof CollabSessionAgentGetResponses]
+
+export type CollabAgentCancelData = {
+  body?: {
+    reason?: string
+  }
+  path: {
+    agentId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/collab/agent/{agentId}/cancel"
+}
+
+export type CollabAgentCancelErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type CollabAgentCancelError = CollabAgentCancelErrors[keyof CollabAgentCancelErrors]
+
+export type CollabAgentCancelResponses = {
+  /**
+   * Cancel requested
+   */
+  200: CollabCancelResponse
+}
+
+export type CollabAgentCancelResponse = CollabAgentCancelResponses[keyof CollabAgentCancelResponses]
 
 export type PermissionReplyData = {
   body?: {

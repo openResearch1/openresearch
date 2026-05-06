@@ -1655,3 +1655,194 @@
     white-space: nowrap;
   }
 }
+
+[data-component="agent-card"] {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-small);
+  line-height: var(--line-height-large);
+
+  [data-slot="agent-card-block"] {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  [data-slot="agent-card-label"] {
+    font-size: var(--font-size-xx-small, 11px);
+    font-weight: var(--font-weight-medium);
+    color: var(--text-weak);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  [data-slot="agent-card-body"] {
+    padding: 8px 12px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-weaker-base);
+    background-color: var(--surface-inset-base);
+    color: var(--text-base);
+    white-space: pre-wrap;
+    word-break: break-word;
+
+    &[data-variant="error"] {
+      border-color: var(--border-critical-base);
+      background-color: var(--surface-critical-weak);
+      color: var(--text-strong);
+    }
+  }
+
+  [data-slot="agent-card-meta"] {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 12px;
+    color: var(--text-weak);
+    font-size: var(--font-size-xx-small, 11px);
+
+    code {
+      font-family: var(--font-family-mono);
+      color: var(--text-base);
+      background: transparent;
+      padding: 0;
+    }
+
+    [data-slot="agent-card-meta-key"] {
+      color: var(--text-weaker);
+    }
+  }
+}
+
+[data-slot="agent-card-chip"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-weaker-base);
+  background-color: var(--surface-inset-base);
+  color: var(--text-weak);
+  font-size: var(--font-size-xx-small, 11px);
+  font-weight: var(--font-weight-medium);
+  text-transform: capitalize;
+  line-height: 1.4;
+
+  &[data-variant="error"] {
+    border-color: var(--border-critical-base);
+    background-color: var(--surface-critical-weak);
+    color: var(--icon-critical-base);
+  }
+
+  &[data-variant="muted"] {
+    color: var(--text-weak);
+  }
+}
+
+[data-slot="agent-card-open"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-weak);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-regular);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color 0.15s ease;
+
+  &:hover {
+    color: var(--text-strong);
+  }
+
+  &:visited {
+    color: var(--text-weak);
+  }
+
+  [data-component="icon"] {
+    flex-shrink: 0;
+    opacity: 0.75;
+  }
+}
+
+[data-component="agent-tool-card"] {
+  width: 100%;
+  border: 1px solid var(--border-weaker-base);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-inset-base);
+  padding: 2px 12px 10px;
+  overflow: clip;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+
+  /* The ToolCall lives inside; the first-child trigger shouldn't add extra top padding */
+  > [data-component="collapsible"].tool-collapsible > [data-slot="collapsible-trigger"] {
+    padding: 0;
+  }
+
+  /* When collapsed, hug the trigger without bottom padding */
+  &:has(> [data-component="collapsible"] > [data-slot="collapsible-trigger"][aria-expanded="false"]) {
+    padding-bottom: 2px;
+  }
+
+  /* The inner body's prompt/output block should sit against a lighter surface than
+     the outer card so the card stays visually unified instead of double-walled */
+  [data-component="agent-card"] [data-slot="agent-card-body"] {
+    background-color: var(--surface-base);
+    border-color: var(--border-weaker-base);
+  }
+
+  /* Tighten markdown spacing — the default markdown.css is tuned for long-form
+     message bodies, which leaves huge gaps between paragraphs / list items inside
+     a compact card */
+  [data-component="agent-card"] [data-component="markdown"] {
+    font-size: var(--font-size-small);
+    line-height: 1.5;
+
+    p {
+      margin: 0;
+    }
+    p + p {
+      margin-top: 2px;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      margin-top: 4px;
+      margin-bottom: 0;
+    }
+    ul, ol {
+      margin: 2px 0;
+      padding-left: 1.1rem;
+    }
+    li {
+      margin: 0;
+    }
+    li + li {
+      margin-top: 1px;
+    }
+    li > ul, li > ol {
+      margin: 0;
+    }
+    blockquote {
+      margin: 2px 0;
+    }
+    hr {
+      margin: 4px 0;
+    }
+    pre {
+      margin: 2px 0;
+    }
+
+    /* Collapse surrounding whitespace between consecutive block-level siblings */
+    > * + * {
+      margin-top: 2px;
+    }
+    > *:first-child {
+      margin-top: 0;
+    }
+    > *:last-child {
+      margin-bottom: 0;
+    }
+  }
+}

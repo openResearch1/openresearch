@@ -19,6 +19,7 @@ import { useGlobalSDK } from "@/context/global-sdk"
 import { useLanguage } from "@/context/language"
 import { NewSessionItem, SessionItem, SessionSkeleton } from "./sidebar-items"
 import { childMapByParent, sortedRootSessions } from "./helpers"
+import { useCollabPeers } from "@/context/collab-peers"
 import { ResearchSessionTree } from "./sidebar-research-tree"
 
 type InlineEditorComponent = (props: {
@@ -352,7 +353,11 @@ export const SortableWorkspace = (props: {
     pendingRename: false,
   })
   const slug = createMemo(() => base64Encode(props.directory))
-  const sessions = createMemo(() => sortedRootSessions(workspaceStore, props.sortNow()))
+  const collabPeers = useCollabPeers(() => props.directory)
+  const sessions = createMemo(() => {
+    const peers = collabPeers()
+    return sortedRootSessions(workspaceStore, props.sortNow()).filter((s) => !peers.has(s.id))
+  })
   const children = createMemo(() => childMapByParent(workspaceStore.session))
   const local = createMemo(() => props.directory === props.project.worktree)
   const active = createMemo(() => props.ctx.currentDir() === props.directory)
@@ -558,7 +563,11 @@ export const LocalWorkspace = (props: {
   })
 
   const slug = createMemo(() => base64Encode(props.project.worktree))
-  const sessions = createMemo(() => sortedRootSessions(workspace().store, props.sortNow()))
+  const collabPeers2 = useCollabPeers(() => props.project.worktree)
+  const sessions = createMemo(() => {
+    const peers = collabPeers2()
+    return sortedRootSessions(workspace().store, props.sortNow()).filter((s) => !peers.has(s.id))
+  })
   const children = createMemo(() => childMapByParent(workspace().store.session))
   const booted = createMemo((prev) => prev || workspace().store.status === "complete", false)
   const loading = createMemo(() => !booted() && sessions().length === 0)

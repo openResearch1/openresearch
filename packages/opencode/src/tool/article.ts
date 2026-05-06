@@ -48,10 +48,7 @@ export const ArticleQueryTool = Tool.define("article_query", {
       .array(z.string())
       .optional()
       .describe("Optional list of article IDs to filter by. Use this when you need a specific subset."),
-    status: z
-      .enum(statuses)
-      .optional()
-      .describe("Optional article status filter: pending, parsed, or failed."),
+    status: z.enum(statuses).optional().describe("Optional article status filter: pending, parsed, or failed."),
   }),
   async execute(params, ctx) {
     const researchProjectId = await Research.getResearchProjectId(ctx.sessionID)
@@ -143,8 +140,7 @@ export const ArticleStatusUpdateTool = Tool.define("article_status_update", {
     const now = Date.now()
     Database.use((db) => {
       for (const article of items) {
-        db
-          .update(ArticleTable)
+        db.update(ArticleTable)
           .set({ status: params.status, time_updated: now })
           .where(eq(ArticleTable.article_id, article.article_id))
           .run()
@@ -153,7 +149,9 @@ export const ArticleStatusUpdateTool = Tool.define("article_status_update", {
 
     return {
       title: `Updated ${items.length} article(s)`,
-      output: items.map((article) => `[${article.article_id}] ${article.title ?? "(untitled)"} -> ${params.status}`).join("\n"),
+      output: items
+        .map((article) => `[${article.article_id}] ${article.title ?? "(untitled)"} -> ${params.status}`)
+        .join("\n"),
       metadata: { updated: true, count: items.length },
     }
   },

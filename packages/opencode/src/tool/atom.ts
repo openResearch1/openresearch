@@ -259,8 +259,8 @@ export const AtomQueryTool = Tool.define("atom_query", {
         output: params.atomIds?.length
           ? `No atoms found for atom IDs: ${params.atomIds.join(", ")}`
           : params.articleIds?.length
-          ? `No atoms found for article IDs: ${params.articleIds.join(", ")}`
-          : "No atoms found in this research project.",
+            ? `No atoms found for article IDs: ${params.articleIds.join(", ")}`
+            : "No atoms found in this research project.",
         metadata: { count: 0 },
       }
     }

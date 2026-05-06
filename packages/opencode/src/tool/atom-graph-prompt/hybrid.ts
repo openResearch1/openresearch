@@ -1,6 +1,12 @@
 import type { TraversedAtom, RelationType, AtomType, CommunityFilterOptions } from "./types"
 import { traverseAtomGraph } from "./traversal"
-import { loadEmbeddingCache, getAtomEmbedding, cosineSimilarity, saveEmbeddingCache, batchGenerateEmbeddings } from "./embedding"
+import {
+  loadEmbeddingCache,
+  getAtomEmbedding,
+  cosineSimilarity,
+  saveEmbeddingCache,
+  batchGenerateEmbeddings,
+} from "./embedding"
 import { scoreAndRankAtoms, selectDiverseAtoms, type ScoringWeights, DEFAULT_WEIGHTS } from "./scoring"
 import { selectAtomsWithinBudget, adaptiveBudgetSelection, type TokenBudgetOptions } from "./token-budget"
 import { Database, eq } from "../../storage/db"
