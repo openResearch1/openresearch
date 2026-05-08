@@ -13,7 +13,9 @@ import {
   usePrompt,
   ImageAttachmentPart,
   AgentPart,
+  AtomPart,
   FileAttachmentPart,
+  type AtomKind,
 } from "@/context/prompt"
 import { useLayout } from "@/context/layout"
 import { useSDK } from "@/context/sdk"
@@ -737,12 +739,19 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     onSelect: handleSlashSelect,
   })
 
-  const createPill = (part: FileAttachmentPart | AgentPart) => {
+  const createPill = (part: FileAttachmentPart | AgentPart | AtomPart) => {
     const pill = document.createElement("span")
     pill.textContent = part.content
     pill.setAttribute("data-type", part.type)
     if (part.type === "file") pill.setAttribute("data-path", part.path)
     if (part.type === "agent") pill.setAttribute("data-name", part.name)
+    if (part.type === "atom") {
+      pill.setAttribute("data-atom-id", part.atomId)
+      pill.setAttribute("data-name", part.name)
+      pill.setAttribute("data-atom-kind", part.atomType)
+      pill.setAttribute("data-label", "ATOM")
+      pill.setAttribute("title", `${part.atomType}: ${part.name}`)
+    }
     pill.setAttribute("contenteditable", "false")
     pill.style.userSelect = "text"
     pill.style.cursor = "default"
@@ -765,6 +774,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       const el = node as HTMLElement
       if (el.dataset.type === "file") return true
       if (el.dataset.type === "agent") return true
+      if (el.dataset.type === "atom") return true
       return el.tagName === "BR"
     })
 
@@ -775,7 +785,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
         editorRef.appendChild(createTextFragment(part.content))
         continue
       }
-      if (part.type === "file" || part.type === "agent") {
+      if (part.type === "file" || part.type === "agent" || part.type === "atom") {
         editorRef.appendChild(createPill(part))
       }
     }
@@ -877,6 +887,20 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       position += content.length
     }
 
+    const pushAtom = (atom: HTMLElement) => {
+      const content = atom.textContent ?? ""
+      parts.push({
+        type: "atom",
+        atomId: atom.dataset.atomId!,
+        name: atom.dataset.name!,
+        atomType: (atom.dataset.atomKind as AtomKind) ?? "fact",
+        content,
+        start: position,
+        end: position + content.length,
+      })
+      position += content.length
+    }
+
     const visit = (node: Node) => {
       if (node.nodeType === Node.TEXT_NODE) {
         buffer += node.textContent ?? ""
@@ -893,6 +917,11 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       if (el.dataset.type === "agent") {
         flushText()
         pushAgent(el)
+        return
+      }
+      if (el.dataset.type === "atom") {
+        flushText()
+        pushAtom(el)
         return
       }
       if (el.tagName === "BR") {
@@ -984,7 +1013,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     const range = selection.getRangeAt(0)
     if (!editorRef.contains(range.startContainer)) return false
 
-    if (part.type === "file" || part.type === "agent") {
+    if (part.type === "file" || part.type === "agent" || part.type === "atom") {
       const cursorPosition = getCursorPosition(editorRef)
       const rawText = prompt
         .current()

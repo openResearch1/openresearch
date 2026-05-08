@@ -49,6 +49,39 @@ describe("buildRequestParts", () => {
     expect(result.optimisticParts.every((part) => part.sessionID === "ses_1" && part.messageID === "msg_1")).toBe(true)
   })
 
+  test("adds atom references as synthetic context", () => {
+    const prompt: Prompt = [
+      { type: "text", content: "check ", start: 0, end: 6 },
+      { type: "atom", atomId: "atom_123", name: "Spectrum Balance", atomType: "theorem", content: "@Spectrum Balance", start: 6, end: 23 },
+    ]
+
+    const result = buildRequestParts({
+      prompt,
+      context: [],
+      images: [],
+      text: "check @Spectrum Balance",
+      messageID: "msg_atom_1",
+      sessionID: "ses_atom_1",
+      sessionDirectory: "/repo",
+    })
+
+    const atom = result.requestParts.find(
+      (part) => part.type === "text" && part.synthetic && part.text.includes("atom_id: atom_123"),
+    )
+
+    expect(atom).toBeDefined()
+    if (atom?.type === "text") {
+      expect(atom.metadata?.opencodeAtom).toEqual({
+        atomId: "atom_123",
+        atomType: "theorem",
+        name: "Spectrum Balance",
+        value: "@Spectrum Balance",
+        start: 6,
+        end: 23,
+      })
+    }
+  })
+
   test("deduplicates context files when prompt already includes same path", () => {
     const prompt: Prompt = [{ type: "file", path: "src/foo.ts", content: "@src/foo.ts", start: 0, end: 11 }]
 

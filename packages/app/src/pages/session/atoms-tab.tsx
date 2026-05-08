@@ -2,6 +2,7 @@ import { createEffect, createMemo, createSignal, For, Match, onCleanup, onMount,
 import { useNavigate } from "@solidjs/router"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { useSDK } from "@/context/sdk"
+import { usePrompt } from "@/context/prompt"
 import type { ResearchAtomsListResponse } from "@opencode-ai/sdk/v2"
 import { AtomGraphView } from "./atom-graph-view"
 import { AtomDetailFullscreen } from "./atom-detail-fullscreen"
@@ -123,6 +124,7 @@ type SubTab = "list" | "graph"
 
 export function AtomsTab(props: { researchProjectId: string; currentSessionId?: string }) {
   const sdk = useSDK()
+  const prompt = usePrompt()
   const navigate = useNavigate()
   const [atoms, setAtoms] = createSignal<Atom[]>([])
   const [relations, setRelations] = createSignal<Relation[]>([])
@@ -264,6 +266,22 @@ export function AtomsTab(props: { researchProjectId: string; currentSessionId?: 
     setShowDetail(true)
   }
 
+  const handleAtomReference = (atomId: string) => {
+    const atom = atomMap().get(atomId)
+    if (!atom) return
+    const content = `@${atom.atom_name}`
+    const atomType = (atom.atom_type as AtomKind) ?? "fact"
+    prompt.insert({
+      type: "atom",
+      atomId,
+      name: atom.atom_name,
+      content,
+      atomType,
+      start: 0,
+      end: content.length,
+    })
+  }
+
   return (
     <div class="relative flex-1 min-h-0 overflow-hidden h-full flex flex-col">
       <div class="px-3 pt-3 pb-1 flex items-center justify-between">
@@ -329,6 +347,7 @@ export function AtomsTab(props: { researchProjectId: string; currentSessionId?: 
                 onRelationUpdate={handleRelationUpdate}
                 onRelationDelete={handleRelationDelete}
                 onAtomViewDetail={handleAtomViewDetail}
+                onAtomReference={handleAtomReference}
                 researchProjectId={props.researchProjectId}
               />
             </div>
