@@ -6,6 +6,7 @@ import { Log } from "../../src/util/log"
 import { Identifier } from "../../src/id/id"
 import { CollabAgentNode } from "../../src/collab/agent-node"
 import { CollabMessage } from "../../src/collab/message"
+import { Collab } from "../../src/collab"
 import { CollabSupervisor } from "../../src/collab/supervisor"
 import { CollabLoop } from "../../src/collab/loop"
 import { CollabAutoWake } from "../../src/collab/auto-wake"
@@ -87,6 +88,15 @@ describe("CollabMessage FIFO + active_children atomicity", () => {
         })
         expect(CollabAgentNode.load(parentId).active_children).toBe(2)
 
+        // Post child_waiting (also does NOT decrement active_children).
+        await CollabMessage.post({
+          recipientAgentId: parentId,
+          senderAgentId: child1Id,
+          kind: "child_waiting",
+          payload: { childAgentId: child1Id, childName: "c1", childSessionId: child1Session.id, message: "need input" },
+        })
+        expect(CollabAgentNode.load(parentId).active_children).toBe(2)
+
         // Post a child_done from child1 — should decrement to 1.
         await CollabMessage.post({
           recipientAgentId: parentId,
@@ -105,10 +115,10 @@ describe("CollabMessage FIFO + active_children atomicity", () => {
         })
         expect(CollabAgentNode.load(parentId).active_children).toBe(0)
 
-        // Drain: should come out in insertion order (progress, done, failed).
+        // Drain: should come out in insertion order (progress, waiting, done, failed).
         const drained = CollabMessage.drain(parentId)
         const kinds = drained.map((m) => m.kind)
-        expect(kinds).toEqual(["child_progress", "child_done", "child_failed"])
+        expect(kinds).toEqual(["child_progress", "child_waiting", "child_done", "child_failed"])
 
         // After drain, hasPending = false.
         expect(CollabMessage.hasPending(parentId)).toBe(false)
@@ -119,7 +129,7 @@ describe("CollabMessage FIFO + active_children atomicity", () => {
 })
 
 describe("hasPendingWakeMsg ignores child_progress", () => {
-  test("progress alone does not wake; done does", async () => {
+  test("progress alone does not wake; child_waiting and done do", async () => {
     await Instance.provide({
       directory: projectRoot,
       fn: async () => {
@@ -161,10 +171,74 @@ describe("hasPendingWakeMsg ignores child_progress", () => {
         await CollabMessage.post({
           recipientAgentId: parentId,
           senderAgentId: childId,
+          kind: "child_waiting",
+          payload: { childAgentId: childId, childName: "c", childSessionId: childSession.id, message: "need input" },
+        })
+        expect(CollabMessage.hasPendingWakeMsg(parentId)).toBe(true)
+
+        CollabMessage.drain(parentId)
+        expect(CollabMessage.hasPendingWakeMsg(parentId)).toBe(false)
+
+        await CollabMessage.post({
+          recipientAgentId: parentId,
+          senderAgentId: childId,
           kind: "child_done",
           payload: { childAgentId: childId, childName: "c", summary: "done" },
         })
         expect(CollabMessage.hasPendingWakeMsg(parentId)).toBe(true)
+      },
+    })
+  })
+})
+
+describe("Collab.resume waiting child", () => {
+  test("waiting child resumes without double-counting active_children", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const parentSession = await makeSession()
+        const parentId = Identifier.ascending("collab_agent")
+        CollabAgentNode.create({
+          id: parentId,
+          sessionId: parentSession.id,
+          parentAgentId: null,
+          name: "parent",
+          projectId: Instance.project.id,
+          rootAgentId: parentId,
+          subagentType: "general",
+          spec: makeSpec(),
+        })
+
+        const childSession = await makeSession(parentSession.id)
+        const childId = Identifier.ascending("collab_agent")
+        CollabAgentNode.create({
+          id: childId,
+          sessionId: childSession.id,
+          parentAgentId: parentId,
+          name: "child",
+          projectId: Instance.project.id,
+          rootAgentId: parentId,
+          subagentType: "general",
+          spec: makeSpec(),
+        })
+        CollabAgentNode.transition(childId, "waiting_interaction", { phase: "awaiting_children" })
+
+        expect(CollabAgentNode.load(parentId).active_children).toBe(1)
+        expect(Collab.workflowAsyncState(parentSession.id)).toEqual({
+          hasRunningChildren: false,
+          hasWaitingChildren: true,
+          hasPendingWakeMessages: false,
+        })
+
+        await Collab.resume({ agentId: childId, prompt: "continue" })
+
+        expect(CollabAgentNode.load(parentId).active_children).toBe(1)
+        expect(Collab.workflowAsyncState(parentSession.id)).toEqual({
+          hasRunningChildren: true,
+          hasWaitingChildren: false,
+          hasPendingWakeMessages: false,
+        })
+        Collab.runtime().abort(childId)
       },
     })
   })
@@ -303,7 +377,7 @@ async function waitForInboxTest(agentId: string): Promise<void> {
     }
     const unsub = Bus.subscribe(CollabEvent.MessagePosted, (e) => {
       if (e.properties.recipientAgentId !== agentId) return
-      if (!["child_done", "child_failed", "cancel", "user_input"].includes(e.properties.kind)) return
+      if (!["child_done", "child_failed", "child_waiting", "cancel", "user_input"].includes(e.properties.kind)) return
       finish()
     })
     if (CollabMessage.hasPendingWakeMsg(agentId)) finish()

@@ -12,7 +12,7 @@ export namespace CollabAgentNode {
 
   export type Row = typeof CollabAgentTable.$inferSelect
 
-  const ACTIVE_STATUSES: CollabAgentStatus[] = ["pending", "running", "blocked_on_children"]
+  const ACTIVE_STATUSES: CollabAgentStatus[] = ["pending", "running", "blocked_on_children", "waiting_interaction"]
 
   export function fromRow(row: Row): AgentInfo {
     return {

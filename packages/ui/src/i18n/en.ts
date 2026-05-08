@@ -123,6 +123,7 @@ export const dict: Record<string, string> = {
   "ui.tool.agent.childCompleted": "Child completed",
   "ui.tool.agent.childSummary": "Summary",
   "ui.tool.agent.waiting": "Waiting",
+  "ui.tool.agent.waitingInteraction": "Waiting Interaction",
 
   "ui.workflow.status.running": "Running",
   "ui.workflow.status.waiting": "Waiting",

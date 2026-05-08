@@ -4451,7 +4451,7 @@ export class Agent extends HeyApiClient {
       agentId: string
       directory?: string
       workspace?: string
-      kind?: "child_done" | "child_failed" | "child_progress" | "cancel" | "user_input" | "system"
+      kind?: "child_done" | "child_failed" | "child_waiting" | "child_progress" | "cancel" | "user_input" | "system"
       limit?: number
     },
     options?: Options<never, ThrowOnError>,

@@ -10,7 +10,13 @@ export type CollabAgentPhase = z.infer<typeof CollabAgentPhaseSchema>
 export const CollabMsgKindSchema = z.enum(collabMsgKinds)
 export type CollabMsgKind = z.infer<typeof CollabMsgKindSchema>
 
-export const WAKE_MESSAGE_KINDS: readonly CollabMsgKind[] = ["child_done", "child_failed", "cancel", "user_input"]
+export const WAKE_MESSAGE_KINDS: readonly CollabMsgKind[] = [
+  "child_done",
+  "child_failed",
+  "child_waiting",
+  "cancel",
+  "user_input",
+]
 
 export const ProgressInjectionSchema = z.enum(["none", "latest", "all"])
 export type ProgressInjection = z.infer<typeof ProgressInjectionSchema>
@@ -78,6 +84,16 @@ export const ChildFailedPayloadSchema = z.object({
 })
 export type ChildFailedPayload = z.infer<typeof ChildFailedPayloadSchema>
 
+export const ChildWaitingPayloadSchema = z.object({
+  childAgentId: z.string(),
+  childName: z.string(),
+  childSessionId: z.string(),
+  workflowInstanceId: z.string().optional(),
+  reason: z.string().optional(),
+  message: z.string().optional(),
+})
+export type ChildWaitingPayload = z.infer<typeof ChildWaitingPayloadSchema>
+
 export const ChildProgressPayloadSchema = z.object({
   childAgentId: z.string(),
   childName: z.string(),
@@ -115,6 +131,7 @@ export type SystemPayload = z.infer<typeof SystemPayloadSchema>
 export type CollabPayload =
   | { kind: "child_done"; data: ChildDonePayload }
   | { kind: "child_failed"; data: ChildFailedPayload }
+  | { kind: "child_waiting"; data: ChildWaitingPayload }
   | { kind: "child_progress"; data: ChildProgressPayload }
   | { kind: "cancel"; data: CancelPayload }
   | { kind: "user_input"; data: UserInputPayload }

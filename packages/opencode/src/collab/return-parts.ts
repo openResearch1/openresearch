@@ -1,14 +1,26 @@
 import { CollabAgentNode } from "./agent-node"
-import type { ChildDonePayload, ChildFailedPayload, ChildProgressPayload, UserInputPayload } from "./types"
+import type {
+  ChildDonePayload,
+  ChildFailedPayload,
+  ChildProgressPayload,
+  ChildWaitingPayload,
+} from "./types"
 
 /**
  * The shape we push into `SessionPrompt.prompt({ parts })` when delivering
- * inter-agent messages (child_done / child_failed / child_progress /
- * user_input) to a parent agent's session. The frontend registers a
+ * inter-agent messages (child_done / child_failed / child_progress) to a
+ * parent agent's session. The frontend registers a
  * `collab_return` Part renderer that gives these their own card UI, instead
  * of falling back to plain text.
  */
-export type ChildReturnKind = "child_done" | "child_failed" | "child_progress" | "cancel" | "user_input" | "system"
+export type ChildReturnKind =
+  | "child_done"
+  | "child_failed"
+  | "child_waiting"
+  | "child_progress"
+  | "cancel"
+  | "user_input"
+  | "system"
 
 export type ReturnPartDraft = {
   type: "collab_return"
@@ -20,6 +32,8 @@ export type ReturnPartDraft = {
   body: string
   payload?: Record<string, unknown>
 }
+
+export type PromptPartDraft = { type: "text"; text: string } | ReturnPartDraft
 
 export const MAX_TEXT = 8 * 1024
 
@@ -61,6 +75,28 @@ export function buildChildFailedPart(p: ChildFailedPayload): ReturnPartDraft {
   }
 }
 
+export function buildChildWaitingPart(p: ChildWaitingPayload): ReturnPartDraft {
+  const body = [
+    p.message ?? "The child agent is waiting for input.",
+    "",
+    `Resume it with: resume_agent(agent_id=${p.childAgentId}, prompt=<your answer>)`,
+  ].join("\n")
+  return {
+    type: "collab_return",
+    kind: "child_waiting",
+    childAgentId: p.childAgentId,
+    childName: p.childName,
+    childSessionId: p.childSessionId,
+    headline: `Child ${p.childName ?? p.childAgentId} is waiting for input`,
+    body,
+    payload: {
+      workflowInstanceId: p.workflowInstanceId,
+      reason: p.reason,
+      message: p.message,
+    },
+  }
+}
+
 export function buildChildProgressPart(p: ChildProgressPayload): ReturnPartDraft {
   const tools =
     p.tools.length > 0 ? ` · tools: ${p.tools.map((t) => `${t.name}(${t.ok ? "ok" : "err"})`).join(", ")}` : ""
@@ -78,19 +114,10 @@ export function buildChildProgressPart(p: ChildProgressPayload): ReturnPartDraft
   }
 }
 
-export function buildUserInputPart(p: UserInputPayload): ReturnPartDraft {
-  return {
-    type: "collab_return",
-    kind: "user_input",
-    headline: "User instruction",
-    body: p.text,
-  }
-}
-
 /** Apply body truncation right before handing to SessionPrompt. */
-export function finalizeParts(parts: ReturnPartDraft[]): ReturnPartDraft[] {
+export function finalizeParts(parts: PromptPartDraft[]): PromptPartDraft[] {
   return parts.map((p) => ({
     ...p,
-    body: truncate(p.body),
+    ...(p.type === "collab_return" ? { body: truncate(p.body) } : {}),
   }))
 }

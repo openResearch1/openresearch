@@ -48,6 +48,7 @@ import { Shell } from "@/shell/shell"
 import { Truncate } from "@/tool/truncation"
 import { assertExperimentReady, setExperimentStatus } from "./experiment-guard"
 import { Workflow } from "@/workflow"
+import { Collab } from "@/collab"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -357,7 +358,7 @@ export namespace SessionPrompt {
     let structuredOutput: unknown | undefined
 
     let step = 0
-    let workflowNudge = false
+    let workflowNudge: WorkflowNudge | undefined
     const session = await Session.get(sessionID)
     while (true) {
       SessionStatus.set(sessionID, { type: "busy" })
@@ -729,7 +730,10 @@ export namespace SessionPrompt {
       }
 
       const nudge = workflowNudge
-      workflowNudge = false
+      workflowNudge = undefined
+      if (nudge) {
+        await recordWorkflowNudge({ sessionID, messageID: processor.message.id, nudge })
+      }
 
       const result = await processor.process({
         user: lastUser,
@@ -751,7 +755,7 @@ export namespace SessionPrompt {
             ? [
                 {
                   role: "assistant" as const,
-                  content: WORKFLOW_NUDGE,
+                  content: workflowNudgeText(nudge),
                 },
               ]
             : []),
@@ -773,8 +777,7 @@ export namespace SessionPrompt {
       // Check if model finished (finish reason is not "tool-calls" or "unknown")
       const modelFinished = processor.message.finish && !["tool-calls", "unknown"].includes(processor.message.finish)
       const latestWorkflow = Workflow.latest(sessionID)
-      const workflowState =
-        latestWorkflow && latestWorkflow.updated_at >= lastUser.time.created ? latestWorkflow.status : undefined
+      const workflowState = latestWorkflow?.status ?? activeWorkflow?.status
 
       if (workflowState === "waiting_interaction") {
         break
@@ -785,8 +788,18 @@ export namespace SessionPrompt {
       }
 
       if (workflowState === "running") {
+        const async = Collab.workflowAsyncState(sessionID)
+        if (async.hasRunningChildren || async.hasPendingWakeMessages) {
+          break
+        }
+        if (async.hasWaitingChildren) {
+          if (modelFinished) {
+            workflowNudge = workflowNudgeFor("child_waiting")
+          }
+          continue
+        }
         if (modelFinished) {
-          workflowNudge = true
+          workflowNudge = workflowNudgeFor("running_no_transition")
         }
         if (result === "compact") {
           await SessionCompaction.create({
@@ -2069,6 +2082,41 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       return Session.setTitle({ sessionID: input.session.id, title })
     }
   }
+}
+
+type WorkflowNudge = {
+  code: "child_waiting" | "running_no_transition"
+  reason: string
+}
+
+function workflowNudgeFor(code: WorkflowNudge["code"]): WorkflowNudge {
+  if (code === "child_waiting") {
+    return {
+      code,
+      reason:
+        "A spawned agent is waiting for this session to answer it. Resume or otherwise resolve the waiting child before stopping.",
+    }
+  }
+  return {
+    code,
+    reason:
+      "The workflow is still running, but the previous model step stopped without calling workflow.next, workflow.wait_interaction, or workflow.fail.",
+  }
+}
+
+function workflowNudgeText(nudge?: WorkflowNudge): string {
+  if (!nudge) return WORKFLOW_NUDGE
+  return [WORKFLOW_NUDGE, "", "Why another model step was forced:", nudge.reason].join("\n")
+}
+
+async function recordWorkflowNudge(input: { sessionID: string; messageID: string; nudge: WorkflowNudge }) {
+  await Session.updatePart({
+    id: Identifier.ascending("part"),
+    messageID: input.messageID,
+    sessionID: input.sessionID,
+    type: "text",
+    text: ["Workflow forced another model step.", "", `Reason: ${input.nudge.reason}`].join("\n"),
+  } satisfies MessageV2.TextPart)
 }
 
 function workflowSystemPrompt(instance: Workflow.Instance): string {

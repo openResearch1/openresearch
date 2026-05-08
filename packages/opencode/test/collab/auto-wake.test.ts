@@ -8,6 +8,7 @@ import { Log } from "../../src/util/log"
 import { Identifier } from "../../src/id/id"
 import { CollabAgentNode } from "../../src/collab/agent-node"
 import { CollabMessage } from "../../src/collab/message"
+import { Collab } from "../../src/collab"
 import { CollabAutoWake } from "../../src/collab/auto-wake"
 import { CollabEvent } from "../../src/collab/events"
 
@@ -21,6 +22,61 @@ Log.init({ print: false })
 CollabAutoWake.setEnabled(true)
 
 describe("CollabAutoWake blocks root on active children", () => {
+  test("root reports outstanding async work for active children and pending wake messages", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        CollabAutoWake.ensure()
+
+        const rootSession = await Session.create({ title: "async-work-root" })
+        const rootId = Identifier.ascending("collab_agent")
+        CollabAgentNode.create({
+          id: rootId,
+          sessionId: rootSession.id,
+          parentAgentId: null,
+          name: "root",
+          projectId: Instance.project.id,
+          rootAgentId: rootId,
+          subagentType: "general",
+          spec: { initialPrompt: "x" },
+        })
+        CollabAgentNode.transition(rootId, "running", { phase: "main_loop" })
+
+        expect(Collab.hasOutstandingAsyncWork(rootSession.id)).toBe(false)
+
+        const childSession = await Session.create({ parentID: rootSession.id, title: "async-work-child" })
+        const childId = Identifier.ascending("collab_agent")
+        CollabAgentNode.create({
+          id: childId,
+          sessionId: childSession.id,
+          parentAgentId: rootId,
+          name: "child",
+          projectId: Instance.project.id,
+          rootAgentId: rootId,
+          subagentType: "general",
+          spec: { initialPrompt: "y" },
+        })
+
+        expect(Collab.hasOutstandingAsyncWork(rootSession.id)).toBe(true)
+
+        SessionStatus.set(rootSession.id, { type: "busy" })
+        CollabAgentNode.transition(childId, "completed", { phase: "main_loop", timeEnded: Date.now() })
+        await CollabMessage.post({
+          recipientAgentId: rootId,
+          senderAgentId: childId,
+          kind: "child_done",
+          payload: { childAgentId: childId, childName: "child", summary: "done" },
+        })
+
+        expect(CollabAgentNode.load(rootId).active_children).toBe(0)
+        expect(Collab.hasOutstandingAsyncWork(rootSession.id)).toBe(true)
+
+        CollabMessage.drain(rootId)
+        expect(Collab.hasOutstandingAsyncWork(rootSession.id)).toBe(false)
+      },
+    })
+  })
+
   test("root with active_children transitions to blocked_on_children on SessionStatus idle", async () => {
     await Instance.provide({
       directory: projectRoot,

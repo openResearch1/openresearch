@@ -696,14 +696,13 @@ export function UserMessageDisplay(props: {
   // so the user-side shows a compact "child completed" card rather than a blank
   // message block between intermediate turns.
   //
-  // Filter to parts that actually render SOMETHING visible. Right now only
-  // `collab_return` with `kind === "child_done"` renders; other kinds return
-  // null from their renderer. Keep the filter here so the wrapping chrome
-  // doesn't reserve blank space for parts that will self-hide.
+  // Filter to parts that actually render SOMETHING visible. Keep this aligned
+  // with CollabReturnPartDisplay so the wrapping chrome doesn't reserve blank
+  // space for hidden progress/system pings.
   const isVisibleSystemPart = (p: PartType): boolean => {
     if (!PART_MAPPING[p.type]) return false
     if (p.type === "text" || p.type === "file") return false
-    if (p.type === "collab_return") return (p as unknown as { kind: string }).kind === "child_done"
+    if (p.type === "collab_return") return ["child_done", "child_waiting"].includes((p as unknown as { kind: string }).kind)
     return true
   }
   const systemParts = createMemo(() => (props.parts?.filter(isVisibleSystemPart) ?? []) as PartType[])
@@ -1153,12 +1152,8 @@ PART_MAPPING["collab_return"] = function CollabReturnPartDisplay(props) {
       body: string
     }
 
-  // Only render the final completion card. Progress pings, intermediate
-  // failures, cancels, system events etc. are kept in the data (so the parent
-  // LLM can reason over them via toModelMessages) but hidden from the UI —
-  // the subagent dock already shows live status, and the visible message
-  // stream should only flag "this child's work landed, here's what it said."
-  if (part().kind !== "child_done") return null as unknown as JSX.Element
+  const visible = () => part().kind === "child_done" || part().kind === "child_waiting"
+  if (!visible()) return null as unknown as JSX.Element
 
   const childHref = createMemo(() => {
     const sid = part().childSessionId
@@ -1211,6 +1206,7 @@ PART_MAPPING["collab_return"] = function CollabReturnPartDisplay(props) {
   // avoids the redundancy of having both a "Child completed" title and a
   // "Done" chip saying the same thing.
   const title = () => part().childName?.trim() || i18n.t("ui.tool.agent.childCompleted")
+  const waiting = () => part().kind === "child_waiting"
 
   // Custom trigger: put the success chip BEFORE the title so the status
   // reads left-to-right as "Done: <childName>". The ToolTriggerRow helper
@@ -1219,9 +1215,9 @@ PART_MAPPING["collab_return"] = function CollabReturnPartDisplay(props) {
   const trigger = () => (
     <div data-slot="basic-tool-tool-info-structured">
       <div data-slot="basic-tool-tool-info-main">
-        <span data-slot="agent-card-chip" data-variant="success">
-          <Icon name="check-small" size="small" />
-          <span>{i18n.t("ui.tool.agent.status.done")}</span>
+        <span data-slot="agent-card-chip" data-variant={waiting() ? "warning" : "success"}>
+          <Icon name={waiting() ? "warning" : "check-small"} size="small" />
+          <span>{waiting() ? i18n.t("ui.tool.agent.waitingInteraction") : i18n.t("ui.tool.agent.status.done")}</span>
         </span>
         <span data-slot="basic-tool-tool-title">{title()}</span>
       </div>
@@ -1233,7 +1229,7 @@ PART_MAPPING["collab_return"] = function CollabReturnPartDisplay(props) {
     <div data-component="agent-tool-card">
       <ToolCall
         variant="panel"
-        icon="circle-check"
+        icon={waiting() ? "warning" : "circle-check"}
         animate
         springContent
         trigger={trigger()}
@@ -1241,7 +1237,9 @@ PART_MAPPING["collab_return"] = function CollabReturnPartDisplay(props) {
         <div data-component="agent-card">
           <Show when={part().body?.trim()}>
             <div data-slot="agent-card-block">
-              <div data-slot="agent-card-label">{i18n.t("ui.tool.agent.childSummary")}</div>
+              <div data-slot="agent-card-label">
+                {waiting() ? i18n.t("ui.tool.agent.waitingInteraction") : i18n.t("ui.tool.agent.childSummary")}
+              </div>
               <div data-slot="agent-card-body">
                 <Markdown text={part().body} cacheKey={part().id} />
               </div>

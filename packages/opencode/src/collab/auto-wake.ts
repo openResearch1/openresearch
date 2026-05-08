@@ -12,9 +12,9 @@ import {
   buildChildDonePart,
   buildChildFailedPart,
   buildChildProgressPart,
-  buildUserInputPart,
+  buildChildWaitingPart,
   finalizeParts,
-  type ReturnPartDraft,
+  type PromptPartDraft,
 } from "./return-parts"
 import type {
   AgentError,
@@ -22,6 +22,7 @@ import type {
   ChildDonePayload,
   ChildFailedPayload,
   ChildProgressPayload,
+  ChildWaitingPayload,
   UserInputPayload,
 } from "./types"
 import { WAKE_MESSAGE_KINDS } from "./types"
@@ -184,7 +185,7 @@ export namespace CollabAutoWake {
     const msgs = CollabMessage.drain(agentId)
 
     let gotCancel = false
-    const returnParts: ReturnPartDraft[] = []
+    const returnParts: PromptPartDraft[] = []
     const progressMsgs: ChildProgressPayload[] = []
     let failFastTrigger: ChildFailedPayload | undefined
 
@@ -206,11 +207,15 @@ export namespace CollabAutoWake {
           else returnParts.push(buildChildFailedPart(p))
           break
         }
+        case "child_waiting": {
+          returnParts.push(buildChildWaitingPart(payload as ChildWaitingPayload))
+          break
+        }
         case "child_progress":
           progressMsgs.push(payload as ChildProgressPayload)
           break
         case "user_input": {
-          returnParts.push(buildUserInputPart(payload as UserInputPayload))
+          returnParts.push({ type: "text", text: (payload as UserInputPayload).text })
           break
         }
         case "system":
