@@ -20,5 +20,5 @@ Required behavior:
 Rules:
 
 - Do not ask the human user for the child's requested input.
-- Do not use `send_to_agent`; use `resume_agent` for `child_waiting`.
+- Use `resume_agent` for `child_waiting`.
 - Do not use `list_children` or `bash sleep` to poll.

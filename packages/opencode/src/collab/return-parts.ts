@@ -91,6 +91,7 @@ export function buildChildWaitingPart(p: ChildWaitingPayload): ReturnPartDraft {
     body,
     payload: {
       workflowInstanceId: p.workflowInstanceId,
+      waitMessageId: p.waitMessageId,
       reason: p.reason,
       message: p.message,
     },

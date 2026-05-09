@@ -765,6 +765,14 @@ export namespace SessionPrompt {
         toolChoice: format.type === "json_schema" ? "required" : undefined,
       })
 
+      const workflowStay = (await MessageV2.parts(processor.message.id)).some((part) => {
+        if (part.type !== "tool") return false
+        if (part.tool !== "workflow") return false
+        if (part.state.status !== "completed") return false
+        const action = part.state.input.action
+        return action === "start" || action === "inspect" || action === "next" || action === "edit"
+      })
+
       // If structured output was captured, save it and exit immediately
       // This takes priority because the StructuredOutput tool was called successfully
       if (structuredOutput !== undefined) {
@@ -779,11 +787,11 @@ export namespace SessionPrompt {
       const latestWorkflow = Workflow.latest(sessionID)
       const workflowState = latestWorkflow?.status ?? activeWorkflow?.status
 
-      if (workflowState === "waiting_interaction") {
-        break
+      if (workflowStay) {
+        continue
       }
 
-      if (workflowState === "failed" || workflowState === "completed") {
+      if (workflowState === "waiting_interaction") {
         break
       }
 
@@ -2153,7 +2161,7 @@ function workflowSystemPrompt(instance: Workflow.Instance): string {
     "5. **Inspecting (workflow.inspect)**: When you need to review the overall workflow state — all steps, their statuses, and the accumulated context — call `workflow.inspect`. This is read-only and does not change any state.",
     "",
     "Critical rules:",
-    "- Do NOT stop generating until the workflow reaches `wait_interaction`, `completed`, or `failed`.",
+    "- Only stop for workflow control when the workflow reaches `wait_interaction`; after `completed` or `failed`, continue with an appropriate final response.",
     "- Do NOT assume progress without calling `workflow.next` — no other action advances the workflow.",
     "- After each `workflow.next` or `workflow.start`, carefully read the returned step instructions and policy before acting.",
     "- Each step's policy in the tool response tells you which actions are allowed (wait_interaction, edit). Respect these constraints.",

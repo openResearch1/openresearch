@@ -7,6 +7,7 @@ import { CollabAgentNode } from "./agent-node"
 import { CollabMessage } from "./message"
 import { CollabSupervisor } from "./supervisor"
 import { CollabLoop } from "./loop"
+import { CollabRuntime } from "./runtime"
 import { CollabEvent } from "./events"
 import {
   buildChildDonePart,
@@ -110,7 +111,10 @@ export namespace CollabAutoWake {
     const project = Instance.project
     const active = CollabAgentNode.loadActiveByProject(project.id)
     for (const node of active) {
-      if (node.parent_agent_id) continue
+      if (node.parent_agent_id) {
+        maybeStartLoop(node)
+        continue
+      }
       void maybeWakeOrBlock(node, inflight).catch((err) =>
         log.error("initialScan.node", { id: node.id, error: String(err) }),
       )
@@ -120,17 +124,30 @@ export namespace CollabAutoWake {
   async function tryDriveById(agentId: string, inflight: Set<string>) {
     const node = CollabAgentNode.tryLoad(agentId)
     if (!node) return
-    if (node.parent_agent_id) return
     if (!CollabAgentNode.isActive(node.status)) return
+    if (node.parent_agent_id) {
+      maybeStartLoop(node)
+      return
+    }
     await maybeWakeOrBlock(node, inflight)
   }
 
   async function tryDriveBySession(sessionID: string, inflight: Set<string>) {
     const node = CollabAgentNode.loadBySessionId(sessionID)
     if (!node) return
-    if (node.parent_agent_id) return
     if (!CollabAgentNode.isActive(node.status)) return
+    if (node.parent_agent_id) {
+      maybeStartLoop(node)
+      return
+    }
     await maybeWakeOrBlock(node, inflight)
+  }
+
+  function maybeStartLoop(node: AgentInfo) {
+    if (CollabRuntime.has(node.id)) return
+    if (SessionStatus.get(node.session_id).type === "busy") return
+    if (!CollabMessage.hasPendingWakeMsg(node.id)) return
+    void CollabLoop.start(node.id)
   }
 
   // Safety cap: if driveTurn keeps producing new wake messages (e.g. runaway child
@@ -139,6 +156,10 @@ export namespace CollabAutoWake {
   const MAX_DRIVE_ITERATIONS = 64
 
   async function maybeWakeOrBlock(node: AgentInfo, inflight: Set<string>) {
+    if (node.parent_agent_id) {
+      maybeStartLoop(node)
+      return
+    }
     if (inflight.has(node.session_id)) return
     if (SessionStatus.get(node.session_id).type === "busy") return
 

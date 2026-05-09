@@ -1,9 +1,0 @@
-Post a text instruction into another agent's inbox as a `user_input` message.
-
-You may only target agents in your own subtree (your direct/indirect children or yourself). The target's next loop iteration will pick up the text and feed it to its LLM as a user message.
-
-Parameters:
-- agent_id: the recipient agent
-- text: the message to deliver
-
-Use this to steer a running child (e.g. redirect its focus, add a constraint, answer a blocker) without canceling and re-spawning it.

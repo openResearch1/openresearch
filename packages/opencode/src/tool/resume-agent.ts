@@ -64,7 +64,7 @@ export const ResumeAgentTool = Tool.define("resume_agent", async () => {
             `session_id: ${info.session_id}`,
             `status: ${info.status}`,
             "",
-            "Resumed. You will receive a new `child_done` message when the peer finishes the additional turn.",
+            "Queued. You will receive a new `child_done` message when the peer finishes the additional turn.",
           ].join("\n"),
         }
       } catch (err) {

@@ -169,14 +169,6 @@ export namespace Collab {
 
     const waiting = node.status === "waiting_interaction"
 
-    // Must be waiting or terminal. If it's already active, the caller should
-    // use `send_to_agent` instead — no need to resume a running peer.
-    if (CollabAgentNode.isActive(node.status) && !waiting) {
-      throw new Error(
-        `Cannot resume agent ${node.id}: already active (status=${node.status}). Use send_to_agent instead.`,
-      )
-    }
-
     // If the parent has also finalized, resuming would orphan the child —
     // no one to receive `child_done`. Refuse.
     if (node.parent_agent_id) {
@@ -188,10 +180,25 @@ export namespace Collab {
       }
     }
 
+    if (CollabAgentNode.isActive(node.status) && !waiting) {
+      await CollabMessage.post({
+        recipientAgentId: node.id,
+        senderAgentId: null,
+        kind: "user_input",
+        payload: { text: input.prompt },
+      })
+
+      if (SessionStatus.get(node.session_id).type !== "busy" && !CollabRuntime.has(node.id)) {
+        void CollabLoop.start(node.id)
+      }
+
+      return CollabAgentNode.load(node.id)
+    }
+
     // Avoid racing with any lingering loop registration.
     if (CollabRuntime.has(node.id)) {
       log.warn("resume: runtime still had an entry, aborting it first", { agentId: node.id })
-      CollabRuntime.abort(node.id)
+      CollabRuntime.abortAndUnregister(node.id)
     }
 
     // 1) Transition child back to running; clear prior error but keep result

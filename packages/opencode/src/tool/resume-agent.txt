@@ -1,14 +1,15 @@
-Re-activate a waiting / completed / failed / canceled peer agent with a new instruction.
+Continue a peer agent with a new instruction.
 
-Use this when a peer is waiting for your input (`child_waiting`) or when you want a finished peer to continue working on something. The peer resumes in its original session (full history preserved), runs a new turn against your prompt, and posts `child_done` to your inbox when finished.
+Use this when a peer is running, blocked, waiting for your input (`child_waiting`), or when you want a finished peer to continue working on something. The peer continues in its original session (full history preserved), consumes your prompt as its next user message, and posts `child_done` to your inbox when finished.
 
 Rules:
-- The target agent MUST be waiting (`waiting_interaction`) or terminal (`completed`, `failed`, or `canceled`). If it is running, use `send_to_agent` instead (it delivers user_input to a live peer without restarting the loop).
+- If the target is busy, the instruction is queued and consumed after the current turn finishes.
+- If the target is active but idle, the instruction wakes it for a new turn.
 - Your own collab agent must still be active — you cannot resume a peer from a session that has itself finalized (the result would have no one to route back to).
-- The resumed agent runs with its original agent type / model / policy. If you want a different configuration, `spawn_agent` a new peer instead.
+- The peer runs with its original agent type / model / policy. If you want a different configuration, `spawn_agent` a new peer instead.
 
 Parameters:
 - agent_id: the target peer's id (get from `child_waiting`, `child_done`, `list_children`, or the session's collab agent record).
 - prompt: the new instruction. This becomes the next user message in the peer's session.
 
-Returns: the updated `{ agent_id, session_id, status }`. Status transitions back to `running`; when it finishes you'll receive a `child_done` inbox message.
+Returns: the updated `{ agent_id, session_id, status }`. Waiting or terminal peers transition back to `running`; active peers keep their current status until the queued instruction is consumed.

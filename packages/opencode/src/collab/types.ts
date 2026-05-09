@@ -89,6 +89,7 @@ export const ChildWaitingPayloadSchema = z.object({
   childName: z.string(),
   childSessionId: z.string(),
   workflowInstanceId: z.string().optional(),
+  waitMessageId: z.string().optional(),
   reason: z.string().optional(),
   message: z.string().optional(),
 })

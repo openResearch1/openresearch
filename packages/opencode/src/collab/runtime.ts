@@ -55,6 +55,13 @@ export namespace CollabRuntime {
     entry.abort.abort()
   }
 
+  export function abortAndUnregister(agentId: string) {
+    const entry = state().loops.get(agentId)
+    if (!entry) return
+    entry.abort.abort()
+    state().loops.delete(agentId)
+  }
+
   export function abortAll() {
     for (const entry of state().loops.values()) entry.abort.abort()
   }

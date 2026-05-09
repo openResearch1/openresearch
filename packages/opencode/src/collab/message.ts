@@ -4,7 +4,7 @@ import { Bus } from "@/bus"
 import { Identifier } from "@/id/id"
 import { Log } from "@/util/log"
 import { CollabAgentTable, CollabMessageTable } from "./collab.sql"
-import type { CollabMsgKind } from "./types"
+import type { ChildWaitingPayload, CollabMsgKind } from "./types"
 import { WAKE_MESSAGE_KINDS } from "./types"
 import { CollabEvent } from "./events"
 
@@ -64,6 +64,63 @@ export namespace CollabMessage {
     })
 
     log.info("posted", { id, recipient: input.recipientAgentId, kind: input.kind })
+    return id
+  }
+
+  export async function postChildWaiting(input: {
+    agentId: string
+    rootAgentId: string
+    recipientAgentId: string
+    payload: ChildWaitingPayload
+  }): Promise<string> {
+    const id = Identifier.ascending("collab_msg")
+    const now = Date.now()
+
+    Database.transaction((tx) => {
+      const updated = tx
+        .update(CollabAgentTable)
+        .set({
+          status: "waiting_interaction",
+          phase: "awaiting_children",
+          time_updated: now,
+        })
+        .where(eq(CollabAgentTable.id, input.agentId))
+        .returning()
+        .get()
+      if (!updated) throw new Error(`Agent not found: ${input.agentId}`)
+
+      tx.insert(CollabMessageTable)
+        .values({
+          id,
+          recipient_agent_id: input.recipientAgentId,
+          sender_agent_id: input.agentId,
+          kind: "child_waiting",
+          payload_json: input.payload as any,
+          status: "pending",
+          time_created: now,
+          time_updated: now,
+          time_consumed: null,
+        })
+        .run()
+
+      Database.effect(() => {
+        Bus.publish(CollabEvent.AgentStatus, {
+          agentId: input.agentId,
+          rootAgentId: input.rootAgentId,
+          status: "waiting_interaction",
+          phase: "awaiting_children",
+          active_children: updated.active_children,
+        })
+        Bus.publish(CollabEvent.MessagePosted, {
+          messageId: id,
+          recipientAgentId: input.recipientAgentId,
+          senderAgentId: input.agentId,
+          kind: "child_waiting",
+        })
+      })
+    })
+
+    log.info("posted child_waiting", { id, recipient: input.recipientAgentId, sender: input.agentId })
     return id
   }
 

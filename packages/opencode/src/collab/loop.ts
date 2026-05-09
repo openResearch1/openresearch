@@ -13,6 +13,7 @@ import {
   buildChildDonePart,
   buildChildFailedPart,
   buildChildProgressPart,
+  buildChildWaitingPart,
   finalizeParts,
   type PromptPartDraft,
 } from "./return-parts"
@@ -119,13 +120,23 @@ export namespace CollabLoop {
             }
             break
           }
+          case "child_waiting": {
+            injections.push(buildChildWaitingPart(payload as ChildWaitingPayload))
+            break
+          }
           case "child_progress": {
             const p = payload as ChildProgressPayload
             progressMsgs.push(p)
             break
           }
           case "user_input": {
-            injections.push({ type: "text", text: (payload as UserInputPayload).text })
+            const p = payload as UserInputPayload
+            Workflow.autoResume({
+              sessionID: node.session_id,
+              userMessageID: p.messageId ?? m.id,
+              userMessage: p.text,
+            })
+            injections.push({ type: "text", text: p.text })
             break
           }
           case "system":
@@ -178,6 +189,28 @@ export namespace CollabLoop {
 
       const refreshed = CollabAgentNode.load(agentId)
       if (refreshed.active_children === 0) {
+        const inst = Workflow.latest(refreshed.session_id)
+        if (inst?.status === "waiting_interaction") {
+          if (await pauseIfWorkflowWaiting(agentId, abort)) return
+        }
+        if (inst?.status === "running") {
+          await runPromptTurn(
+            refreshed,
+            {
+              parts: [
+                {
+                  type: "text",
+                  text: "Continue the active workflow. Call workflow.next, workflow.wait_interaction, or workflow.fail as appropriate.",
+                },
+              ],
+            },
+            abort,
+          )
+          if (await pauseIfWorkflowWaiting(agentId, abort)) return
+          firstTick = false
+          hasRunInitialPrompt = true
+          continue
+        }
         await finalizeCompleted(refreshed)
         return
       }
@@ -223,15 +256,24 @@ export namespace CollabLoop {
       childName: node.name,
       childSessionId: node.session_id,
       workflowInstanceId: inst.id,
+      waitMessageId: step?.interaction?.wait_after_user_message_id,
       reason: step?.interaction?.reason,
       message: step?.interaction?.message,
     }
 
-    CollabAgentNode.transition(agentId, "waiting_interaction", { phase: "awaiting_children" })
-    await CollabMessage.post({
+    const duplicate = CollabMessage.list(node.parent_agent_id, { kind: "child_waiting", limit: 500 }).some((m) => {
+      const p = m.payload_json as Partial<ChildWaitingPayload>
+      if (p.childAgentId !== node.id) return false
+      if (p.workflowInstanceId !== inst.id) return false
+      if (payload.waitMessageId && p.waitMessageId !== payload.waitMessageId) return false
+      return true
+    })
+    if (duplicate) return true
+
+    await CollabMessage.postChildWaiting({
+      agentId: node.id,
+      rootAgentId: node.root_agent_id,
       recipientAgentId: node.parent_agent_id,
-      senderAgentId: node.id,
-      kind: "child_waiting",
       payload,
     })
     log.info("waiting_interaction", { agentId, parentAgentId: node.parent_agent_id })
