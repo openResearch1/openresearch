@@ -167,8 +167,9 @@ export function SessionWorkflowDock(props: {
             {badge(props.workflow.instance.status, labels)}
             <span class="text-13-regular text-text-weak shrink-0 whitespace-nowrap">
               {props.stepLabel}{" "}
-              {Math.min(props.workflow.instance.current_index + 1, props.workflow.instance.steps.length)}/
-              {props.workflow.instance.steps.length}
+              {props.workflow.instance.current_index >= 0
+                ? `${Math.min(props.workflow.instance.current_index + 1, props.workflow.instance.steps.length)}/${props.workflow.instance.steps.length}`
+                : "-"}
             </span>
             <div class="min-w-0 flex-1 overflow-hidden">
               <TextReveal
