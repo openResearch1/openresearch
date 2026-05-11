@@ -12,7 +12,7 @@ export const DeepResearchWorkflowTemplate = WorkflowSchema.Template.parse({
     plan_task: {
       kind: "agent_task",
       title: "Create Research Plan",
-      summary: "Analyze the research topic, invoke the deep_research_plan subagent to generate a structured research plan (~3-4 subtasks), present the plan in conversation and wait for user confirmation (no file writes)",
+      summary: "Analyze the research topic, invoke the deep_research_plan subagent to generate a structured research plan (~2-3 subtasks), present the plan in conversation and wait for user confirmation (no file writes)",
       prompt: "plan",
       policy: { can_next: ["plan_complete"], can_wait_interaction: true }
     },

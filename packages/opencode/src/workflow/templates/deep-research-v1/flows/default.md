@@ -10,7 +10,7 @@ This flow converts user research demands into standardized, complete research re
 
 ### 1. Plan Phase (`plan_task`)
 - Analyze the user's research topic, scope, and depth requirements
-- Invoke `deep_research_plan` subagent via `task` tool to produce a structured research plan (~3-4 subtasks)
+- Invoke `deep_research_plan` subagent via `task` tool to produce a structured research plan (~2-3 subtasks)
 - Present the plan to the user and wait for confirmation via `workflow.wait_interaction`
 - Pass `plan_text` and `keyword_slug` through workflow context
 - Context gate: `plan_complete`

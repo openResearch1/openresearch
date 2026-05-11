@@ -11,7 +11,7 @@ Analyze the user's research topic and generate a structured, machine-parseable r
 3. Invoke `deep_research_plan` via the `task` tool. **All three parameters (description, subagent_type, prompt) are required**:
    - `description`: short description (e.g. "Plan: <research_topic>")
    - `subagent_type`: `"deep_research_plan"`
-   - `prompt`: include the research topic, scope, depth requirements, the user's **language** (match the user's query language), and specify that the plan must use `## Subtask N: <title>` format, with approximately 3-4 subtasks total
+   - `prompt`: include the research topic, scope, depth requirements, the user's **language** (match the user's query language), and specify that the plan must use `## Subtask N: <title>` format, with approximately 2-3 subtasks total
 
    Example call format:
    ```
@@ -78,7 +78,7 @@ Failure handling:
 Important rules:
 
 - Do not generate overly broad or unexecutable research plans.
-- The plan should contain approximately 3-4 subtasks.
+- The plan should contain approximately 2-3 subtasks.
 - Each subtask must include concrete, searchable keywords.
 - Ensure the plan covers fact verification, information gathering, and synthesis.
 - All research tasks must be broken into clearly defined units for downstream parallel search.

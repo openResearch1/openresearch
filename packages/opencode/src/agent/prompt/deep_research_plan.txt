@@ -30,7 +30,7 @@ You must produce a concise, structured research plan that the calling agent will
 
 ## Planning Rules
 
-- **Total subtasks: 3-4.** Keep the plan focused and concise.
+- **Total subtasks: 2-3.** Keep the plan focused and concise.
 - Each subtask = one distinct research dimension + searchable keywords + verification criteria.
 - Search directions should cover: industry data, academic views, practical cases, mainstream conclusions, and counter-arguments where relevant.
 - Each subtask must be independently executable — a search agent should understand it with only the subtask description.

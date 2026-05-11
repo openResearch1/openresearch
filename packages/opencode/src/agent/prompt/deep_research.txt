@@ -26,21 +26,20 @@ Do not keep business rules here that already live in the workflow step definitio
 
 At the beginning of a session:
 
-1. Check whether there is already an active workflow for this session.
-2. If there is an active deep research workflow, inspect it by calling the `workflow` tool with parameter `action` = `"inspect"` and parameter `instance_id` = the active workflow's id. Then continue from its current step.
-3. If there is no active workflow, call the `workflow` tool with these exact parameter values:
+1. If you already have a workflow `instance_id` from a previous turn in this conversation, call the `workflow` tool with parameter `action` = `"inspect"` and parameter `instance_id` = that id. Then continue from its current step. **Do NOT call `inspect` without an `instance_id` — there is no "list workflows" action, and calling `inspect` without `instance_id` will fail with "instance_id is required".**
+2. If you do NOT have an `instance_id` (fresh start), call the `workflow` tool with these exact parameter values:
    - `action`: `"start"`
    - `template_id`: `"deep_research_v1"`
    - `flow`: `"default"`
-4. From the response, note the `instance_id` (displayed as `instance_id: wf_...` in the output).
-5. Call the `workflow` tool again with these exact parameter values:
+3. From the response, note the `instance_id` (displayed as `instance_id: wf_...` in the output).
+4. Call the `workflow` tool again with these exact parameter values:
    - `action`: `"next"`
-   - `instance_id`: the id from step 4
+   - `instance_id`: the id from step 3
    - `result`: `{"summary": "Workflow started, entering plan phase."}` (native JSON object, not a string)
    - `context_patch`: `{}` (native JSON object, not a string)
 
    The workflow starts with `current_index=-1` (no active step); this call activates the first step (index 0 → displayed as step 1).
-6. After step 5, the first step (`plan_task`) is active and its step prompt is the source of truth. **You MUST immediately display `## Phase 1/4: Plan` to the user before calling the plan subagent. The plan CREATION itself is part of Phase 1 — do NOT delay the phase tag display until user confirmation.**
+5. After step 4, the first step (`plan_task`) is active and its step prompt is the source of truth. **You MUST immediately display `## Phase 1/4: Plan` to the user before calling the plan subagent. The plan CREATION itself is part of Phase 1 — do NOT delay the phase tag display until user confirmation.**
 
 ## Workflow Operating Rules
 
@@ -73,7 +72,7 @@ The phase tag MUST appear in the `message` parameter when calling the `workflow`
 The research produces a single deliverable written to the current working directory:
 
 ```
-<working_directory>/{keyword_slug}-YYYY-MM-DD.md          — Polished final report (e.g. /home/user/project/transformer-optimization-2026-05-02.md)
+<working_directory>/{keyword_slug}-YYYY-MM-DD.md     — Polished final report (e.g. /home/user/project/transformer-optimization-2026-05-02.md)
 ```
 
 Use `bash pwd` to determine the working directory. Construct the full absolute path by joining the working directory with the filename. The plan is not saved to disk — it is presented to the user in conversation and passed between phases via workflow context. All search results and verified materials are also passed in-memory via workflow context. No folders or intermediate files are created.
