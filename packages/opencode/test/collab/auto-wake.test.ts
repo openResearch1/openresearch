@@ -8,6 +8,7 @@ import { Log } from "../../src/util/log"
 import { Identifier } from "../../src/id/id"
 import { CollabAgentNode } from "../../src/collab/agent-node"
 import { CollabMessage } from "../../src/collab/message"
+import { Collab } from "../../src/collab"
 import { CollabAutoWake } from "../../src/collab/auto-wake"
 import { CollabEvent } from "../../src/collab/events"
 
@@ -21,6 +22,130 @@ Log.init({ print: false })
 CollabAutoWake.setEnabled(true)
 
 describe("CollabAutoWake blocks root on active children", () => {
+  test("busy child starts its loop for queued resume prompt when it becomes idle", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        CollabAutoWake.ensure()
+
+        const rootSession = await Session.create({ title: "resume-busy-root" })
+        const rootId = Identifier.ascending("collab_agent")
+        CollabAgentNode.create({
+          id: rootId,
+          sessionId: rootSession.id,
+          parentAgentId: null,
+          name: "root",
+          projectId: Instance.project.id,
+          rootAgentId: rootId,
+          subagentType: "general",
+          spec: { initialPrompt: "root" },
+        })
+        CollabAgentNode.transition(rootId, "running", { phase: "main_loop" })
+
+        const childSession = await Session.create({ parentID: rootSession.id, title: "resume-busy-child" })
+        const childId = Identifier.ascending("collab_agent")
+        CollabAgentNode.create({
+          id: childId,
+          sessionId: childSession.id,
+          parentAgentId: rootId,
+          name: "child",
+          projectId: Instance.project.id,
+          rootAgentId: rootId,
+          subagentType: "general",
+          spec: { initialPrompt: "child" },
+        })
+        CollabAgentNode.transition(childId, "running", { phase: "main_loop" })
+        SessionStatus.set(childSession.id, { type: "busy" })
+
+        let direct = 0
+        CollabAutoWake.setDriveTurnOverrideForTesting(async (id) => {
+          if (id === childId) direct++
+        })
+        let done!: () => void
+        const waited = new Promise<void>((resolve) => {
+          done = resolve
+        })
+        const off = Bus.subscribe(CollabEvent.MessageConsumed, (e) => {
+          if (e.properties.recipientAgentId !== childId || e.properties.kind !== "user_input") return
+          done()
+        })
+
+        try {
+          await Collab.resume({ agentId: childId, prompt: "new instruction" })
+          expect(CollabMessage.hasPendingWakeMsg(childId)).toBe(true)
+
+          SessionStatus.set(childSession.id, { type: "idle" })
+          await Promise.race([
+            waited,
+            new Promise((_, reject) => setTimeout(() => reject(new Error("timed out waiting for child wake")), 1000)),
+          ])
+
+          expect(direct).toBe(0)
+          expect(CollabMessage.hasPendingWakeMsg(childId)).toBe(false)
+        } finally {
+          off()
+          CollabAutoWake.setDriveTurnOverrideForTesting(undefined)
+          Collab.runtime().abort(childId)
+        }
+      },
+    })
+  })
+
+  test("root reports outstanding async work for active children and pending wake messages", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        CollabAutoWake.ensure()
+
+        const rootSession = await Session.create({ title: "async-work-root" })
+        const rootId = Identifier.ascending("collab_agent")
+        CollabAgentNode.create({
+          id: rootId,
+          sessionId: rootSession.id,
+          parentAgentId: null,
+          name: "root",
+          projectId: Instance.project.id,
+          rootAgentId: rootId,
+          subagentType: "general",
+          spec: { initialPrompt: "x" },
+        })
+        CollabAgentNode.transition(rootId, "running", { phase: "main_loop" })
+
+        expect(Collab.hasOutstandingAsyncWork(rootSession.id)).toBe(false)
+
+        const childSession = await Session.create({ parentID: rootSession.id, title: "async-work-child" })
+        const childId = Identifier.ascending("collab_agent")
+        CollabAgentNode.create({
+          id: childId,
+          sessionId: childSession.id,
+          parentAgentId: rootId,
+          name: "child",
+          projectId: Instance.project.id,
+          rootAgentId: rootId,
+          subagentType: "general",
+          spec: { initialPrompt: "y" },
+        })
+
+        expect(Collab.hasOutstandingAsyncWork(rootSession.id)).toBe(true)
+
+        SessionStatus.set(rootSession.id, { type: "busy" })
+        CollabAgentNode.transition(childId, "completed", { phase: "main_loop", timeEnded: Date.now() })
+        await CollabMessage.post({
+          recipientAgentId: rootId,
+          senderAgentId: childId,
+          kind: "child_done",
+          payload: { childAgentId: childId, childName: "child", summary: "done" },
+        })
+
+        expect(CollabAgentNode.load(rootId).active_children).toBe(0)
+        expect(Collab.hasOutstandingAsyncWork(rootSession.id)).toBe(true)
+
+        CollabMessage.drain(rootId)
+        expect(Collab.hasOutstandingAsyncWork(rootSession.id)).toBe(false)
+      },
+    })
+  })
+
   test("root with active_children transitions to blocked_on_children on SessionStatus idle", async () => {
     await Instance.provide({
       directory: projectRoot,
@@ -176,8 +301,8 @@ describe("CollabAutoWake is robust under concurrent child completions", () => {
   })
 })
 
-describe("CollabAutoWake does not touch non-root agents", () => {
-  test("posting child_done to a NON-root parent does not trigger auto-wake", async () => {
+describe("CollabAutoWake delegates non-root agents to CollabLoop", () => {
+  test("posting child_done to a NON-root parent starts its loop", async () => {
     await Instance.provide({
       directory: projectRoot,
       fn: async () => {
@@ -225,27 +350,36 @@ describe("CollabAutoWake does not touch non-root agents", () => {
           spec: { initialPrompt: "z" },
         })
 
-        // Count message.posted events; make sure auto-wake does NOT drain mid-parent's inbox.
+        let direct = 0
+        CollabAutoWake.setDriveTurnOverrideForTesting(async () => {
+          direct++
+        })
+
+        // Count consumed events; non-root agents should drain through CollabLoop,
+        // not AutoWake.driveTurn.
         let mpCount = 0
         const unsub = Bus.subscribe(CollabEvent.MessageConsumed, (e) => {
           if (e.properties.recipientAgentId === parentId) mpCount++
         })
 
-        await CollabMessage.post({
-          recipientAgentId: parentId,
-          senderAgentId: childId,
-          kind: "child_done",
-          payload: { childAgentId: childId, childName: "child", summary: "done" },
-        })
+        try {
+          await CollabMessage.post({
+            recipientAgentId: parentId,
+            senderAgentId: childId,
+            kind: "child_done",
+            payload: { childAgentId: childId, childName: "child", summary: "done" },
+          })
 
-        await new Promise((r) => setTimeout(r, 80))
-        unsub()
+          await new Promise((r) => setTimeout(r, 80))
+        } finally {
+          unsub()
+          CollabAutoWake.setDriveTurnOverrideForTesting(undefined)
+          Collab.runtime().abort(parentId)
+        }
 
-        // Since parent is non-root, AutoWake should NOT consume this message.
-        // The runLoop (not started in this test) is the only thing that would drain it.
-        expect(mpCount).toBe(0)
-        // Message should still be pending in inbox.
-        expect(CollabMessage.hasPendingWakeMsg(parentId)).toBe(true)
+        expect(direct).toBe(0)
+        expect(mpCount).toBe(1)
+        expect(CollabMessage.hasPendingWakeMsg(parentId)).toBe(false)
       },
     })
   })

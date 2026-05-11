@@ -518,7 +518,7 @@ export type CollabReturnPart = {
   sessionID: string
   messageID: string
   type: "collab_return"
-  kind: "child_done" | "child_failed" | "child_progress" | "cancel" | "user_input" | "system"
+  kind: "child_done" | "child_failed" | "child_waiting" | "child_progress" | "cancel" | "user_input" | "system"
   childAgentId?: string
   childName?: string
   childSessionId?: string
@@ -715,33 +715,121 @@ export type EventFileWatcherUpdated = {
   }
 }
 
-export type Todo = {
-  /**
-   * Brief description of the task
-   */
-  content: string
-  /**
-   * Current status of the task: pending, in_progress, completed, cancelled
-   */
-  status: string
-  /**
-   * Priority level of the task: high, medium, low
-   */
-  priority: string
+export type CollabAgentPolicy = {
+  on_fail?: "fail_fast" | "continue" | "retry_once"
+  timeout_ms?: number
+  maxChildren?: number
+  progress_injection?: "none" | "latest" | "all"
+  summarize?: boolean
 }
 
-export type EventTodoUpdated = {
-  type: "todo.updated"
-  properties: {
-    sessionID: string
-    todos: Array<Todo>
+export type CollabAgentSpec = {
+  initialPrompt: string
+  model?: {
+    providerID: string
+    modelID: string
+  }
+  policy?: CollabAgentPolicy
+  metadata?: {
+    [key: string]: unknown
   }
 }
 
-export type EventResearchAtomsUpdated = {
-  type: "research.atoms.updated"
+export type CollabAgentResult = {
+  summary?: string
+  result?: {
+    [key: string]: unknown
+  }
+}
+
+export type CollabAgentError = {
+  code: string
+  message: string
+  detail?: string
+}
+
+export type CollabAgent = {
+  id: string
+  session_id: string
+  parent_agent_id: string | null
+  name: string
+  project_id: string
+  root_agent_id: string
+  subagent_type: string
+  status: "pending" | "running" | "blocked_on_children" | "waiting_interaction" | "completed" | "failed" | "canceled"
+  phase: "main_loop" | "awaiting_children" | "draining"
+  spec: CollabAgentSpec
+  result: CollabAgentResult | null
+  error: CollabAgentError | null
+  active_children: number
+  spawned_total: number
+  time_created: number
+  time_updated: number
+  time_started: number | null
+  time_ended: number | null
+}
+
+export type EventCollabAgentCreated = {
+  type: "collab.agent.created"
   properties: {
-    researchProjectId: string
+    info: CollabAgent
+  }
+}
+
+export type EventCollabAgentStatus = {
+  type: "collab.agent.status"
+  properties: {
+    agentId: string
+    rootAgentId: string
+    status: "pending" | "running" | "blocked_on_children" | "waiting_interaction" | "completed" | "failed" | "canceled"
+    phase: "main_loop" | "awaiting_children" | "draining"
+    active_children: number
+  }
+}
+
+export type EventCollabAgentCompleted = {
+  type: "collab.agent.completed"
+  properties: {
+    agentId: string
+    rootAgentId: string
+    summary?: string
+  }
+}
+
+export type EventCollabAgentFailed = {
+  type: "collab.agent.failed"
+  properties: {
+    agentId: string
+    rootAgentId: string
+    code: string
+    message: string
+  }
+}
+
+export type EventCollabMessagePosted = {
+  type: "collab.message.posted"
+  properties: {
+    messageId: string
+    recipientAgentId: string
+    senderAgentId: string | null
+    kind: "child_done" | "child_failed" | "child_waiting" | "child_progress" | "cancel" | "user_input" | "system"
+  }
+}
+
+export type EventCollabMessageConsumed = {
+  type: "collab.message.consumed"
+  properties: {
+    messageId: string
+    recipientAgentId: string
+    kind: "child_done" | "child_failed" | "child_waiting" | "child_progress" | "cancel" | "user_input" | "system"
+  }
+}
+
+export type EventCollabRootDriveEnded = {
+  type: "collab.root.drive_ended"
+  properties: {
+    sessionID: string
+    rootAgentId: string
   }
 }
 
@@ -812,113 +900,33 @@ export type EventWorkflowUpdated = {
   }
 }
 
-export type CollabAgentPolicy = {
-  on_fail?: "fail_fast" | "continue" | "retry_once"
-  timeout_ms?: number
-  maxChildren?: number
-  progress_injection?: "none" | "latest" | "all"
-  summarize?: boolean
+export type Todo = {
+  /**
+   * Brief description of the task
+   */
+  content: string
+  /**
+   * Current status of the task: pending, in_progress, completed, cancelled
+   */
+  status: string
+  /**
+   * Priority level of the task: high, medium, low
+   */
+  priority: string
 }
 
-export type CollabAgentSpec = {
-  initialPrompt: string
-  model?: {
-    providerID: string
-    modelID: string
-  }
-  policy?: CollabAgentPolicy
-  metadata?: {
-    [key: string]: unknown
-  }
-}
-
-export type CollabAgentResult = {
-  summary?: string
-  result?: {
-    [key: string]: unknown
-  }
-}
-
-export type CollabAgentError = {
-  code: string
-  message: string
-  detail?: string
-}
-
-export type CollabAgent = {
-  id: string
-  session_id: string
-  parent_agent_id: string | null
-  name: string
-  project_id: string
-  root_agent_id: string
-  subagent_type: string
-  status: "pending" | "running" | "blocked_on_children" | "completed" | "failed" | "canceled"
-  phase: "main_loop" | "awaiting_children" | "draining"
-  spec: CollabAgentSpec
-  result: CollabAgentResult | null
-  error: CollabAgentError | null
-  active_children: number
-  spawned_total: number
-  time_created: number
-  time_updated: number
-  time_started: number | null
-  time_ended: number | null
-}
-
-export type EventCollabAgentCreated = {
-  type: "collab.agent.created"
+export type EventTodoUpdated = {
+  type: "todo.updated"
   properties: {
-    info: CollabAgent
+    sessionID: string
+    todos: Array<Todo>
   }
 }
 
-export type EventCollabAgentStatus = {
-  type: "collab.agent.status"
+export type EventResearchAtomsUpdated = {
+  type: "research.atoms.updated"
   properties: {
-    agentId: string
-    rootAgentId: string
-    status: "pending" | "running" | "blocked_on_children" | "completed" | "failed" | "canceled"
-    phase: "main_loop" | "awaiting_children" | "draining"
-    active_children: number
-  }
-}
-
-export type EventCollabAgentCompleted = {
-  type: "collab.agent.completed"
-  properties: {
-    agentId: string
-    rootAgentId: string
-    summary?: string
-  }
-}
-
-export type EventCollabAgentFailed = {
-  type: "collab.agent.failed"
-  properties: {
-    agentId: string
-    rootAgentId: string
-    code: string
-    message: string
-  }
-}
-
-export type EventCollabMessagePosted = {
-  type: "collab.message.posted"
-  properties: {
-    messageId: string
-    recipientAgentId: string
-    senderAgentId: string | null
-    kind: "child_done" | "child_failed" | "child_progress" | "cancel" | "user_input" | "system"
-  }
-}
-
-export type EventCollabMessageConsumed = {
-  type: "collab.message.consumed"
-  properties: {
-    messageId: string
-    recipientAgentId: string
-    kind: "child_done" | "child_failed" | "child_progress" | "cancel" | "user_input" | "system"
+    researchProjectId: string
   }
 }
 
@@ -1189,15 +1197,16 @@ export type Event =
   | EventQuestionRejected
   | EventSessionCompacted
   | EventFileWatcherUpdated
-  | EventTodoUpdated
-  | EventResearchAtomsUpdated
-  | EventWorkflowUpdated
   | EventCollabAgentCreated
   | EventCollabAgentStatus
   | EventCollabAgentCompleted
   | EventCollabAgentFailed
   | EventCollabMessagePosted
   | EventCollabMessageConsumed
+  | EventCollabRootDriveEnded
+  | EventWorkflowUpdated
+  | EventTodoUpdated
+  | EventResearchAtomsUpdated
   | EventTuiPromptAppend
   | EventTuiCommandExecute
   | EventTuiToastShow
@@ -1993,7 +2002,7 @@ export type SubtaskPartInput = {
 export type CollabReturnPartInput = {
   id?: string
   type: "collab_return"
-  kind: "child_done" | "child_failed" | "child_progress" | "cancel" | "user_input" | "system"
+  kind: "child_done" | "child_failed" | "child_waiting" | "child_progress" | "cancel" | "user_input" | "system"
   childAgentId?: string
   childName?: string
   childSessionId?: string
@@ -2021,7 +2030,7 @@ export type CollabMessage = {
   id: string
   recipient_agent_id: string
   sender_agent_id: string | null
-  kind: "child_done" | "child_failed" | "child_progress" | "cancel" | "user_input" | "system"
+  kind: "child_done" | "child_failed" | "child_waiting" | "child_progress" | "cancel" | "user_input" | "system"
   payload: unknown
   status: "pending" | "consumed" | "dropped"
   time_created: number
@@ -6340,7 +6349,7 @@ export type CollabAgentMessagesData = {
   query?: {
     directory?: string
     workspace?: string
-    kind?: "child_done" | "child_failed" | "child_progress" | "cancel" | "user_input" | "system"
+    kind?: "child_done" | "child_failed" | "child_waiting" | "child_progress" | "cancel" | "user_input" | "system"
     limit?: number
   }
   url: "/collab/agent/{agentId}/messages"

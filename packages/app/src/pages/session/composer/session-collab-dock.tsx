@@ -29,10 +29,11 @@ type Badge = "running" | "blocked" | "pending"
 const STATUS_ORDER: Record<string, number> = {
   running: 0,
   pending: 1,
-  blocked_on_children: 2,
-  completed: 3,
-  canceled: 4,
-  failed: 5,
+  waiting_interaction: 2,
+  blocked_on_children: 3,
+  completed: 4,
+  canceled: 5,
+  failed: 6,
 }
 
 function badge(kind: Badge, labels: { running: string; blocked: string; pending: string }) {
@@ -57,7 +58,7 @@ function statusDot(status: string) {
       ? "var(--text-strong)"
       : status === "pending"
         ? "var(--text-weak)"
-        : status === "blocked_on_children"
+        : status === "blocked_on_children" || status === "waiting_interaction"
           ? "var(--warning)"
           : status === "completed"
             ? "var(--success)"
@@ -97,6 +98,7 @@ export function SessionCollabDock(props: Props) {
   const mainBadge = createMemo<Badge>(() => {
     const root = props.activity.rootAgent()
     if (root?.status === "blocked_on_children") return "blocked"
+    if (props.activity.activeChildren().some((c) => c.status === "waiting_interaction")) return "blocked"
     if (props.activity.activeChildren().some((c) => c.status === "running" || c.status === "blocked_on_children"))
       return "running"
     return "pending"
@@ -196,7 +198,7 @@ export function SessionCollabDock(props: Props) {
                       style={{
                         cursor: props.onOpenAgent ? "pointer" : "default",
                         background:
-                          c.status === "running" || c.status === "blocked_on_children"
+                          c.status === "running" || c.status === "blocked_on_children" || c.status === "waiting_interaction"
                             ? "color-mix(in srgb, var(--text-strong) 6%, transparent)"
                             : "transparent",
                       }}

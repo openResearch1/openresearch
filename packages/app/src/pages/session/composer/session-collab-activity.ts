@@ -4,7 +4,7 @@ import { useGlobalSDK } from "@/context/global-sdk"
 import { useData } from "@opencode-ai/ui/context"
 import type { CollabAgent } from "@opencode-ai/sdk/v2/client"
 
-const ACTIVE_STATUSES = new Set(["pending", "running", "blocked_on_children"])
+const ACTIVE_STATUSES = new Set(["pending", "running", "blocked_on_children", "waiting_interaction"])
 
 export type CollabActivity = {
   rootAgent: Accessor<CollabAgent | null>

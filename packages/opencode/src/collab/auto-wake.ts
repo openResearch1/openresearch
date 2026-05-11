@@ -7,14 +7,15 @@ import { CollabAgentNode } from "./agent-node"
 import { CollabMessage } from "./message"
 import { CollabSupervisor } from "./supervisor"
 import { CollabLoop } from "./loop"
+import { CollabRuntime } from "./runtime"
 import { CollabEvent } from "./events"
 import {
   buildChildDonePart,
   buildChildFailedPart,
   buildChildProgressPart,
-  buildUserInputPart,
+  buildChildWaitingPart,
   finalizeParts,
-  type ReturnPartDraft,
+  type PromptPartDraft,
 } from "./return-parts"
 import type {
   AgentError,
@@ -22,6 +23,7 @@ import type {
   ChildDonePayload,
   ChildFailedPayload,
   ChildProgressPayload,
+  ChildWaitingPayload,
   UserInputPayload,
 } from "./types"
 import { WAKE_MESSAGE_KINDS } from "./types"
@@ -109,7 +111,10 @@ export namespace CollabAutoWake {
     const project = Instance.project
     const active = CollabAgentNode.loadActiveByProject(project.id)
     for (const node of active) {
-      if (node.parent_agent_id) continue
+      if (node.parent_agent_id) {
+        maybeStartLoop(node)
+        continue
+      }
       void maybeWakeOrBlock(node, inflight).catch((err) =>
         log.error("initialScan.node", { id: node.id, error: String(err) }),
       )
@@ -119,17 +124,30 @@ export namespace CollabAutoWake {
   async function tryDriveById(agentId: string, inflight: Set<string>) {
     const node = CollabAgentNode.tryLoad(agentId)
     if (!node) return
-    if (node.parent_agent_id) return
     if (!CollabAgentNode.isActive(node.status)) return
+    if (node.parent_agent_id) {
+      maybeStartLoop(node)
+      return
+    }
     await maybeWakeOrBlock(node, inflight)
   }
 
   async function tryDriveBySession(sessionID: string, inflight: Set<string>) {
     const node = CollabAgentNode.loadBySessionId(sessionID)
     if (!node) return
-    if (node.parent_agent_id) return
     if (!CollabAgentNode.isActive(node.status)) return
+    if (node.parent_agent_id) {
+      maybeStartLoop(node)
+      return
+    }
     await maybeWakeOrBlock(node, inflight)
+  }
+
+  function maybeStartLoop(node: AgentInfo) {
+    if (CollabRuntime.has(node.id)) return
+    if (SessionStatus.get(node.session_id).type === "busy") return
+    if (!CollabMessage.hasPendingWakeMsg(node.id)) return
+    void CollabLoop.start(node.id)
   }
 
   // Safety cap: if driveTurn keeps producing new wake messages (e.g. runaway child
@@ -138,6 +156,10 @@ export namespace CollabAutoWake {
   const MAX_DRIVE_ITERATIONS = 64
 
   async function maybeWakeOrBlock(node: AgentInfo, inflight: Set<string>) {
+    if (node.parent_agent_id) {
+      maybeStartLoop(node)
+      return
+    }
     if (inflight.has(node.session_id)) return
     if (SessionStatus.get(node.session_id).type === "busy") return
 
@@ -184,7 +206,7 @@ export namespace CollabAutoWake {
     const msgs = CollabMessage.drain(agentId)
 
     let gotCancel = false
-    const returnParts: ReturnPartDraft[] = []
+    const returnParts: PromptPartDraft[] = []
     const progressMsgs: ChildProgressPayload[] = []
     let failFastTrigger: ChildFailedPayload | undefined
 
@@ -206,11 +228,15 @@ export namespace CollabAutoWake {
           else returnParts.push(buildChildFailedPart(p))
           break
         }
+        case "child_waiting": {
+          returnParts.push(buildChildWaitingPart(payload as ChildWaitingPayload))
+          break
+        }
         case "child_progress":
           progressMsgs.push(payload as ChildProgressPayload)
           break
         case "user_input": {
-          returnParts.push(buildUserInputPart(payload as UserInputPayload))
+          returnParts.push({ type: "text", text: (payload as UserInputPayload).text })
           break
         }
         case "system":

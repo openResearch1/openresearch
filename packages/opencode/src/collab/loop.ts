@@ -3,6 +3,7 @@ import { Log } from "@/util/log"
 import { Session } from "@/session"
 import { SessionPrompt } from "@/session/prompt"
 import { MessageV2 } from "@/session/message-v2"
+import { Workflow } from "@/workflow"
 import { CollabAgentNode } from "./agent-node"
 import { CollabMessage } from "./message"
 import { CollabRuntime } from "./runtime"
@@ -12,9 +13,9 @@ import {
   buildChildDonePart,
   buildChildFailedPart,
   buildChildProgressPart,
-  buildUserInputPart,
+  buildChildWaitingPart,
   finalizeParts,
-  type ReturnPartDraft,
+  type PromptPartDraft,
 } from "./return-parts"
 import type {
   AgentError,
@@ -23,6 +24,7 @@ import type {
   ChildDonePayload,
   ChildFailedPayload,
   ChildProgressPayload,
+  ChildWaitingPayload,
   ProgressInjection,
   UserInputPayload,
 } from "./types"
@@ -74,7 +76,10 @@ export namespace CollabLoop {
       } else if (initial.status === "blocked_on_children") {
         CollabAgentNode.transition(agentId, "running", { phase: "main_loop" })
         hasRunInitialPrompt = true
-      } else if (initial.status === "running") {
+      } else if (initial.status === "running" || initial.status === "waiting_interaction") {
+        if (initial.status === "waiting_interaction") {
+          CollabAgentNode.transition(agentId, "running", { phase: "main_loop" })
+        }
         hasRunInitialPrompt = true
       }
     }
@@ -91,7 +96,7 @@ export namespace CollabLoop {
       const msgs = CollabMessage.drain(agentId)
 
       let gotCancel = false
-      const injections: ReturnPartDraft[] = []
+      const injections: PromptPartDraft[] = []
       const progressMsgs: ChildProgressPayload[] = []
       let failFastTrigger: ChildFailedPayload | undefined
 
@@ -115,13 +120,23 @@ export namespace CollabLoop {
             }
             break
           }
+          case "child_waiting": {
+            injections.push(buildChildWaitingPart(payload as ChildWaitingPayload))
+            break
+          }
           case "child_progress": {
             const p = payload as ChildProgressPayload
             progressMsgs.push(p)
             break
           }
           case "user_input": {
-            injections.push(buildUserInputPart(payload as UserInputPayload))
+            const p = payload as UserInputPayload
+            Workflow.autoResume({
+              sessionID: node.session_id,
+              userMessageID: p.messageId ?? m.id,
+              userMessage: p.text,
+            })
+            injections.push({ type: "text", text: p.text })
             break
           }
           case "system":
@@ -157,6 +172,7 @@ export namespace CollabLoop {
       if (injections.length > 0) {
         if (abort.aborted) return
         await runPromptTurn(node, { parts: finalizeParts(injections) }, abort)
+        if (await pauseIfWorkflowWaiting(agentId, abort)) return
         firstTick = false
         hasRunInitialPrompt = true
         continue
@@ -165,6 +181,7 @@ export namespace CollabLoop {
       if (firstTick && !hasRunInitialPrompt) {
         if (abort.aborted) return
         await runPromptTurn(node, { parts: [{ type: "text", text: node.spec.initialPrompt }] }, abort)
+        if (await pauseIfWorkflowWaiting(agentId, abort)) return
         firstTick = false
         hasRunInitialPrompt = true
         continue
@@ -172,6 +189,28 @@ export namespace CollabLoop {
 
       const refreshed = CollabAgentNode.load(agentId)
       if (refreshed.active_children === 0) {
+        const inst = Workflow.latest(refreshed.session_id)
+        if (inst?.status === "waiting_interaction") {
+          if (await pauseIfWorkflowWaiting(agentId, abort)) return
+        }
+        if (inst?.status === "running") {
+          await runPromptTurn(
+            refreshed,
+            {
+              parts: [
+                {
+                  type: "text",
+                  text: "Continue the active workflow. Call workflow.next, workflow.wait_interaction, or workflow.fail as appropriate.",
+                },
+              ],
+            },
+            abort,
+          )
+          if (await pauseIfWorkflowWaiting(agentId, abort)) return
+          firstTick = false
+          hasRunInitialPrompt = true
+          continue
+        }
         await finalizeCompleted(refreshed)
         return
       }
@@ -185,7 +224,7 @@ export namespace CollabLoop {
 
   async function runPromptTurn(
     node: AgentInfo,
-    input: { parts: Array<{ type: "text"; text: string } | ReturnPartDraft> },
+    input: { parts: PromptPartDraft[] },
     abort: AbortSignal,
   ) {
     const onAbort = () => SessionPrompt.cancel(node.session_id)
@@ -203,6 +242,42 @@ export namespace CollabLoop {
     } finally {
       abort.removeEventListener("abort", onAbort)
     }
+  }
+
+  async function pauseIfWorkflowWaiting(agentId: string, abort: AbortSignal): Promise<boolean> {
+    const node = CollabAgentNode.load(agentId)
+    if (!node.parent_agent_id) return false
+    const inst = Workflow.latest(node.session_id)
+    if (inst?.status !== "waiting_interaction") return false
+
+    const step = inst.current_index >= 0 ? inst.steps[inst.current_index] : undefined
+    const payload: ChildWaitingPayload = {
+      childAgentId: node.id,
+      childName: node.name,
+      childSessionId: node.session_id,
+      workflowInstanceId: inst.id,
+      waitMessageId: step?.interaction?.wait_after_user_message_id,
+      reason: step?.interaction?.reason,
+      message: step?.interaction?.message,
+    }
+
+    const duplicate = CollabMessage.list(node.parent_agent_id, { kind: "child_waiting", limit: 500 }).some((m) => {
+      const p = m.payload_json as Partial<ChildWaitingPayload>
+      if (p.childAgentId !== node.id) return false
+      if (p.workflowInstanceId !== inst.id) return false
+      if (payload.waitMessageId && p.waitMessageId !== payload.waitMessageId) return false
+      return true
+    })
+    if (duplicate) return true
+
+    await CollabMessage.postChildWaiting({
+      agentId: node.id,
+      rootAgentId: node.root_agent_id,
+      recipientAgentId: node.parent_agent_id,
+      payload,
+    })
+    log.info("waiting_interaction", { agentId, parentAgentId: node.parent_agent_id })
+    return true
   }
 
   function waitForInbox(agentId: string, abort: AbortSignal): Promise<void> {
@@ -227,7 +302,7 @@ export namespace CollabLoop {
   }
 
   function isWakeKind(kind: string) {
-    return kind === "child_done" || kind === "child_failed" || kind === "cancel" || kind === "user_input"
+    return kind === "child_done" || kind === "child_failed" || kind === "child_waiting" || kind === "cancel" || kind === "user_input"
   }
 
   async function finalizeCompleted(node: AgentInfo) {

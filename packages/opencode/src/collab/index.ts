@@ -154,13 +154,11 @@ export namespace Collab {
   }
 
   /**
-   * Re-open a completed / failed / canceled agent and deliver a new user
-   * instruction to it. The agent resumes in its existing session (history
+   * Re-open a waiting / completed / failed / canceled agent and deliver a new
+   * user instruction to it. The agent resumes in its existing session (history
    * preserved), transitions back to `running`, and runs a fresh LLM turn
-   * consuming the new prompt. When it completes again, it will post another
-   * `child_done` to its parent. Intended for multi-turn collaboration where
-   * the parent wants to give additional instructions to an already-finished
-   * peer.
+   * consuming the new prompt. Waiting agents remain active children; terminal
+   * agents are re-counted as active before their additional turn.
    */
   export async function resume(input: { agentId: string; prompt: string }): Promise<AgentInfo> {
     CollabProgressHook.ensure()
@@ -169,13 +167,7 @@ export namespace Collab {
     const node = CollabAgentNode.tryLoad(input.agentId)
     if (!node) throw new NotFoundError({ message: `Agent not found: ${input.agentId}` })
 
-    // Must be terminal. If it's already active, the caller should use
-    // `send_to_agent` instead — no need to resume a running peer.
-    if (CollabAgentNode.isActive(node.status)) {
-      throw new Error(
-        `Cannot resume agent ${node.id}: already active (status=${node.status}). Use send_to_agent instead.`,
-      )
-    }
+    const waiting = node.status === "waiting_interaction"
 
     // If the parent has also finalized, resuming would orphan the child —
     // no one to receive `child_done`. Refuse.
@@ -188,21 +180,36 @@ export namespace Collab {
       }
     }
 
+    if (CollabAgentNode.isActive(node.status) && !waiting) {
+      await CollabMessage.post({
+        recipientAgentId: node.id,
+        senderAgentId: null,
+        kind: "user_input",
+        payload: { text: input.prompt },
+      })
+
+      if (SessionStatus.get(node.session_id).type !== "busy" && !CollabRuntime.has(node.id)) {
+        void CollabLoop.start(node.id)
+      }
+
+      return CollabAgentNode.load(node.id)
+    }
+
     // Avoid racing with any lingering loop registration.
     if (CollabRuntime.has(node.id)) {
       log.warn("resume: runtime still had an entry, aborting it first", { agentId: node.id })
-      CollabRuntime.abort(node.id)
+      CollabRuntime.abortAndUnregister(node.id)
     }
 
     // 1) Transition child back to running; clear prior error but keep result
-    //    history. 2) Re-bump parent's active_children so blocked_on_children
-    //    works on next completion.
+    //    history. 2) Re-bump parent's active_children only for terminal
+    //    resumes. Waiting children never left the active count.
     CollabAgentNode.transition(node.id, "running", {
       phase: "main_loop",
       error: null,
       timeEnded: null,
     })
-    if (node.parent_agent_id) {
+    if (node.parent_agent_id && !waiting) {
       CollabAgentNode.bumpActiveChildren(node.parent_agent_id, 1)
     }
 
@@ -252,6 +259,35 @@ export namespace Collab {
 
   export function getBySession(sessionId: string): AgentInfo | undefined {
     return CollabAgentNode.loadBySessionId(sessionId)
+  }
+
+  export function hasOutstandingAsyncWork(sessionId: string): boolean {
+    const state = workflowAsyncState(sessionId)
+    return state.hasRunningChildren || state.hasWaitingChildren || state.hasPendingWakeMessages
+  }
+
+  export function workflowAsyncState(sessionId: string): {
+    hasRunningChildren: boolean
+    hasWaitingChildren: boolean
+    hasPendingWakeMessages: boolean
+  } {
+    const node = CollabAgentNode.loadBySessionId(sessionId)
+    if (!node || !CollabAgentNode.isActive(node.status)) {
+      return {
+        hasRunningChildren: false,
+        hasWaitingChildren: false,
+        hasPendingWakeMessages: false,
+      }
+    }
+
+    const children = CollabAgentNode.loadChildren(node.id)
+    return {
+      hasRunningChildren: children.some(
+        (child) => CollabAgentNode.isActive(child.status) && child.status !== "waiting_interaction",
+      ),
+      hasWaitingChildren: children.some((child) => child.status === "waiting_interaction"),
+      hasPendingWakeMessages: CollabMessage.hasPendingWakeMsg(node.id),
+    }
   }
 
   export function children(agentId: string): AgentInfo[] {

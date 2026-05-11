@@ -31,4 +31,4 @@ You can pass any of these as `agent_type`:
 - `policy.timeout_ms`: optional per-peer timeout.
 - `policy.maxChildren`: optional cap on your own direct peers.
 
-Returns: `{ agent_id, session_id, status }`. Save `agent_id` for use with `list_children` / `cancel_agent` / `send_to_agent` / `read_agent_output`.
+Returns: `{ agent_id, session_id, status }`. Save `agent_id` for use with `list_children` / `cancel_agent` / `resume_agent` / `read_agent_output`.

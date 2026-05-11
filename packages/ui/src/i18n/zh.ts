@@ -126,6 +126,7 @@ export const dict = {
   "ui.tool.agent.childCompleted": "子任务完成",
   "ui.tool.agent.childSummary": "结论",
   "ui.tool.agent.waiting": "等待中",
+  "ui.tool.agent.waitingInteraction": "等待交互",
 
   "ui.workflow.status.running": "进行中",
   "ui.workflow.status.waiting": "等待输入",

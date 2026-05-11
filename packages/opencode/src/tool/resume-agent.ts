@@ -4,7 +4,7 @@ import { Tool } from "./tool"
 import DESCRIPTION from "./resume-agent.txt"
 
 const parameters = z.object({
-  agent_id: z.string().describe("The id of the completed/failed/canceled peer to resume"),
+  agent_id: z.string().describe("The id of the waiting/completed/failed/canceled peer to resume"),
   prompt: z.string().describe("The new instruction to deliver to the resumed peer"),
 })
 
@@ -64,7 +64,7 @@ export const ResumeAgentTool = Tool.define("resume_agent", async () => {
             `session_id: ${info.session_id}`,
             `status: ${info.status}`,
             "",
-            "Resumed. You will receive a new `child_done` message when the peer finishes the additional turn.",
+            "Queued. You will receive a new `child_done` message when the peer finishes the additional turn.",
           ].join("\n"),
         }
       } catch (err) {

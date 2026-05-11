@@ -19,7 +19,7 @@ If you need a child's actual output, call `read_agent_output(agent_id)` on that 
 
 - Once, right after spawning, to sanity-check the agent_ids / statuses.
 - Once at the start of a resumed turn, to review overall progress before deciding the next step.
-- To look up an `agent_id` you need for `send_to_agent` / `cancel_agent` / `resume_agent` / `read_agent_output`.
+- To look up an `agent_id` you need for `resume_agent` / `cancel_agent` / `read_agent_output`.
 
 ## Returns
 

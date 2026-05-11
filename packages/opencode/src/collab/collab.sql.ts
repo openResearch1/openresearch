@@ -7,6 +7,7 @@ export const collabAgentStatuses = [
   "pending",
   "running",
   "blocked_on_children",
+  "waiting_interaction",
   "completed",
   "failed",
   "canceled",
@@ -19,6 +20,7 @@ export type CollabAgentPhase = (typeof collabAgentPhases)[number]
 export const collabMsgKinds = [
   "child_done",
   "child_failed",
+  "child_waiting",
   "child_progress",
   "cancel",
   "user_input",

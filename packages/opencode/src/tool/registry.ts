@@ -70,7 +70,6 @@ import { WorkflowTool } from "./workflow"
 import { SpawnAgentTool } from "./spawn-agent"
 import { ListChildrenTool } from "./list-children"
 import { CancelAgentTool } from "./cancel-agent"
-import { SendToAgentTool } from "./send-to-agent"
 import { ResumeAgentTool } from "./resume-agent"
 import { ReadAgentOutputTool } from "./read-agent-output"
 import { Glob } from "../util/glob"
@@ -202,7 +201,6 @@ export namespace ToolRegistry {
       SpawnAgentTool,
       ListChildrenTool,
       CancelAgentTool,
-      SendToAgentTool,
       ResumeAgentTool,
       ReadAgentOutputTool,
       ...(Flag.OPENCODE_EXPERIMENTAL_LSP_TOOL ? [LspTool] : []),

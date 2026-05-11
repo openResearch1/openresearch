@@ -14,7 +14,7 @@ import type { ChildDonePayload, ChildFailedPayload } from "./types"
 export namespace CollabRecovery {
   const log = Log.create({ service: "collab.recovery" })
 
-  const ACTIVE_STATUSES = ["pending", "running", "blocked_on_children"] as const
+  const ACTIVE_STATUSES = ["pending", "running", "blocked_on_children", "waiting_interaction"] as const
 
   export async function scan() {
     CollabProgressHook.ensure()
@@ -44,6 +44,11 @@ export namespace CollabRecovery {
         // message". AutoWake's own initial scan (in CollabAutoWake.ensure)
         // already re-subscribes and re-drives any pending inbox for roots.
         log.info("scan.skip.root", { agentId: node.id, status: node.status })
+        continue
+      }
+
+      if (node.status === "waiting_interaction" && !CollabMessage.hasPendingWakeMsg(node.id)) {
+        log.info("scan.skip.waiting", { agentId: node.id })
         continue
       }
 
