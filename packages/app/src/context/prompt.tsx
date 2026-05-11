@@ -27,6 +27,15 @@ export interface AgentPart extends PartBase {
   name: string
 }
 
+export type AtomKind = "fact" | "method" | "theorem" | "verification"
+
+export interface AtomPart extends PartBase {
+  type: "atom"
+  atomId: string
+  name: string
+  atomType: AtomKind
+}
+
 export interface ImageAttachmentPart {
   type: "image"
   id: string
@@ -35,8 +44,9 @@ export interface ImageAttachmentPart {
   dataUrl: string
 }
 
-export type ContentPart = TextPart | FileAttachmentPart | AgentPart | ImageAttachmentPart
+export type ContentPart = TextPart | FileAttachmentPart | AgentPart | AtomPart | ImageAttachmentPart
 export type Prompt = ContentPart[]
+export type InlinePart = Exclude<ContentPart, ImageAttachmentPart>
 
 export type FileContextItem = {
   type: "file"
@@ -68,6 +78,13 @@ function isPartEqual(partA: ContentPart, partB: ContentPart) {
       return partB.type === "file" && partA.path === partB.path && isSelectionEqual(partA.selection, partB.selection)
     case "agent":
       return partB.type === "agent" && partA.name === partB.name
+    case "atom":
+      return (
+        partB.type === "atom" &&
+        partA.atomId === partB.atomId &&
+        partA.name === partB.name &&
+        partA.atomType === partB.atomType
+      )
     case "image":
       return partB.type === "image" && partA.id === partB.id
   }
@@ -90,10 +107,66 @@ function clonePart(part: ContentPart): ContentPart {
   if (part.type === "text") return { ...part }
   if (part.type === "image") return { ...part }
   if (part.type === "agent") return { ...part }
+  if (part.type === "atom") return { ...part }
   return {
     ...part,
     selection: cloneSelection(part.selection),
   }
+}
+
+function length(prompt: Prompt) {
+  return prompt.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0)
+}
+
+function range(part: InlinePart, start: number): InlinePart {
+  return { ...part, start, end: start + part.content.length }
+}
+
+function text(content: string, start: number): TextPart {
+  return { type: "text", content, start, end: start + content.length }
+}
+
+function insertPart(prompt: Prompt, part: InlinePart, cursor: number | undefined) {
+  const images = prompt.filter((item): item is ImageAttachmentPart => item.type === "image")
+  const inline = prompt.filter((item): item is InlinePart => item.type !== "image")
+  const pos = Math.max(0, Math.min(cursor ?? length(inline), length(inline)))
+  const next: InlinePart[] = []
+  let offset = 0
+  let nextCursor = 0
+  let inserted = false
+
+  const push = (item: InlinePart) => {
+    if (item.type === "text" && item.content.length === 0) return
+    const value = range(item, offset)
+    next.push(value)
+    offset = value.end
+  }
+
+  const insert = () => {
+    if (inserted) return
+    push(part)
+    push(text(" ", offset))
+    nextCursor = offset
+    inserted = true
+  }
+
+  for (const item of inline) {
+    if (!inserted && pos <= item.start) insert()
+
+    if (!inserted && item.type === "text" && pos > item.start && pos < item.end) {
+      const index = pos - item.start
+      push(text(item.content.slice(0, index), offset))
+      insert()
+      push(text(item.content.slice(index), offset))
+      continue
+    }
+
+    push(item)
+    if (!inserted && pos === item.end) insert()
+  }
+
+  insert()
+  return { prompt: [...next, ...images], cursor: nextCursor }
 }
 
 function clonePrompt(prompt: Prompt): Prompt {
@@ -215,6 +288,10 @@ function createPromptSession(dir: string, id: string | undefined) {
       },
     },
     set: actions.set,
+    insert(part: InlinePart) {
+      const next = insertPart(store.prompt, part, store.cursor)
+      actions.set(next.prompt, next.cursor)
+    },
     reset: actions.reset,
   }
 }
@@ -281,6 +358,7 @@ export const { use: usePrompt, provider: PromptProvider } = createSimpleContext(
         replaceComments: (items: FileContextItem[]) => session().context.replaceComments(items),
       },
       set: (prompt: Prompt, cursorPosition?: number) => session().set(prompt, cursorPosition),
+      insert: (part: InlinePart) => session().insert(part),
       reset: () => session().reset(),
     }
   },

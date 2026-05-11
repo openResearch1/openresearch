@@ -2,7 +2,7 @@ import { getFilename } from "@opencode-ai/util/path"
 import { type AgentPartInput, type FilePartInput, type Part, type TextPartInput } from "@opencode-ai/sdk/v2/client"
 import type { FileSelection } from "@/context/file"
 import { encodeFilePath } from "@/context/file/path"
-import type { AgentPart, FileAttachmentPart, ImageAttachmentPart, Prompt } from "@/context/prompt"
+import type { AgentPart, AtomPart, FileAttachmentPart, ImageAttachmentPart, Prompt } from "@/context/prompt"
 import { Identifier } from "@/utils/id"
 import { createCommentMetadata, formatCommentNote } from "@/utils/comment-note"
 
@@ -41,6 +41,7 @@ const fileQuery = (selection: FileSelection | undefined) =>
 
 const isFileAttachment = (part: Prompt[number]): part is FileAttachmentPart => part.type === "file"
 const isAgentAttachment = (part: Prompt[number]): part is AgentPart => part.type === "agent"
+const isAtomAttachment = (part: Prompt[number]): part is AtomPart => part.type === "atom"
 
 const toOptimisticPart = (part: PromptRequestPart, sessionID: string, messageID: string): Part => {
   if (part.type === "text") {
@@ -120,6 +121,25 @@ export function buildRequestParts(input: BuildRequestPartsInput) {
     } satisfies PromptRequestPart
   })
 
+  const atoms = input.prompt.filter(isAtomAttachment).map((attachment) => {
+    return {
+      id: Identifier.ascending("part"),
+      type: "text",
+      synthetic: true,
+      text: `Referenced atom (${attachment.atomType}): ${attachment.name} (atom_id: ${attachment.atomId})`,
+      metadata: {
+        opencodeAtom: {
+          atomId: attachment.atomId,
+          atomType: attachment.atomType,
+          name: attachment.name,
+          value: attachment.content,
+          start: attachment.start,
+          end: attachment.end,
+        },
+      },
+    } satisfies PromptRequestPart
+  })
+
   const used = new Set(files.map((part) => part.url))
   const context = input.context.flatMap((item) => {
     const path = absolute(input.sessionDirectory, item.path)
@@ -166,7 +186,7 @@ export function buildRequestParts(input: BuildRequestPartsInput) {
     } satisfies PromptRequestPart
   })
 
-  requestParts.push(...files, ...context, ...agents, ...images)
+  requestParts.push(...files, ...context, ...atoms, ...agents, ...images)
 
   return {
     requestParts,

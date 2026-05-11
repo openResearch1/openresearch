@@ -1,6 +1,65 @@
 @import "@opencode-ai/ui/styles/tailwind";
 
 @layer components {
+  [data-component="prompt-input"] [data-type="atom"] {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-inline: 0.05rem;
+    padding: 0.05rem 0.45rem 0.08rem 0.28rem;
+    border: 1px solid color-mix(in oklab, #60a5fa 48%, transparent);
+    border-radius: 999px;
+    background: color-mix(in oklab, #60a5fa 14%, transparent);
+    color: color-mix(in oklab, #bfdbfe 88%, currentColor);
+    font-weight: 500;
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, white 5%, transparent);
+  }
+
+  [data-component="prompt-input"] [data-type="atom"]::before {
+    content: attr(data-label);
+    display: inline-flex;
+    align-items: center;
+    height: 1rem;
+    padding-inline: 0.3rem;
+    border-radius: 999px;
+    background: color-mix(in oklab, #60a5fa 26%, transparent);
+    color: color-mix(in oklab, #dbeafe 88%, white);
+    font-size: 0.625rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    line-height: 1;
+  }
+
+  [data-component="prompt-input"] [data-type="atom"][data-atom-kind="method"] {
+    border-color: color-mix(in oklab, #34d399 48%, transparent);
+    background: color-mix(in oklab, #34d399 14%, transparent);
+    color: color-mix(in oklab, #a7f3d0 88%, currentColor);
+  }
+  [data-component="prompt-input"] [data-type="atom"][data-atom-kind="method"]::before {
+    background: color-mix(in oklab, #34d399 26%, transparent);
+    color: color-mix(in oklab, #d1fae5 88%, white);
+  }
+
+  [data-component="prompt-input"] [data-type="atom"][data-atom-kind="theorem"] {
+    border-color: color-mix(in oklab, #f87171 48%, transparent);
+    background: color-mix(in oklab, #f87171 14%, transparent);
+    color: color-mix(in oklab, #fecaca 88%, currentColor);
+  }
+  [data-component="prompt-input"] [data-type="atom"][data-atom-kind="theorem"]::before {
+    background: color-mix(in oklab, #f87171 26%, transparent);
+    color: color-mix(in oklab, #fee2e2 88%, white);
+  }
+
+  [data-component="prompt-input"] [data-type="atom"][data-atom-kind="verification"] {
+    border-color: color-mix(in oklab, #fbbf24 48%, transparent);
+    background: color-mix(in oklab, #fbbf24 14%, transparent);
+    color: color-mix(in oklab, #fde68a 88%, currentColor);
+  }
+  [data-component="prompt-input"] [data-type="atom"][data-atom-kind="verification"]::before {
+    background: color-mix(in oklab, #fbbf24 26%, transparent);
+    color: color-mix(in oklab, #fef3c7 88%, white);
+  }
+
   [data-component="getting-started"] {
     container-type: inline-size;
     container-name: getting-started;

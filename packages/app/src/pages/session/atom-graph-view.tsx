@@ -87,6 +87,7 @@ export function AtomGraphView(props: {
   }) => Promise<void>
   onRelationDelete: (input: { sourceAtomId: string; targetAtomId: string; relationType: string }) => Promise<void>
   onAtomViewDetail?: (atomId: string) => void
+  onAtomReference?: (atomId: string) => void
   researchProjectId: string
 }) {
   let containerRef: HTMLDivElement | undefined
@@ -932,6 +933,12 @@ export function AtomGraphView(props: {
         if (!nodeId) return
         const e = evt.originalEvent as MouseEvent | PointerEvent | undefined
         const withCtrl = !!e && (("metaKey" in e && e.metaKey) || ("ctrlKey" in e && e.ctrlKey))
+        const withShift = !!e && "shiftKey" in e && e.shiftKey
+        if (withShift) {
+          e?.preventDefault()
+          props.onAtomReference?.(nodeId)
+          return
+        }
         // Ctrl+click: focus toggle (pin/unpin dim + tooltip)
         if (withCtrl) {
           const prevFocused = state.focusedNodeId
