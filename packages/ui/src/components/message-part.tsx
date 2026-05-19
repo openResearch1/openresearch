@@ -1836,12 +1836,14 @@ ToolRegistry.register({
               : inst.status === "cancelled"
                 ? i18n.t("ui.workflow.status.cancelled")
                 : i18n.t("ui.workflow.status.running")
+      const stepLabel =
+        inst.current_index >= 0
+          ? `${i18n.t("ui.workflow.step")} ${Math.min(inst.current_index + 1, inst.steps.length)}/${inst.steps.length}`
+          : null
       return {
         title: i18n.t("ui.tool.workflow"),
         subtitle: `${action() ?? i18n.t("ui.tool.workflow")} · ${inst.title} · ${state}`,
-        args: [
-          `${i18n.t("ui.workflow.step")} ${Math.max(0, Math.min(inst.current_index + 1, inst.steps.length))}/${inst.steps.length}`,
-        ],
+        args: stepLabel ? [stepLabel] : [],
       }
     })
 

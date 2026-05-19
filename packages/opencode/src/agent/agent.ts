@@ -32,6 +32,10 @@ import PROMPT_RESEARCH_ARTICLE_TREE_BUILD from "./prompt/research_article_tree_b
 import PROMPT_RESEARCH_IDEA from "./prompt/research_idea.txt"
 import PROMPT_RESEARCH_IDEA_TREE_BUILD from "./prompt/research_idea_tree_build.txt"
 import PROMPT_RESEARCH_TREE_LINK from "./prompt/research_tree_link.txt"
+import PROMPT_DEEP_RESEARCH from "./prompt/deep_research.txt"
+import PROMPT_DEEP_RESEARCH_PLAN from "./prompt/deep_research_plan.txt"
+import PROMPT_DEEP_RESEARCH_SEARCH_VERIFY from "./prompt/deep_research_search_verify.txt"
+import PROMPT_DEEP_RESEARCH_GENERATE from "./prompt/deep_research_generate.txt"
 import { PermissionNext } from "@/permission/next"
 import { mergeDeep, pipe, sortBy, values } from "remeda"
 import { Global } from "@/global"
@@ -677,6 +681,120 @@ export namespace Agent {
           user,
         ),
         options: {},
+        mode: "subagent",
+        native: true,
+      },
+      deep_research: {
+        name: "deep_research",
+        description: "Deep research primary agent. Coordinates three subagents (plan, search-verify, generate) to complete end-to-end in-depth research tasks, including research planning, information search and verification, and research result generation.",
+        options: {},
+        temperature: 0.5,
+        steps: 20,
+        permission: PermissionNext.merge(
+          defaults,
+          PermissionNext.fromConfig({
+            question: "allow",
+            plan_enter: "allow",
+            plan_exit: "allow",
+            bash: "ask",
+            task: {
+              deep_research_plan: "allow",
+              deep_research_search_verify: "allow",
+              deep_research_generate: "allow",
+            },
+            websearch: "allow",
+            webfetch: "allow",
+            read: "allow",
+            write: "allow",
+            edit: {
+              "*": "deny",
+              "*.md": "allow",
+              "**/*.md": "allow",
+              "deep-research-*/**": "allow",
+            },
+            research_doc_edit: "allow",
+          }),
+          user,
+        ),
+        prompt: PROMPT_DEEP_RESEARCH,
+        mode: "primary",
+        native: true,
+      },
+      deep_research_plan: {
+        name: "deep_research_plan",
+        description: "Subagent for deep research planning. Analyzes research topics and requirements, splits research tasks into detailed steps, formulates a scientific and feasible research plan, and clarifies the scope and objectives of each sub-task.",
+        options: {},
+        temperature: 0.4,
+        permission: PermissionNext.merge(
+          defaults,
+          PermissionNext.fromConfig({
+            question: "allow",
+            plan_enter: "allow",
+            plan_exit: "allow",
+            read: "allow",
+            write: "allow",
+            edit: {
+              [path.join(".openresearch", "plans", "*.md")]: "allow",
+            },
+          }),
+          user,
+        ),
+        prompt: PROMPT_DEEP_RESEARCH_PLAN,
+        mode: "subagent",
+        native: true,
+      },
+      deep_research_search_verify: {
+        name: "deep_research_search_verify",
+        description: "Subagent for deep research search and verification. Executes search tasks according to the research plan, collects relevant information from multiple sources, verifies the authenticity, accuracy and authority of the information, and filters out valid research materials.",
+        options: {},
+        temperature: 0.2,
+        permission: PermissionNext.merge(
+          defaults,
+          PermissionNext.fromConfig({
+            "*": "deny",
+            websearch: "allow",
+            webfetch: "allow",
+            grep: "allow",
+            glob: "allow",
+            read: "allow",
+            write: "allow",
+            edit: {
+              "*": "deny",
+            },
+            question: "allow",
+            external_directory: {
+              "*": "ask",
+              ...Object.fromEntries(whitelistedDirs.map((dir) => [dir, "allow"])),
+            },
+          }),
+          user,
+        ),
+        prompt: PROMPT_DEEP_RESEARCH_SEARCH_VERIFY,
+        mode: "subagent",
+        native: true,
+      },
+      deep_research_generate: {
+        name: "deep_research_generate",
+        description: "Subagent for deep research result generation. Integrates valid information collected and verified, organizes research logic, generates standardized research reports, summaries or analysis conclusions, and ensures the completeness and rigor of the results.",
+        options: {},
+        temperature: 0.3,
+        steps: 15,
+        permission: PermissionNext.merge(
+          defaults,
+          PermissionNext.fromConfig({
+            "*": "deny",
+            read: "allow",
+            write: "allow",
+            edit: "allow",
+            research_doc_edit: "allow",
+            external_directory: "allow",
+            question: "deny",
+            atom_create: "allow",
+            atom_batch_create: "allow",
+          }),
+          user,
+        ),
+        prompt: PROMPT_DEEP_RESEARCH_GENERATE,
         mode: "subagent",
         native: true,
       },
