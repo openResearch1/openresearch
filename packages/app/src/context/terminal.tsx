@@ -10,6 +10,9 @@ export type LocalPTY = {
   id: string
   title: string
   titleNumber: number
+  type?: "local" | "remote"
+  remoteServerId?: string
+  remoteLabel?: string
   rows?: number
   cols?: number
   buffer?: string
@@ -107,6 +110,23 @@ function createWorkspaceTerminalSession(sdk: ReturnType<typeof useSDK>, dir: str
     )
   }
 
+  const pickNextRemoteNumber = (serverId: string, label?: string) => {
+    const existing = new Set(
+      store.all.flatMap((pty) => {
+        if (pty.remoteServerId !== serverId) return []
+        if (!label) return []
+        if (pty.title === `SSH ${label}`) return [1]
+        const prefix = `SSH ${label} `
+        if (!pty.title.startsWith(prefix)) return []
+        const value = Number(pty.title.slice(prefix.length))
+        if (!Number.isFinite(value) || value <= 0) return []
+        return [value]
+      }),
+    )
+
+    return Array.from({ length: existing.size + 1 }, (_, index) => index + 1).find((number) => !existing.has(number)) ?? 1
+  }
+
   const removeExited = (id: string) => {
     const all = store.all
     const index = all.findIndex((x) => x.id === id)
@@ -170,12 +190,40 @@ function createWorkspaceTerminalSession(sdk: ReturnType<typeof useSDK>, dir: str
             id,
             title: pty.data?.title ?? "Terminal",
             titleNumber: nextNumber,
+            type: "local" as const,
           }
           setStore("all", store.all.length, newTerminal)
           setStore("active", id)
         })
         .catch((error: unknown) => {
           console.error("Failed to create terminal", error)
+        })
+    },
+    newRemote(serverId: string, label?: string) {
+      const nextNumber = pickNextTerminalNumber()
+      const title = label ? `SSH ${label} ${pickNextRemoteNumber(serverId, label)}` : `SSH ${nextNumber}`
+
+      sdk.client.pty
+        .createRemote({ serverId, title })
+        .then(
+          (pty: {
+            data?: { id?: string; title?: string; remote_server_id?: string; remote_label?: string; type?: "local" | "remote" }
+          }) => {
+            const id = pty.data?.id
+            if (!id) return
+            setStore("all", store.all.length, {
+              id,
+              title: pty.data?.title ?? title,
+              titleNumber: nextNumber,
+              type: pty.data?.type ?? "remote",
+              remoteServerId: pty.data?.remote_server_id ?? serverId,
+              remoteLabel: pty.data?.remote_label ?? label,
+            })
+            setStore("active", id)
+          },
+        )
+        .catch((error: unknown) => {
+          console.error("Failed to create remote terminal", error)
         })
     },
     update(pty: Partial<LocalPTY> & { id: string }) {
@@ -214,10 +262,14 @@ function createWorkspaceTerminalSession(sdk: ReturnType<typeof useSDK>, dir: str
       const index = store.all.findIndex((x) => x.id === id)
       const pty = store.all[index]
       if (!pty) return
-      const clone = await sdk.client.pty
-        .create({
-          title: pty.title,
-        })
+      const clone = await (pty.remoteServerId
+        ? sdk.client.pty.createRemote({
+            serverId: pty.remoteServerId,
+            title: pty.title,
+          })
+        : sdk.client.pty.create({
+            title: pty.title,
+          }))
         .catch((error: unknown) => {
           console.error("Failed to clone terminal", error)
           return undefined
@@ -231,6 +283,9 @@ function createWorkspaceTerminalSession(sdk: ReturnType<typeof useSDK>, dir: str
           id: clone.data.id,
           title: clone.data.title ?? pty.title,
           titleNumber: pty.titleNumber,
+          type: pty.type,
+          remoteServerId: pty.remoteServerId,
+          remoteLabel: pty.remoteLabel,
           // New PTY process, so start clean.
           buffer: undefined,
           cursor: undefined,
@@ -362,6 +417,7 @@ export const { use: useTerminal, provider: TerminalProvider } = createSimpleCont
       all: () => workspace().all(),
       active: () => workspace().active(),
       new: () => workspace().new(),
+      newRemote: (serverId: string, label?: string) => workspace().newRemote(serverId, label),
       update: (pty: Partial<LocalPTY> & { id: string }) => workspace().update(pty),
       trim: (id: string) => workspace().trim(id),
       trimAll: () => workspace().trimAll(),

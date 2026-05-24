@@ -569,6 +569,34 @@ export namespace MessageV2 {
       return { type: "json", value: output as never }
     }
 
+    const userExecuted = (msg: WithParts) => {
+      if (msg.info.role !== "assistant") return false
+      const info = msg.info
+      const parent = input.find((item) => item.info.id === info.parentID)
+      if (parent?.info.role !== "user") return false
+      return parent.parts.some(
+        (part) =>
+          part.type === "text" &&
+          part.synthetic === true &&
+          part.text.trim() === "The following tool was executed by the user",
+      )
+    }
+
+    const userExecutedText = (part: Extract<MessageV2.Part, { type: "tool" }>) => {
+      const state = part.state
+      const input = "input" in state ? state.input : {}
+      const output = state.status === "completed" ? state.output : state.status === "error" ? state.error : "[interrupted]"
+      return [
+        `The user executed the ${part.tool} tool.`,
+        "",
+        "Input:",
+        JSON.stringify(input, null, 2),
+        "",
+        "Output:",
+        output,
+      ].join("\n")
+    }
+
     for (const msg of input) {
       if (msg.parts.length === 0) continue
 
@@ -629,6 +657,7 @@ export namespace MessageV2 {
       if (msg.info.role === "assistant") {
         const differentModel = `${model.providerID}/${model.id}` !== `${msg.info.providerID}/${msg.info.modelID}`
         const media: Array<{ mime: string; url: string }> = []
+        const executed = userExecuted(msg)
 
         if (
           msg.info.error &&
@@ -656,6 +685,13 @@ export namespace MessageV2 {
               type: "step-start",
             })
           if (part.type === "tool") {
+            if (executed) {
+              assistantMessage.parts.push({
+                type: "text",
+                text: userExecutedText(part),
+              })
+              continue
+            }
             toolNames.add(part.tool)
             if (part.state.status === "completed") {
               const outputText = part.state.time.compacted ? "[Old tool result content cleared]" : part.state.output

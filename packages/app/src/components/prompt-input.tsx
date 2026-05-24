@@ -1,6 +1,6 @@
 import { useFilteredList } from "@opencode-ai/ui/hooks"
 import { useSpring } from "@opencode-ai/ui/motion-spring"
-import { createEffect, on, Component, Show, onCleanup, Switch, Match, createMemo, createSignal } from "solid-js"
+import { createEffect, on, Component, Show, onCleanup, Switch, Match, createMemo, createSignal, createResource } from "solid-js"
 import { createStore } from "solid-js/store"
 import { createFocusSignal } from "@solid-primitives/active-element"
 import { useLocal } from "@/context/local"
@@ -110,6 +110,40 @@ const AT_AGENT_LIST = [
   "general",
   "explore",
 ] as const
+
+type Mode = "normal" | "shell" | "ssh" | "remote-task"
+
+type ServerConfig =
+  | {
+      mode: "direct"
+      address: string
+      port: number
+      user: string
+      resource_root?: string
+    }
+  | {
+      mode: "ssh_config"
+      host_alias: string
+      user?: string
+      resource_root?: string
+    }
+
+type ServerRow = {
+  id: string
+  config: ServerConfig
+}
+
+type ExperimentSession = {
+  exp_id: string
+  remote_server_config: ServerConfig | null
+}
+
+function serverLabel(row: ServerRow) {
+  if (row.config.mode === "ssh_config") {
+    return row.config.user ? `${row.config.user}@${row.config.host_alias}` : row.config.host_alias
+  }
+  return `${row.config.user}@${row.config.address}:${row.config.port}`
+}
 
 function DialogNewIdea(props: { onCancel: () => void; onSubmit: (idea: string) => void }) {
   const dialog = useDialog()
@@ -302,7 +336,8 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     savedPrompt: PromptHistoryEntry | null
     placeholder: number
     draggingType: "image" | "@mention" | null
-    mode: "normal" | "shell"
+    mode: Mode
+    sshServerId: string | undefined
     applyingHistory: boolean
   }>({
     popover: null,
@@ -311,20 +346,56 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     placeholder: Math.floor(Math.random() * EXAMPLES.length),
     draggingType: null,
     mode: "normal",
+    sshServerId: undefined,
     applyingHistory: false,
   })
 
   const buttonsSpring = useSpring(() => (store.mode === "normal" ? 1 : 0), { visualDuration: 0.2, bounce: 0 })
 
   const commentCount = createMemo(() => {
-    if (store.mode === "shell") return 0
+    if (store.mode !== "normal") return 0
     return prompt.context.items().filter((item) => !!item.comment?.trim()).length
   })
 
   const contextItems = createMemo(() => {
     const items = prompt.context.items()
-    if (store.mode !== "shell") return items
+    if (store.mode === "normal") return items
     return items.filter((item) => !item.comment?.trim())
+  })
+
+  const [servers, serversActions] = createResource(async () => {
+    const res = await sdk.client.research.server.list()
+    return ((res.data ?? []) as ServerRow[]).filter((item) => item.config.mode === "direct" || item.config.mode === "ssh_config")
+  })
+
+  const sshServers = createMemo(() => servers() ?? [])
+  const sshServerOptions = createMemo(() => sshServers().map((item) => item.id))
+
+  const [experiment] = createResource(
+    () => params.id,
+    async (id) => {
+      if (!id) return null
+      const res = await sdk.client.research.experiment.bySession({ sessionId: id })
+      return (res.data ?? null) as ExperimentSession | null
+    },
+  )
+  const remoteTaskAvailable = createMemo(() => !!experiment())
+
+  createEffect(() => {
+    if (store.mode !== "ssh") return
+    const list = sshServers()
+    if (list.length === 0) {
+      setStore("sshServerId", undefined)
+      return
+    }
+    if (store.sshServerId && list.some((item) => item.id === store.sshServerId)) return
+    setStore("sshServerId", list[0].id)
+  })
+
+  createEffect(() => {
+    if (store.mode !== "remote-task") return
+    if (remoteTaskAvailable()) return
+    setStore("mode", "normal")
   })
 
   const hasUserPrompt = createMemo(() => {
@@ -455,13 +526,15 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
 
   const pick = () => fileInputRef?.click()
 
-  const setMode = (mode: "normal" | "shell") => {
+  const setMode = (mode: Mode) => {
     setStore("mode", mode)
     setStore("popover", null)
+    if (mode === "ssh") void serversActions.refetch()
     requestAnimationFrame(() => editorRef?.focus())
   }
 
   const shellModeKey = "mod+shift+x"
+  const sshModeKey = "mod+shift+s"
   const normalModeKey = "mod+shift+e"
 
   command.register("prompt-input", () => [
@@ -480,6 +553,21 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       keybind: shellModeKey,
       disabled: store.mode === "shell",
       onSelect: () => setMode("shell"),
+    },
+    {
+      id: "prompt.mode.ssh",
+      title: language.t("command.prompt.mode.ssh"),
+      category: language.t("command.category.session"),
+      keybind: sshModeKey,
+      disabled: store.mode === "ssh",
+      onSelect: () => setMode("ssh"),
+    },
+    {
+      id: "prompt.mode.remoteTask",
+      title: language.t("command.prompt.mode.remoteTask"),
+      category: language.t("command.category.session"),
+      disabled: store.mode === "remote-task" || !remoteTaskAvailable(),
+      onSelect: () => setMode("remote-task"),
     },
     {
       id: "prompt.mode.normal",
@@ -1078,10 +1166,10 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     return true
   }
 
-  const addToHistory = (prompt: Prompt, mode: "normal" | "shell") => {
-    const currentHistory = mode === "shell" ? shellHistory : history
-    const setCurrentHistory = mode === "shell" ? setShellHistory : setHistory
-    const next = prependHistoryEntry(currentHistory.entries, prompt, mode === "shell" ? [] : historyComments())
+  const addToHistory = (prompt: Prompt, mode: Mode) => {
+    const currentHistory = mode === "normal" ? history : shellHistory
+    const setCurrentHistory = mode === "normal" ? setHistory : setShellHistory
+    const next = prependHistoryEntry(currentHistory.entries, prompt, mode === "normal" ? historyComments() : [])
     if (next === currentHistory.entries) return
     setCurrentHistory("entries", next)
   }
@@ -1089,7 +1177,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const navigateHistory = (direction: "up" | "down") => {
     const result = navigatePromptHistory({
       direction,
-      entries: store.mode === "shell" ? shellHistory.entries : history.entries,
+      entries: store.mode === "normal" ? history.entries : shellHistory.entries,
       historyIndex: store.historyIndex,
       currentPrompt: prompt.current(),
       currentComments: historyComments(),
@@ -1128,6 +1216,8 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     commentCount,
     autoAccept: () => accepting(),
     mode: () => store.mode,
+    remoteServerId: () => store.sshServerId,
+    remoteTaskAvailable,
     working,
     editor: () => editorRef,
     queueScroll,
@@ -1187,7 +1277,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
         return
       }
 
-      if (store.mode === "shell") {
+      if (store.mode !== "normal") {
         setStore("mode", "normal")
         event.preventDefault()
         event.stopPropagation()
@@ -1349,7 +1439,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
             if (!(target instanceof HTMLElement)) return
             if (
               target.closest(
-                '[data-action="prompt-attach"], [data-action="prompt-submit"], [data-action="prompt-permissions"]',
+                '[data-action="prompt-attach"], [data-action="prompt-submit"], [data-action="prompt-permissions"], [data-action="prompt-ssh-server"]',
               )
             ) {
               return
@@ -1382,13 +1472,13 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                 "w-full pl-3 pr-2 pt-2 pb-11 text-14-regular text-text-strong focus:outline-none whitespace-pre-wrap": true,
                 "[&_[data-type=file]]:text-syntax-property": true,
                 "[&_[data-type=agent]]:text-syntax-type": true,
-                "font-mono!": store.mode === "shell",
+                "font-mono!": store.mode !== "normal",
               }}
             />
             <Show when={!prompt.dirty()}>
               <div
                 class="absolute top-0 inset-x-0 pl-3 pr-2 pt-2 pb-11 text-14-regular text-text-weak pointer-events-none whitespace-nowrap truncate"
-                classList={{ "font-mono!": store.mode === "shell" }}
+                 classList={{ "font-mono!": store.mode !== "normal" }}
               >
                 {placeholder()}
               </div>
@@ -1521,12 +1611,12 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
           </div>
         </div>
       </DockShellForm>
-      <Show when={store.mode === "normal" || store.mode === "shell"}>
+      <Show when={store.mode === "normal" || store.mode === "shell" || store.mode === "ssh" || store.mode === "remote-task"}>
         <DockTray attach="top">
           <div class="px-1.75 pt-5.5 pb-2 flex items-center gap-2 min-w-0">
             <div class="flex items-center gap-1.5 min-w-0 flex-1 relative">
               <div
-                class="h-7 flex items-center gap-1.5 max-w-[160px] min-w-0 absolute inset-y-0 left-0"
+                class="h-7 flex items-center gap-1.5 max-w-[360px] min-w-0 absolute inset-y-0 left-0"
                 style={{
                   padding: "0 4px 0 8px",
                   opacity: 1 - buttonsSpring(),
@@ -1535,7 +1625,33 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                   "pointer-events": buttonsSpring() < 0.5 ? "auto" : "none",
                 }}
               >
-                <span class="truncate text-13-medium text-text-strong">{language.t("prompt.mode.shell")}</span>
+                <span class="truncate text-13-medium text-text-strong">
+                  {language.t(
+                    store.mode === "ssh"
+                      ? "prompt.mode.ssh"
+                      : store.mode === "remote-task"
+                        ? "prompt.mode.remoteTask"
+                        : "prompt.mode.shell",
+                  )}
+                </span>
+                <Show when={store.mode === "ssh"}>
+                  <div data-action="prompt-ssh-server" class="min-w-0 max-w-[260px]">
+                    <Select
+                      size="normal"
+                      options={sshServerOptions()}
+                      current={store.sshServerId ?? ""}
+                      label={(id) => {
+                        const row = sshServers().find((item) => item.id === id)
+                        return row ? serverLabel(row) : language.t("prompt.ssh.noServers")
+                      }}
+                      onSelect={(id) => id && setStore("sshServerId", id)}
+                      class="max-w-[260px]"
+                      valueClass="truncate text-13-regular"
+                      triggerStyle={{ height: "28px" }}
+                      variant="ghost"
+                    />
+                  </div>
+                </Show>
                 <div class="size-4 shrink-0" />
               </div>
               <div class="flex items-center gap-1.5 min-w-0 flex-1">
@@ -1663,7 +1779,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
             </div>
             <div class="shrink-0">
               <RadioGroup
-                options={["shell", "normal"] as const}
+                options={(remoteTaskAvailable() ? ["shell", "ssh", "remote-task", "normal"] : ["shell", "ssh", "normal"]) as Mode[]}
                 current={store.mode}
                 value={(mode) => mode}
                 label={(mode) => (
@@ -1671,12 +1787,28 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                     placement="top"
                     gutter={4}
                     openDelay={2000}
-                    title={language.t(mode === "shell" ? "prompt.mode.shell" : "prompt.mode.normal")}
-                    keybind={command.keybind(mode === "shell" ? "prompt.mode.shell" : "prompt.mode.normal")}
+                    title={language.t(
+                      mode === "shell"
+                        ? "prompt.mode.shell"
+                        : mode === "ssh"
+                          ? "prompt.mode.ssh"
+                          : mode === "remote-task"
+                            ? "prompt.mode.remoteTask"
+                            : "prompt.mode.normal",
+                    )}
+                    keybind={command.keybind(
+                      mode === "shell"
+                        ? "prompt.mode.shell"
+                        : mode === "ssh"
+                          ? "prompt.mode.ssh"
+                          : mode === "remote-task"
+                            ? "prompt.mode.remoteTask"
+                            : "prompt.mode.normal",
+                    )}
                     class="size-full flex items-center justify-center"
                   >
                     <Icon
-                      name={mode === "shell" ? "console" : "prompt"}
+                      name={mode === "normal" ? "prompt" : mode === "ssh" ? "server" : mode === "remote-task" ? "task" : "console"}
                       class="size-[18px]"
                       classList={{
                         "text-icon-strong-base": store.mode === mode,
@@ -1688,7 +1820,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                 onSelect={(mode) => mode && setMode(mode)}
                 fill
                 pad="none"
-                class="w-[68px]"
+                class={remoteTaskAvailable() ? "w-[136px]" : "w-[102px]"}
               />
             </div>
           </div>

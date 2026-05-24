@@ -1,6 +1,6 @@
 import { type HexColor, resolveThemeVariant, useTheme, withAlpha } from "@opencode-ai/ui/theme"
 import { showToast } from "@opencode-ai/ui/toast"
-import type { FitAddon, Ghostty, Terminal as Term } from "ghostty-web"
+import type { FitAddon, Terminal as Term } from "ghostty-web"
 import { type ComponentProps, createEffect, createMemo, onCleanup, onMount, splitProps } from "solid-js"
 import { SerializeAddon } from "@/addons/serialize"
 import { matchKeybind, parseKeybind } from "@/context/command"
@@ -23,12 +23,11 @@ export interface TerminalProps extends ComponentProps<"div"> {
   onConnectError?: (error: unknown) => void
 }
 
-let shared: Promise<{ mod: typeof import("ghostty-web"); ghostty: Ghostty }> | undefined
+let shared: Promise<typeof import("ghostty-web")> | undefined
 
 const loadGhostty = () => {
   if (shared) return shared
   shared = import("ghostty-web")
-    .then(async (mod) => ({ mod, ghostty: await mod.Ghostty.load() }))
     .catch((err) => {
       shared = undefined
       throw err
@@ -130,19 +129,19 @@ const persistTerminal = (input: {
   onCleanup?: (pty: Partial<LocalPTY> & { id: string }) => void
 }) => {
   if (!input.addon || !input.onCleanup || !input.term) return
-  const buffer = (() => {
-    try {
-      return input.addon.serialize()
-    } catch {
-      debugTerminal("failed to serialize terminal buffer")
-      return ""
-    }
-  })()
+  let buffer: string | undefined
+  let cursor: number | undefined
+  try {
+    buffer = input.addon.serialize()
+    cursor = input.cursor
+  } catch {
+    debugTerminal("failed to serialize terminal buffer")
+  }
 
   input.onCleanup({
     id: input.id,
     buffer,
-    cursor: input.cursor,
+    cursor,
     rows: input.term.rows,
     cols: input.term.cols,
     scrollY: input.term.getViewportY(),
@@ -157,7 +156,15 @@ export const Terminal = (props: TerminalProps) => {
   const language = useLanguage()
   const server = useServer()
   let container!: HTMLDivElement
-  const [local, others] = splitProps(props, ["pty", "class", "classList", "onConnect", "onConnectError"])
+  const [local, others] = splitProps(props, [
+    "pty",
+    "class",
+    "classList",
+    "onConnect",
+    "onConnectError",
+    "onCleanup",
+    "onSubmit",
+  ])
   const id = local.pty.id
   const restore = typeof local.pty.buffer === "string" ? local.pty.buffer : ""
   const restoreSize =
@@ -173,7 +180,6 @@ export const Terminal = (props: TerminalProps) => {
   const scrollY = typeof local.pty.scrollY === "number" ? local.pty.scrollY : undefined
   let ws: WebSocket | undefined
   let term: Term | undefined
-  let ghostty: Ghostty
   let serializeAddon: SerializeAddon
   let fitAddon: FitAddon
   let handleResize: () => void
@@ -326,11 +332,10 @@ export const Terminal = (props: TerminalProps) => {
 
   onMount(() => {
     const run = async () => {
-      const loaded = await loadGhostty()
+      const mod = await loadGhostty()
       if (disposed) return
-
-      const mod = loaded.mod
-      const g = loaded.ghostty
+      const g = await mod.Ghostty.load()
+      if (disposed) return
 
       const t = new mod.Terminal({
         cursorBlink: true,
@@ -350,7 +355,6 @@ export const Terminal = (props: TerminalProps) => {
         cleanup()
         return
       }
-      ghostty = g
       term = t
       output = terminalWriter((data, done) => t.write(data, done))
 
@@ -402,7 +406,7 @@ export const Terminal = (props: TerminalProps) => {
       cleanups.push(() => disposeIfDisposable(onData))
       const onKey = t.onKey((key) => {
         if (key.key == "Enter") {
-          props.onSubmit?.()
+          local.onSubmit?.()
         }
       })
       cleanups.push(() => disposeIfDisposable(onKey))
@@ -543,7 +547,7 @@ export const Terminal = (props: TerminalProps) => {
     if (ws && ws.readyState !== WebSocket.CLOSED && ws.readyState !== WebSocket.CLOSING) ws.close(1000)
 
     const finalize = () => {
-      persistTerminal({ term, addon: serializeAddon, cursor, id, onCleanup: props.onCleanup })
+      persistTerminal({ term, addon: serializeAddon, cursor, id, onCleanup: local.onCleanup })
       cleanup()
     }
 

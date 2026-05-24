@@ -128,8 +128,10 @@ export async function startRemoteTask(input: {
   const task = [
     `echo START $(date) >> ${sh(paths.logPath)}`,
     ...taskEnv(input.server),
-    `${input.command} >> ${sh(paths.logPath)} 2>&1`,
-    `echo EXIT_CODE:$? >> ${sh(paths.logPath)}`,
+    `${input.command} 2>&1 | tee -a ${sh(paths.logPath)}`,
+    `code=\${PIPESTATUS[0]}`,
+    `echo EXIT_CODE:$code >> ${sh(paths.logPath)}`,
+    `exit $code`,
   ].join("\n")
   const remote = [
     "set -euo pipefail",

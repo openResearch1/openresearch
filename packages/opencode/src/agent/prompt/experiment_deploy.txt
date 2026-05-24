@@ -6,89 +6,19 @@ You will receive the following information in your prompt:
 - `code_path` — local directory containing the experiment code
 - `server` — server config JSON in either direct mode or ssh config mode
 - `exp_id` — the experiment ID (used as the remote folder name)
+- `remote_code_path` — optional full remote directory selected by the user
 
 ## Workflow
 
 ### Step 1: Sync Code to Server
 
-Use the `ssh` tool to create a workspace directory on the remote server, then use `bash` locally to upload the code via `rsync` or `scp`.
+Use the `experiment_code_sync` tool to upload the local experiment code to the remote server.
 
-The remote workspace path should be `~/experiments/<exp_id>/`.
+The remote workspace path should be `remote_code_path` when provided. If it is not provided, let the tool default to `experiments/<exp_id>/`.
 
-When uploading code, **do not upload any Git-related files or directories**. This includes at least:
-- `.git/`
-- `.gitignore`
-- `.gitattributes`
-- `.gitmodules`
+Pass `expId`, `codePath`, and `remoteCodePath` when known. Do not hand-write `ssh`, `rsync`, `scp`, or `sshpass` commands yourself; the tool owns remote directory creation, transfer, SSH options, and exclusions.
 
-Also exclude other unnecessary local metadata if present, such as:
-- `.DS_Store`
-- `__pycache__/`
-- `*.pyc`
-
-Preferred command example for direct mode (use `bash` tool locally):
-```bash
-sshpass -p '<password>' rsync -avz \
-  --exclude '.git' \
-  --exclude '.gitignore' \
-  --exclude '.gitattributes' \
-  --exclude '.gitmodules' \
-  --exclude '.DS_Store' \
-  --exclude '__pycache__' \
-  --exclude '*.pyc' \
-  -e 'ssh -p <port> -o StrictHostKeyChecking=no -o ClearAllForwardings=yes' \
-  <code_path>/ <user>@<address>:<remote_path>/
-```
-
-Preferred command example for ssh config mode:
-```bash
-rsync -avz \
-  --exclude '.git' \
-  --exclude '.gitignore' \
-  --exclude '.gitattributes' \
-  --exclude '.gitmodules' \
-  --exclude '.DS_Store' \
-  --exclude '__pycache__' \
-  --exclude '*.pyc' \
-  -e 'ssh -F <ssh_config_path> -o ClearAllForwardings=yes' \
-  <code_path>/ <host_alias>:<remote_path>/
-```
-
-If ssh config mode also provides an explicit `user`, prefer a command that keeps the config file but overrides the remote login user, for example:
-```bash
-rsync -avz \
-  --exclude '.git' \
-  --exclude '.gitignore' \
-  --exclude '.gitattributes' \
-  --exclude '.gitmodules' \
-  --exclude '.DS_Store' \
-  --exclude '__pycache__' \
-  --exclude '*.pyc' \
-  -e 'ssh -F <ssh_config_path> -l <user> -o ClearAllForwardings=yes' \
-  <code_path>/ <host_alias>:<remote_path>/
-```
-
-If ssh config mode also provides a `password`, you may wrap the same SSH command with `sshpass`, for example:
-```bash
-sshpass -p '<password>' rsync -avz \
-  --exclude '.git' \
-  --exclude '.gitignore' \
-  --exclude '.gitattributes' \
-  --exclude '.gitmodules' \
-  --exclude '.DS_Store' \
-  --exclude '__pycache__' \
-  --exclude '*.pyc' \
-  -e 'ssh -F <ssh_config_path> -l <user> -o ClearAllForwardings=yes' \
-  <code_path>/ <host_alias>:<remote_path>/
-```
-
-Command construction rules:
-- In direct mode, use `address`, `port`, and `user`.
-- In ssh config mode, use `host_alias` and optional `ssh_config_path`.
-- In ssh config mode, if `user` is provided separately from the config file, explicitly pass it in the SSH command instead of assuming the alias already defines it.
-- In either mode, if `password` is present, you may use `sshpass`; otherwise prefer plain `rsync`/`scp`.
-- Do not drop `-F <ssh_config_path>` when using ssh config mode.
-- Always include `-o ClearAllForwardings=yes` in the SSH command used by `rsync`/`scp`, so transfer commands do not inherit `RemoteForward` entries from the user's SSH config.
+The sync tool excludes Git-related files and local metadata such as `.git/`, `.gitignore`, `.gitattributes`, `.gitmodules`, `.DS_Store`, `__pycache__/`, and `*.pyc`.
 
 ## Return Format
 

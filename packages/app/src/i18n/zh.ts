@@ -71,6 +71,8 @@ export const dict = {
 
   "command.terminal.new": "新建终端",
   "command.terminal.new.description": "创建新的终端标签页",
+  "command.terminal.remote": "远程终端",
+  "command.terminal.remote.description": "连接到已配置的远程服务器",
 
   "command.steps.toggle": "切换步骤",
   "command.steps.toggle.description": "显示或隐藏当前消息的步骤",
@@ -95,6 +97,8 @@ export const dict = {
   "command.model.variant.cycle.description": "切换到下一个强度等级",
 
   "command.prompt.mode.shell": "Shell",
+  "command.prompt.mode.ssh": "SSH",
+  "command.prompt.mode.remoteTask": "Remote Task",
   "command.prompt.mode.normal": "Prompt",
 
   "command.permissions.autoaccept.enable": "自动接受权限",
@@ -249,13 +253,18 @@ export const dict = {
   "common.attachment": "附件",
 
   "prompt.placeholder.shell": "输入 shell 命令...",
+  "prompt.placeholder.ssh": "输入 SSH 命令...",
+  "prompt.placeholder.remoteTask": "例如: /opt/conda/bin/conda run --no-capture-output -n myenv python train.py",
   "prompt.placeholder.normal": '随便问点什么... "{{example}}"',
   "prompt.placeholder.simple": "随便问点什么...",
   "prompt.placeholder.summarizeComments": "总结评论…",
   "prompt.placeholder.summarizeComment": "总结该评论…",
   "prompt.mode.shell": "Shell",
+  "prompt.mode.ssh": "SSH",
+  "prompt.mode.remoteTask": "Remote Task",
   "prompt.mode.normal": "Prompt",
   "prompt.mode.shell.exit": "按 esc 退出",
+  "prompt.ssh.noServers": "没有远程服务器",
   "prompt.example.1": "修复代码库中的一个 TODO",
   "prompt.example.2": "这个项目的技术栈是什么？",
   "prompt.example.3": "修复失败的测试",
@@ -300,6 +309,11 @@ export const dict = {
   "prompt.toast.pasteUnsupported.description": "这里只能粘贴图片或 PDF 文件。",
   "prompt.toast.modelAgentRequired.title": "请选择智能体和模型",
   "prompt.toast.modelAgentRequired.description": "发送提示前请先选择智能体和模型。",
+  "prompt.toast.sshServerRequired.title": "请选择远程服务器",
+  "prompt.toast.sshServerRequired.description": "运行 SSH 命令前，请先配置或选择当前项目的远程服务器。",
+  "prompt.toast.remoteTaskUnavailable.title": "远程任务不可用",
+  "prompt.toast.remoteTaskUnavailable.description": "只能在实验会话中启动远程任务。",
+  "prompt.toast.remoteTaskSendFailed.title": "启动远程任务失败",
   "prompt.toast.worktreeCreateFailed.title": "创建工作树失败",
   "prompt.toast.sessionCreateFailed.title": "创建会话失败",
   "prompt.toast.shellSendFailed.title": "发送 shell 命令失败",
@@ -600,6 +614,8 @@ export const dict = {
   "terminal.close": "关闭终端",
   "terminal.connectionLost.title": "连接已丢失",
   "terminal.connectionLost.description": "终端连接已中断。这可能发生在服务器重启时。",
+  "terminal.remote.search": "选择远程服务器",
+  "terminal.remote.empty": "还没有配置远程服务器",
 
   "common.closeTab": "关闭标签页",
   "common.dismiss": "忽略",

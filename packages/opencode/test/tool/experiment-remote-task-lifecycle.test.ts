@@ -27,6 +27,7 @@ const inspectRemoteTaskMock = mock(async () => ({
 
 mock.module("../../src/research/remote-task-runner", () => ({
   session: (taskId: string) => `openresearch${taskId.slice(0, 8)}`,
+  wrapRemoteScript: (_server: unknown, script: string) => script,
   startRemoteTask: startRemoteTaskMock,
   inspectRemoteTask: inspectRemoteTaskMock,
   readRemoteTaskLog: mock(async () => ({ ok: true, output: "", code: 0 })),
@@ -675,7 +676,7 @@ describe("tool.experiment-remote-task lifecycle", () => {
     })
   })
 
-  test("does not wait for experiment run task terminal status", async () => {
+  test("waits for experiment run task terminal status", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
       directory: tmp.path,
@@ -684,6 +685,7 @@ describe("tool.experiment-remote-task lifecycle", () => {
         const { ExperimentRemoteTaskStartTool, ExperimentRemoteTaskGetTool } = await import(
           "../../src/tool/experiment-remote-task"
         )
+        const { ExperimentRemoteTask } = await import("../../src/research/experiment-remote-task")
 
         const start = await ExperimentRemoteTaskStartTool.init()
         await start.execute(
@@ -698,11 +700,18 @@ describe("tool.experiment-remote-task lifecycle", () => {
           ctx,
         )
 
+        const task = ExperimentRemoteTask.current("exp-1")!
         const get = await ExperimentRemoteTaskGetTool.init()
-        const result = await get.execute({ expId: "exp-1", waitForTerminal: true, waitTimeoutMs: 10 }, ctx)
-        expect(result.output).toContain("Status: running")
+        const pending = get.execute({ expId: "exp-1", waitForTerminal: true, waitTimeoutMs: 1000 }, ctx)
+        setTimeout(() => {
+          ExperimentRemoteTask.update({ taskId: task.task_id, status: "finished", errorMessage: null })
+        }, 10)
+
+        const result = await pending
+        expect(result.output).toContain("Status: finished")
+        expect(result.output).toContain("Waited: terminal")
         expect(result.metadata.kind).toBe("experiment_run")
-        expect(result.metadata.waited).toBe(false)
+        expect(result.metadata.waited).toBe(true)
       },
     })
   })

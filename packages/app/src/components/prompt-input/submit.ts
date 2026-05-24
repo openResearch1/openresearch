@@ -31,14 +31,16 @@ type PromptSubmitInput = {
   imageAttachments: Accessor<ImageAttachmentPart[]>
   commentCount: Accessor<number>
   autoAccept: Accessor<boolean>
-  mode: Accessor<"normal" | "shell">
+  mode: Accessor<"normal" | "shell" | "ssh" | "remote-task">
+  remoteServerId?: Accessor<string | undefined>
+  remoteTaskAvailable?: Accessor<boolean>
   working: Accessor<boolean>
   editor: () => HTMLDivElement | undefined
   queueScroll: () => void
   promptLength: (prompt: Prompt) => number
-  addToHistory: (prompt: Prompt, mode: "normal" | "shell") => void
+  addToHistory: (prompt: Prompt, mode: "normal" | "shell" | "ssh" | "remote-task") => void
   resetHistoryNavigation: () => void
-  setMode: (mode: "normal" | "shell") => void
+  setMode: (mode: "normal" | "shell" | "ssh" | "remote-task") => void
   setPopover: (popover: "at" | "slash" | null) => void
   newSessionWorktree?: Accessor<string | undefined>
   onNewSessionWorktreeReset?: () => void
@@ -132,10 +134,25 @@ export function createPromptSubmit(input: PromptSubmitInput) {
 
     const currentModel = local.model.current()
     const currentAgent = local.agent.current()
+    const remoteServerId = input.remoteServerId?.()
     if (!currentModel || !currentAgent) {
       showToast({
         title: language.t("prompt.toast.modelAgentRequired.title"),
         description: language.t("prompt.toast.modelAgentRequired.description"),
+      })
+      return
+    }
+    if (mode === "ssh" && !remoteServerId) {
+      showToast({
+        title: language.t("prompt.toast.sshServerRequired.title"),
+        description: language.t("prompt.toast.sshServerRequired.description"),
+      })
+      return
+    }
+    if (mode === "remote-task" && !input.remoteTaskAvailable?.()) {
+      showToast({
+        title: language.t("prompt.toast.remoteTaskUnavailable.title"),
+        description: language.t("prompt.toast.remoteTaskUnavailable.description"),
       })
       return
     }
@@ -244,7 +261,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       })
     }
 
-    if (mode === "shell") {
+    if (mode === "shell" || mode === "ssh") {
       clearInput()
       client.session
         .shell({
@@ -252,10 +269,30 @@ export function createPromptSubmit(input: PromptSubmitInput) {
           agent,
           model,
           command: text,
+          ...(mode === "ssh" ? { remoteServerId } : {}),
         })
         .catch((err) => {
           showToast({
             title: language.t("prompt.toast.shellSendFailed.title"),
+            description: errorMessage(err),
+          })
+          restoreInput()
+        })
+      return
+    }
+
+    if (mode === "remote-task") {
+      clearInput()
+      client.session
+        .remoteTask({
+          sessionID: session.id,
+          agent,
+          model,
+          command: text,
+        })
+        .catch((err) => {
+          showToast({
+            title: language.t("prompt.toast.remoteTaskSendFailed.title"),
             description: errorMessage(err),
           })
           restoreInput()

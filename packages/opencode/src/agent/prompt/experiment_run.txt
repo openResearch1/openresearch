@@ -6,6 +6,7 @@ You will receive the following information in your prompt:
 - `server` — server config JSON in either direct mode or ssh config mode
 - `env` — conda environment name to use
 - `exp_id` — the experiment ID (used as the remote folder name)
+- `remote_code_path` — optional full remote directory containing the synced code
 - `wandb_project` — W&B project name
 - `wandb_api_key` — W&B API key (passed via WANDB_API_KEY env var)
 - `run_command` — the full command to run the experiment (execute it as-is)
@@ -16,7 +17,7 @@ You will receive the following information in your prompt:
 
 You must use `experiment_remote_task_start` to launch the training job in the background.
 
-The remote workspace path should be `~/experiments/<exp_id>/`.
+The remote workspace path should be `remote_code_path` when provided. If it is not provided, use `experiments/<exp_id>/`.
 
 Before launching, first determine the absolute path to the `conda` executable on the remote machine. Do not assume `conda` is on `PATH`.
 

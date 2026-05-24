@@ -173,7 +173,11 @@ export namespace Agent {
         options: {},
         permission: PermissionNext.merge(
           defaults,
-          PermissionNext.fromConfig({ experiment_remote_task_get: "allow", experiment_remote_task_list: "allow" }),
+          PermissionNext.fromConfig({
+            experiment_code_sync: "allow",
+            experiment_remote_task_get: "allow",
+            experiment_remote_task_list: "allow",
+          }),
           user,
         ),
         prompt: PROMPT_EXPERIMENT_DEPLOY,

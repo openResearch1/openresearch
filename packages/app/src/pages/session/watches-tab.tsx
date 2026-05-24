@@ -282,7 +282,7 @@ export function WatchesTab(props: { onOpenFile?: (filePath: string) => void }) {
                         <span class="font-mono break-all">Run: {watch.wandb_run_id}</span>
                       </div>
                     </Show>
-                    <Show when={watch.kind === "project_runtime" && watch.remote_tasks?.length}>
+                    <Show when={watch.remote_tasks?.length}>
                       <div class="mt-2 flex flex-col gap-2">
                         <div class="text-11-regular text-text-weak">
                           {activeTasks(watch).length} active / {watch.remote_tasks.length} remote tasks
@@ -305,7 +305,7 @@ export function WatchesTab(props: { onOpenFile?: (filePath: string) => void }) {
                         </For>
                       </div>
                     </Show>
-                    <Show when={watch.kind !== "project_runtime" && showRemoteTask(watch) && legacyTask(watch)}>
+                    <Show when={!watch.remote_tasks?.length && showRemoteTask(watch) && legacyTask(watch)}>
                       {(task) => (
                         <div class="mt-2">
                           <RemoteTaskPanel

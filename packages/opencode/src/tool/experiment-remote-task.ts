@@ -136,9 +136,7 @@ export const ExperimentRemoteTaskGetTool = Tool.define("experiment_remote_task_g
       .boolean()
       .optional()
       .default(false)
-      .describe(
-        "For running env_setup/resource_download tasks, wait until the remote task reaches a terminal status before returning.",
-      ),
+      .describe("For running tasks, wait until the remote task reaches a terminal status before returning."),
     waitTimeoutMs: z
       .number()
       .positive()
@@ -165,11 +163,7 @@ export const ExperimentRemoteTaskGetTool = Tool.define("experiment_remote_task_g
       throw new Error(`remote task does not belong to experiment: ${params.taskId}`)
     }
     let waited = false
-    if (
-      params.waitForTerminal &&
-      task.status === "running" &&
-      (task.kind === "env_setup" || task.kind === "resource_download")
-    ) {
+    if (params.waitForTerminal && task.status === "running") {
       waited = true
       await ctx.metadata({
         title: `Waiting: ${task.title}`,

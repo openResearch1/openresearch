@@ -18,7 +18,9 @@ interface ExpResult {
   exp: ExpRow
   atom_id: string | null
   code_path: string
+  remote_code_path: string | null
   exp_plan_path: string | null
+  remote_server_id: string | null
   remote_server_config: string | null
   runs: RunInfo[]
 }
@@ -62,7 +64,9 @@ function queryExpWithJoins(expId: string): ExpResult | undefined {
     exp,
     atom_id: exp.atom_id,
     code_path: exp.code_path,
+    remote_code_path: exp.remote_code_path ?? null,
     exp_plan_path: exp.exp_plan_path ?? null,
+    remote_server_id: exp.remote_server_id ?? null,
     remote_server_config: remoteServerConfig,
     runs,
   }
@@ -80,6 +84,7 @@ function formatExpResult(r: ExpResult): string {
     e.exp_branch_name ? `exp_branch_name: ${e.exp_branch_name}` : null,
     e.exp_result_path ? `exp_result_path: ${e.exp_result_path}` : null,
     e.exp_result_summary_path ? `exp_result_summary_path: ${e.exp_result_summary_path}` : null,
+    r.remote_server_id ? `remote_server_id: ${r.remote_server_id}` : `remote_server_id: (not set)`,
     r.remote_server_config ? `remote_server_config: ${r.remote_server_config}` : null,
     `status: ${e.status}`,
     e.started_at ? `started_at: ${e.started_at}` : null,
@@ -87,6 +92,7 @@ function formatExpResult(r: ExpResult): string {
     `time_created: ${e.time_created}`,
     `time_updated: ${e.time_updated}`,
     r.code_path ? `code_path: ${r.code_path}` : `code_path: (not set)`,
+    r.remote_code_path ? `remote_code_path: ${r.remote_code_path}` : `remote_code_path: (not set)`,
     r.exp_plan_path ? `exp_plan_path: ${r.exp_plan_path}` : `exp_plan_path: (not set)`,
     r.runs.length > 0 ? `runs:\n${r.runs.map((run) => `  - ${run.name} [${run.files.join(", ")}]`).join("\n")}` : null,
   ]
@@ -101,7 +107,7 @@ export const ExperimentQueryTool = Tool.define("experiment_query", {
     "(1) by atomId — find the experiment linked to a specific atom; " +
     "(2) by expId — look up an experiment directly; " +
     "(3) by current session — resolve to the parent session and find its linked experiment. " +
-    "Returns experiment details along with the associated code_path and experiment plan path.",
+    "Returns experiment details along with the associated code_path, experiment plan path, and remote server ID.",
   parameters: z.object({
     atomId: z.string().optional().describe("Query the experiment linked to this atom ID"),
     expId: z.string().optional().describe("Query an experiment directly by its ID"),

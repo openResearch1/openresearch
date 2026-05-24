@@ -5,13 +5,15 @@ import { useParams } from "@solidjs/router"
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
 import { IconButton } from "@opencode-ai/ui/icon-button"
-import { TooltipKeybind } from "@opencode-ai/ui/tooltip"
+import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { DragDropProvider, DragDropSensors, DragOverlay, SortableProvider, closestCenter } from "@thisbeyond/solid-dnd"
 import type { DragEvent } from "@thisbeyond/solid-dnd"
 import { ConstrainDragYAxis, getDraggableId } from "@/utils/solid-dnd"
 
 import { SortableTerminalTab } from "@/components/session"
 import { Terminal } from "@/components/terminal"
+import { DialogSelectRemoteTerminal } from "@/components/dialog-select-remote-terminal"
 import { useCommand } from "@/context/command"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
@@ -26,6 +28,7 @@ export function TerminalPanel() {
   const terminal = useTerminal()
   const language = useLanguage()
   const command = useCommand()
+  const dialog = useDialog()
 
   const isDesktop = createMediaQuery("(min-width: 768px)")
   const sessionKey = createMemo(() => `${params.dir}${params.id ? "/" + params.id : ""}`)
@@ -226,6 +229,15 @@ export function TerminalPanel() {
                       </For>
                     </SortableProvider>
                     <div class="h-full flex items-center justify-center">
+                      <Tooltip value={<span>{language.t("command.terminal.remote")}</span>} class="flex items-center">
+                        <IconButton
+                          icon="server"
+                          variant="ghost"
+                          iconSize="large"
+                          onClick={() => dialog.show(() => <DialogSelectRemoteTerminal onSelect={terminal.newRemote} />)}
+                          aria-label={language.t("command.terminal.remote")}
+                        />
+                      </Tooltip>
                       <TooltipKeybind
                         title={language.t("command.terminal.new")}
                         keybind={command.keybind("terminal.new")}

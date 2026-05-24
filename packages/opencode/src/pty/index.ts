@@ -1,6 +1,7 @@
 import { BusEvent } from "@/bus/bus-event"
 import { Bus } from "@/bus"
 import { type IPty } from "bun-pty"
+import { eq } from "drizzle-orm"
 import z from "zod"
 import { Identifier } from "../id/id"
 import { Log } from "../util/log"
@@ -8,6 +9,9 @@ import { Instance } from "../project/instance"
 import { lazy } from "@opencode-ai/util/lazy"
 import { Shell } from "@/shell/shell"
 import { Plugin } from "@/plugin"
+import { normalizeRemoteServerConfig, remoteServerLabel, resolveSshConfigPath } from "@/research/remote-server"
+import { RemoteServerTable } from "@/research/research.sql"
+import { Database } from "@/storage/db"
 
 export namespace Pty {
   const log = Log.create({ service: "pty" })
@@ -47,6 +51,9 @@ export namespace Pty {
       cwd: z.string(),
       status: z.enum(["running", "exited"]),
       pid: z.number(),
+      type: z.enum(["local", "remote"]).optional(),
+      remote_server_id: z.string().optional(),
+      remote_label: z.string().optional(),
     })
     .meta({ ref: "Pty" })
 
@@ -61,6 +68,13 @@ export namespace Pty {
   })
 
   export type CreateInput = z.infer<typeof CreateInput>
+
+  export const CreateRemoteInput = z.object({
+    serverId: z.string(),
+    title: z.string().optional(),
+  })
+
+  export type CreateRemoteInput = z.infer<typeof CreateRemoteInput>
 
   export const UpdateInput = z.object({
     title: z.string().optional(),
@@ -117,46 +131,39 @@ export namespace Pty {
     return state().get(id)?.info
   }
 
-  export async function create(input: CreateInput) {
+  async function createSession(input: {
+    command: string
+    args: string[]
+    cwd: string
+    env: Record<string, string>
+    title?: string
+    publicCommand?: string
+    publicArgs?: string[]
+    type?: "local" | "remote"
+    remoteServerId?: string
+    remoteLabel?: string
+  }) {
     const id = Identifier.create("pty", false)
-    const command = input.command || Shell.preferred()
-    const args = input.args || []
-    if (command.endsWith("sh")) {
-      args.push("-l")
-    }
-
-    const cwd = input.cwd || Instance.directory
-    const shellEnv = await Plugin.trigger("shell.env", { cwd }, { env: {} })
-    const env = {
-      ...process.env,
-      ...input.env,
-      ...shellEnv.env,
-      TERM: "xterm-256color",
-      OPENCODE_TERMINAL: "1",
-    } as Record<string, string>
-
-    if (process.platform === "win32") {
-      env.LC_ALL = "C.UTF-8"
-      env.LC_CTYPE = "C.UTF-8"
-      env.LANG = "C.UTF-8"
-    }
-    log.info("creating session", { id, cmd: command, args, cwd })
+    log.info("creating session", { id, cmd: input.publicCommand ?? input.command, args: input.publicArgs ?? input.args, cwd: input.cwd })
 
     const spawn = await pty()
-    const ptyProcess = spawn(command, args, {
+    const ptyProcess = spawn(input.command, input.args, {
       name: "xterm-256color",
-      cwd,
-      env,
+      cwd: input.cwd,
+      env: input.env,
     })
 
     const info = {
       id,
       title: input.title || `Terminal ${id.slice(-4)}`,
-      command,
-      args,
-      cwd,
+      command: input.publicCommand ?? input.command,
+      args: input.publicArgs ?? input.args,
+      cwd: input.cwd,
       status: "running",
       pid: ptyProcess.pid,
+      type: input.type,
+      remote_server_id: input.remoteServerId,
+      remote_label: input.remoteLabel,
     } as const
     const session: ActiveSession = {
       info,
@@ -203,6 +210,98 @@ export namespace Pty {
     })
     Bus.publish(Event.Created, { info })
     return info
+  }
+
+  export async function create(input: CreateInput) {
+    const command = input.command || Shell.preferred()
+    const args = [...(input.args || [])]
+    if (command.endsWith("sh")) {
+      args.push("-l")
+    }
+
+    const cwd = input.cwd || Instance.directory
+    const shellEnv = await Plugin.trigger("shell.env", { cwd }, { env: {} })
+    const env = {
+      ...process.env,
+      ...input.env,
+      ...shellEnv.env,
+      TERM: "xterm-256color",
+      OPENCODE_TERMINAL: "1",
+    } as Record<string, string>
+
+    if (process.platform === "win32") {
+      env.LC_ALL = "C.UTF-8"
+      env.LC_CTYPE = "C.UTF-8"
+      env.LANG = "C.UTF-8"
+    }
+
+    return createSession({
+      command,
+      args,
+      cwd,
+      env,
+      title: input.title,
+      type: "local",
+    })
+  }
+
+  export async function createRemote(input: CreateRemoteInput) {
+    const row = Database.use((db) => db.select().from(RemoteServerTable).where(eq(RemoteServerTable.id, input.serverId)).get())
+    if (!row) throw new Error(`remote server not found: ${input.serverId}`)
+
+    const cfg = normalizeRemoteServerConfig(JSON.parse(row.config))
+    const label = remoteServerLabel(cfg)
+    const ssh =
+      cfg.mode === "ssh_config"
+        ? [
+            "-tt",
+            "-F",
+            resolveSshConfigPath(cfg.ssh_config_path),
+            ...(cfg.user ? ["-l", cfg.user] : []),
+            "-o",
+            "StrictHostKeyChecking=no",
+            "-o",
+            "UserKnownHostsFile=/dev/null",
+            "-o",
+            "LogLevel=ERROR",
+            "-o",
+            "ClearAllForwardings=yes",
+            cfg.host_alias,
+          ]
+        : [
+            "-tt",
+            "-p",
+            String(cfg.port),
+            "-o",
+            "StrictHostKeyChecking=no",
+            "-o",
+            "UserKnownHostsFile=/dev/null",
+            "-o",
+            "LogLevel=ERROR",
+            "-o",
+            "ClearAllForwardings=yes",
+            `${cfg.user}@${cfg.address}`,
+          ]
+    const env = {
+      ...process.env,
+      TERM: "xterm-256color",
+      OPENCODE_TERMINAL: "1",
+      SSH_ASKPASS: "",
+      SSH_ASKPASS_REQUIRE: "never",
+    } as Record<string, string>
+
+    return createSession({
+      command: cfg.password ? "sshpass" : "ssh",
+      args: cfg.password ? ["-p", cfg.password, "ssh", ...ssh] : ssh,
+      cwd: Instance.directory,
+      env,
+      title: input.title || `SSH ${label}`,
+      publicCommand: "ssh",
+      publicArgs: ssh,
+      type: "remote",
+      remoteServerId: input.serverId,
+      remoteLabel: label,
+    })
   }
 
   export async function update(id: string, input: UpdateInput) {

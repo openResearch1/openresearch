@@ -1,0 +1,1 @@
+ALTER TABLE `experiment` ADD `remote_code_path` text;

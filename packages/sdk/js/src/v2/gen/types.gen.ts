@@ -1126,6 +1126,9 @@ export type Pty = {
   cwd: string
   status: "running" | "exited"
   pid: number
+  type?: "local" | "remote"
+  remote_server_id?: string
+  remote_label?: string
 }
 
 export type EventPtyCreated = {
@@ -2535,6 +2538,37 @@ export type PtyCreateResponses = {
 }
 
 export type PtyCreateResponse = PtyCreateResponses[keyof PtyCreateResponses]
+
+export type PtyCreateRemoteData = {
+  body?: {
+    serverId: string
+    title?: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/pty/remote"
+}
+
+export type PtyCreateRemoteErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type PtyCreateRemoteError = PtyCreateRemoteErrors[keyof PtyCreateRemoteErrors]
+
+export type PtyCreateRemoteResponses = {
+  /**
+   * Created remote session
+   */
+  200: Pty
+}
+
+export type PtyCreateRemoteResponse = PtyCreateRemoteResponses[keyof PtyCreateRemoteResponses]
 
 export type PtyRemoveData = {
   body?: never
@@ -3985,6 +4019,7 @@ export type SessionShellData = {
       modelID: string
     }
     command: string
+    remoteServerId?: string
   }
   path: {
     /**
@@ -4020,6 +4055,51 @@ export type SessionShellResponses = {
 }
 
 export type SessionShellResponse = SessionShellResponses[keyof SessionShellResponses]
+
+export type SessionRemoteTaskData = {
+  body?: {
+    agent: string
+    model?: {
+      providerID: string
+      modelID: string
+    }
+    command: string
+    title?: string
+  }
+  path: {
+    /**
+     * Session ID
+     */
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/remote-task"
+}
+
+export type SessionRemoteTaskErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionRemoteTaskError = SessionRemoteTaskErrors[keyof SessionRemoteTaskErrors]
+
+export type SessionRemoteTaskResponses = {
+  /**
+   * Created message
+   */
+  200: AssistantMessage
+}
+
+export type SessionRemoteTaskResponse = SessionRemoteTaskResponses[keyof SessionRemoteTaskResponses]
 
 export type SessionRevertData = {
   body?: {
@@ -4771,6 +4851,7 @@ export type ResearchSessionAtomGetResponses = {
             }
           | null
         code_path: string
+        remote_code_path: string | null
         status: "pending" | "running" | "done" | "idle" | "failed"
         started_at: number | null
         finished_at: number | null
@@ -5124,6 +5205,45 @@ export type ResearchExperimentReadyResponses = {
 
 export type ResearchExperimentReadyResponse = ResearchExperimentReadyResponses[keyof ResearchExperimentReadyResponses]
 
+export type ResearchExperimentSyncCodeData = {
+  body?: {
+    remoteCodePath?: string
+    delete?: boolean
+  }
+  path: {
+    expId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/research/experiment/{expId}/sync-code"
+}
+
+export type ResearchExperimentSyncCodeErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ResearchExperimentSyncCodeError = ResearchExperimentSyncCodeErrors[keyof ResearchExperimentSyncCodeErrors]
+
+export type ResearchExperimentSyncCodeResponses = {
+  /**
+   * Code sync result
+   */
+  200: {
+    ok: boolean
+    server: string
+    remote_code_path: string
+    output: string
+  }
+}
+
+export type ResearchExperimentSyncCodeResponse =
+  ResearchExperimentSyncCodeResponses[keyof ResearchExperimentSyncCodeResponses]
+
 export type ResearchExperimentBySessionData = {
   body?: never
   path: {
@@ -5211,6 +5331,7 @@ export type ResearchExperimentBySessionResponses = {
         }
       | null
     code_path: string
+    remote_code_path: string | null
     status: "pending" | "running" | "done" | "idle" | "failed"
     started_at: number | null
     finished_at: number | null
@@ -6083,6 +6204,7 @@ export type ResearchExperimentUpdateData = {
     baselineBranch?: string
     remoteServerId?: string | null
     codePath?: string
+    remoteCodePath?: string | null
   }
   path: {
     expId: string
@@ -6164,6 +6286,7 @@ export type ResearchExperimentUpdateResponses = {
         }
       | null
     code_path: string
+    remote_code_path: string | null
     status: "pending" | "running" | "done" | "idle" | "failed"
     started_at: number | null
     finished_at: number | null
