@@ -105,6 +105,8 @@ import type {
   PtyConnectErrors,
   PtyConnectResponses,
   PtyCreateErrors,
+  PtyCreateRemoteErrors,
+  PtyCreateRemoteResponses,
   PtyCreateResponses,
   PtyGetErrors,
   PtyGetResponses,
@@ -159,6 +161,8 @@ import type {
   ResearchExperimentRunsResponses,
   ResearchExperimentSessionCreateErrors,
   ResearchExperimentSessionCreateResponses,
+  ResearchExperimentSyncCodeErrors,
+  ResearchExperimentSyncCodeResponses,
   ResearchExperimentUpdateErrors,
   ResearchExperimentUpdateResponses,
   ResearchExperimentWatchDeleteErrors,
@@ -227,6 +231,8 @@ import type {
   SessionPromptAsyncResponses,
   SessionPromptErrors,
   SessionPromptResponses,
+  SessionRemoteTaskErrors,
+  SessionRemoteTaskResponses,
   SessionRevertErrors,
   SessionRevertResponses,
   SessionShareErrors,
@@ -709,6 +715,45 @@ export class Pty extends HeyApiClient {
     )
     return (options?.client ?? this.client).post<PtyCreateResponses, PtyCreateErrors, ThrowOnError>({
       url: "/pty",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Create remote PTY session
+   *
+   * Create a new pseudo-terminal (PTY) session connected to a configured remote server over SSH.
+   */
+  public createRemote<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      serverId?: string
+      title?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "serverId" },
+            { in: "body", key: "title" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<PtyCreateRemoteResponses, PtyCreateRemoteErrors, ThrowOnError>({
+      url: "/pty/remote",
       ...options,
       ...params,
       headers: {
@@ -2244,6 +2289,7 @@ export class Session2 extends HeyApiClient {
         modelID: string
       }
       command?: string
+      remoteServerId?: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -2258,12 +2304,61 @@ export class Session2 extends HeyApiClient {
             { in: "body", key: "agent" },
             { in: "body", key: "model" },
             { in: "body", key: "command" },
+            { in: "body", key: "remoteServerId" },
           ],
         },
       ],
     )
     return (options?.client ?? this.client).post<SessionShellResponses, SessionShellErrors, ThrowOnError>({
       url: "/session/{sessionID}/shell",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Start remote experiment task
+   *
+   * Start an experiment_run remote task for the experiment linked to the session.
+   */
+  public remoteTask<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      agent?: string
+      model?: {
+        providerID: string
+        modelID: string
+      }
+      command?: string
+      title?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "agent" },
+            { in: "body", key: "model" },
+            { in: "body", key: "command" },
+            { in: "body", key: "title" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<SessionRemoteTaskResponses, SessionRemoteTaskErrors, ThrowOnError>({
+      url: "/session/{sessionID}/remote-task",
       ...options,
       ...params,
       headers: {
@@ -3477,6 +3572,49 @@ export class Experiment extends HeyApiClient {
   }
 
   /**
+   * Sync experiment code to remote server
+   */
+  public syncCode<ThrowOnError extends boolean = false>(
+    parameters: {
+      expId: string
+      directory?: string
+      workspace?: string
+      remoteCodePath?: string
+      delete?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "expId" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "remoteCodePath" },
+            { in: "body", key: "delete" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      ResearchExperimentSyncCodeResponses,
+      ResearchExperimentSyncCodeErrors,
+      ThrowOnError
+    >({
+      url: "/research/experiment/{expId}/sync-code",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
    * Get experiment by session
    *
    * Resolve the experiment linked to a session (walks up to parent session). Returns the experiment, its linked atom, and the atom's article. Each field is independently nullable.
@@ -3628,6 +3766,7 @@ export class Experiment extends HeyApiClient {
       baselineBranch?: string
       remoteServerId?: string | null
       codePath?: string
+      remoteCodePath?: string | null
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -3643,6 +3782,7 @@ export class Experiment extends HeyApiClient {
             { in: "body", key: "baselineBranch" },
             { in: "body", key: "remoteServerId" },
             { in: "body", key: "codePath" },
+            { in: "body", key: "remoteCodePath" },
           ],
         },
       ],

@@ -58,6 +58,7 @@ export const ExperimentTable = sqliteTable(
     exp_plan_path: text(),
     remote_server_id: text().references(() => RemoteServerTable.id, { onDelete: "set null" }),
     code_path: text().notNull(),
+    remote_code_path: text(),
     status: text().$type<"pending" | "running" | "done" | "idle" | "failed">().notNull().default("pending"),
     started_at: integer(),
     finished_at: integer(),

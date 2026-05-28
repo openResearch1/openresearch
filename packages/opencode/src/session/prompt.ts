@@ -49,6 +49,13 @@ import { Truncate } from "@/tool/truncation"
 import { assertExperimentReady, setExperimentStatus } from "./experiment-guard"
 import { Workflow } from "@/workflow"
 import { Collab } from "@/collab"
+import { SshTool } from "@/tool/ssh"
+import { ExperimentRemoteTaskStartTool } from "@/tool/experiment-remote-task"
+import { Database } from "@/storage/db"
+import { ExperimentTable, RemoteServerTable } from "@/research/research.sql"
+import { normalizeRemoteServerConfig } from "@/research/remote-server"
+import { Research } from "@/research/research"
+import { eq } from "drizzle-orm"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -86,6 +93,28 @@ export namespace SessionPrompt {
       }
     },
   )
+
+  async function experimentWorkspace(sessionID: string) {
+    const parent = (await Research.getParentSessionId(sessionID)) ?? sessionID
+    const experiment = Database.use((db) =>
+      db.select().from(ExperimentTable).where(eq(ExperimentTable.exp_session_id, parent)).get(),
+    )
+    if (!experiment) return
+    return [
+      `<system-reminder>`,
+      `This session is linked to an experiment.`,
+      ``,
+      `The primary code workspace for this experiment is:`,
+      `<code_path>`,
+      experiment.code_path,
+      `</code_path>`,
+      ``,
+      `Use this directory as the main workspace for code changes, build/test commands, and git operations.`,
+      `You may read files outside this directory for context, but do not create, edit, delete, or patch files outside this code_path.`,
+      `Do not assume the current session Working directory is the experiment code workspace.`,
+      `</system-reminder>`,
+    ].join("\n")
+  }
 
   export function assertNotBusy(sessionID: string) {
     const match = state()[sessionID]
@@ -721,6 +750,10 @@ export namespace SessionPrompt {
 
       // Build system prompt, adding structured output instruction if needed
       const system = [...(await SystemPrompt.environment(model)), ...(await InstructionPrompt.system())]
+      const workspace = await experimentWorkspace(sessionID)
+      if (workspace) {
+        system.push(workspace)
+      }
       if (activeWorkflow) {
         system.push(workflowSystemPrompt(activeWorkflow))
       }
@@ -1602,8 +1635,197 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       })
       .optional(),
     command: z.string(),
+    remoteServerId: z.string().optional(),
   })
   export type ShellInput = z.infer<typeof ShellInput>
+
+  function publicRemoteServer(input: ReturnType<typeof normalizeRemoteServerConfig>) {
+    const { password, ...cfg } = input
+    return cfg
+  }
+
+  export const RemoteTaskInput = z.object({
+    sessionID: Identifier.schema("session"),
+    agent: z.string(),
+    model: z
+      .object({
+        providerID: z.string(),
+        modelID: z.string(),
+      })
+      .optional(),
+    command: z.string(),
+    title: z.string().optional(),
+  })
+  export type RemoteTaskInput = z.infer<typeof RemoteTaskInput>
+
+  export async function remoteTask(input: RemoteTaskInput) {
+    const abort = start(input.sessionID)
+    if (!abort) {
+      throw new Session.BusyError(input.sessionID)
+    }
+
+    using _ = defer(() => {
+      const callbacks = state()[input.sessionID]?.callbacks ?? []
+      if (callbacks.length === 0) {
+        cancel(input.sessionID)
+        return
+      }
+      loop({ sessionID: input.sessionID, resume_existing: true }).catch((error) => {
+        log.error("session loop failed to resume after remote task", { sessionID: input.sessionID, error })
+      })
+    })
+
+    const session = await Session.get(input.sessionID)
+    if (session.revert) {
+      await SessionRevert.cleanup(session)
+    }
+    const parent = (await Research.getParentSessionId(input.sessionID)) ?? input.sessionID
+    const experiment = Database.use((db) =>
+      db.select().from(ExperimentTable).where(eq(ExperimentTable.exp_session_id, parent)).get(),
+    )
+    if (!experiment) throw new Error(`experiment session not found: ${input.sessionID}`)
+    if (!experiment.remote_server_id) throw new Error(`experiment has no remote server: ${experiment.exp_id}`)
+
+    const row = Database.use((db) =>
+      db.select().from(RemoteServerTable).where(eq(RemoteServerTable.id, experiment.remote_server_id!)).get(),
+    )
+    if (!row) throw new Error(`remote server not found: ${experiment.remote_server_id}`)
+    const cfg = normalizeRemoteServerConfig(JSON.parse(row.config))
+    if (!cfg.resource_root) throw new Error(`remote server has no resource_root: ${experiment.remote_server_id}`)
+
+    const agent = await Agent.get(input.agent)
+    const model = input.model ?? agent.model ?? (await lastModel(input.sessionID))
+    const command = input.command.trim()
+    const title = input.title?.trim() || command.slice(0, 80) || "Remote task"
+    const args = {
+      expId: experiment.exp_id,
+      kind: "experiment_run" as const,
+      title,
+      remoteRoot: cfg.resource_root,
+      command,
+    }
+
+    const userMsg: MessageV2.User = {
+      id: Identifier.ascending("message"),
+      sessionID: input.sessionID,
+      time: {
+        created: Date.now(),
+      },
+      role: "user",
+      agent: input.agent,
+      model: {
+        providerID: model.providerID,
+        modelID: model.modelID,
+      },
+    }
+    await Session.updateMessage(userMsg)
+    await Session.updatePart({
+      type: "text",
+      id: Identifier.ascending("part"),
+      messageID: userMsg.id,
+      sessionID: input.sessionID,
+      text: "The following tool was executed by the user",
+      synthetic: true,
+    })
+
+    const msg: MessageV2.Assistant = {
+      id: Identifier.ascending("message"),
+      sessionID: input.sessionID,
+      parentID: userMsg.id,
+      mode: input.agent,
+      agent: input.agent,
+      cost: 0,
+      path: {
+        cwd: Instance.directory,
+        root: Instance.worktree,
+      },
+      time: {
+        created: Date.now(),
+      },
+      role: "assistant",
+      tokens: {
+        input: 0,
+        output: 0,
+        reasoning: 0,
+        cache: { read: 0, write: 0 },
+      },
+      modelID: model.modelID,
+      providerID: model.providerID,
+    }
+    await Session.updateMessage(msg)
+    const part: MessageV2.Part = {
+      type: "tool",
+      id: Identifier.ascending("part"),
+      messageID: msg.id,
+      sessionID: input.sessionID,
+      tool: "experiment_remote_task_start",
+      callID: ulid(),
+      state: {
+        status: "running",
+        time: {
+          start: Date.now(),
+        },
+        input: args,
+      },
+    }
+    await Session.updatePart(part)
+
+    const tool = await ExperimentRemoteTaskStartTool.init({ agent })
+    try {
+      const result = await tool.execute(args, {
+        sessionID: input.sessionID,
+        messageID: msg.id,
+        agent: input.agent,
+        abort,
+        callID: part.callID,
+        messages: [],
+        metadata(input) {
+          if (part.state.status !== "running") return
+          part.state.metadata = input.metadata
+          if (input.title) part.state.title = input.title
+          Session.updatePart(part)
+        },
+        async ask() {
+          throw new Error("remote task execution does not support permission prompts")
+        },
+      })
+
+      msg.time.completed = Date.now()
+      await Session.updateMessage(msg)
+      if (part.state.status === "running") {
+        part.state = {
+          status: "completed",
+          time: {
+            ...part.state.time,
+            end: Date.now(),
+          },
+          input: part.state.input,
+          title: result.title,
+          metadata: result.metadata,
+          output: result.output,
+        }
+        await Session.updatePart(part)
+      }
+      return { info: msg, parts: [part] }
+    } catch (error) {
+      msg.time.completed = Date.now()
+      await Session.updateMessage(msg)
+      if (part.state.status === "running") {
+        part.state = {
+          status: "error",
+          time: {
+            ...part.state.time,
+            end: Date.now(),
+          },
+          input: part.state.input,
+          error: error instanceof Error ? error.message : String(error),
+        }
+        await Session.updatePart(part)
+      }
+      throw error
+    }
+  }
+
   export async function shell(input: ShellInput) {
     const abort = start(input.sessionID)
     if (!abort) {
@@ -1678,6 +1900,78 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       providerID: model.providerID,
     }
     await Session.updateMessage(msg)
+
+    if (input.remoteServerId) {
+      const row = Database.use((db) =>
+        db.select().from(RemoteServerTable).where(eq(RemoteServerTable.id, input.remoteServerId!)).get(),
+      )
+      if (!row) throw new Error(`remote server not found: ${input.remoteServerId}`)
+
+      const cfg = normalizeRemoteServerConfig(JSON.parse(row.config))
+      const part: MessageV2.Part = {
+        type: "tool",
+        id: Identifier.ascending("part"),
+        messageID: msg.id,
+        sessionID: input.sessionID,
+        tool: "ssh",
+        callID: ulid(),
+        state: {
+          status: "running",
+          time: {
+            start: Date.now(),
+          },
+          input: {
+            server: publicRemoteServer(cfg),
+            command: input.command,
+          },
+          metadata: {
+            remoteServerId: input.remoteServerId,
+          },
+        },
+      }
+      await Session.updatePart(part)
+
+      const ssh = await SshTool.init({ agent })
+      const result = await ssh.execute(
+        { server: cfg, command: input.command },
+        {
+          sessionID: input.sessionID,
+          messageID: msg.id,
+          agent: input.agent,
+          abort,
+          callID: part.callID,
+          messages: [],
+          metadata(input) {
+            if (part.state.status !== "running") return
+            part.state.metadata = input.metadata
+            if (input.title) part.state.title = input.title
+            Session.updatePart(part)
+          },
+          async ask() {
+            throw new Error("ssh shell execution does not support permission prompts")
+          },
+        },
+      )
+
+      msg.time.completed = Date.now()
+      await Session.updateMessage(msg)
+      if (part.state.status === "running") {
+        part.state = {
+          status: "completed",
+          time: {
+            ...part.state.time,
+            end: Date.now(),
+          },
+          input: part.state.input,
+          title: result.title,
+          metadata: result.metadata,
+          output: result.output,
+        }
+        await Session.updatePart(part)
+      }
+      return { info: msg, parts: [part] }
+    }
+
     const part: MessageV2.Part = {
       type: "tool",
       id: Identifier.ascending("part"),

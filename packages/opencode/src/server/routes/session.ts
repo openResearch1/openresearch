@@ -904,6 +904,38 @@ export const SessionRoutes = lazy(() =>
       },
     )
     .post(
+      "/:sessionID/remote-task",
+      describeRoute({
+        summary: "Start remote experiment task",
+        description: "Start an experiment_run remote task for the experiment linked to the session.",
+        operationId: "session.remoteTask",
+        responses: {
+          200: {
+            description: "Created message",
+            content: {
+              "application/json": {
+                schema: resolver(MessageV2.Assistant),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: z.string().meta({ description: "Session ID" }),
+        }),
+      ),
+      validator("json", SessionPrompt.RemoteTaskInput.omit({ sessionID: true })),
+      async (c) => {
+        const sessionID = c.req.valid("param").sessionID
+        const body = c.req.valid("json")
+        const msg = await SessionPrompt.remoteTask({ ...body, sessionID })
+        return c.json(msg)
+      },
+    )
+    .post(
       "/:sessionID/revert",
       describeRoute({
         summary: "Revert message",

@@ -355,6 +355,68 @@ describe("session.message-v2.toModelMessage", () => {
     ])
   })
 
+  test("converts user-executed ssh tool history into plain assistant text", () => {
+    const userID = "m-user"
+    const assistantID = "m-assistant"
+
+    const input: MessageV2.WithParts[] = [
+      {
+        info: userInfo(userID),
+        parts: [
+          {
+            ...basePart(userID, "u1"),
+            type: "text",
+            text: "The following tool was executed by the user",
+            synthetic: true,
+          },
+        ] as MessageV2.Part[],
+      },
+      {
+        info: assistantInfo(assistantID, userID),
+        parts: [
+          {
+            ...basePart(assistantID, "a1"),
+            type: "tool",
+            callID: "call-ssh",
+            tool: "ssh",
+            state: {
+              status: "completed",
+              input: { remoteServerId: "server-1", command: "pwd" },
+              output: "/tmp/project",
+              title: "SSH server",
+              metadata: {},
+              time: { start: 0, end: 1 },
+            },
+          },
+        ] as MessageV2.Part[],
+      },
+    ]
+
+    expect(MessageV2.toModelMessages(input, model)).toStrictEqual([
+      {
+        role: "user",
+        content: [{ type: "text", text: "The following tool was executed by the user" }],
+      },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "text",
+            text: [
+              "The user executed the ssh tool.",
+              "",
+              "Input:",
+              JSON.stringify({ remoteServerId: "server-1", command: "pwd" }, null, 2),
+              "",
+              "Output:",
+              "/tmp/project",
+            ].join("\n"),
+          },
+        ],
+      },
+    ])
+  })
+
   test("omits provider metadata when assistant model differs", () => {
     const userID = "m-user"
     const assistantID = "m-assistant"

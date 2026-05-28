@@ -8,7 +8,9 @@ Required tools and actions:
    - `exp_id`
    - `atom_id`
    - `code_path`
+   - `remote_code_path`
    - `exp_plan_path`
+   - `remote_server_id`
    - `remote_server_config`
    - existing run folders if present
 2. Read the linked atom's claim and evidence using `atom_query` plus file reads so you understand the research target before planning or coding.
@@ -26,7 +28,9 @@ Context writes required before `workflow.next`:
 - `exp_id`
 - `atom_id`
 - `code_path`
+- `remote_code_path`
 - `exp_plan_path`
+- `remote_server_id`
 - `remote_server_config`
 - `code_id`
 - `successful_experience_found`

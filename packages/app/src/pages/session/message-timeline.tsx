@@ -277,7 +277,7 @@ export function MessageTimeline(props: {
             <div
               ref={props.setContentRef}
               role="log"
-              class="flex flex-col gap-0 items-start justify-start pb-16 transition-[margin]"
+              class="flex flex-col gap-2 items-start justify-start pb-16 transition-[margin]"
               style={{ "padding-top": "var(--session-title-height)" }}
               classList={{
                 "w-full": true,

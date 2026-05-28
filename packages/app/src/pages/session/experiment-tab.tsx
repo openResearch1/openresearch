@@ -64,6 +64,7 @@ interface ExperimentTabProps {
     time_created: number
     time_updated: number
     code_path: string | null
+    remote_code_path: string | null
     atom: {
       atom_id: string
       research_project_id: string
@@ -499,12 +500,22 @@ export function ExpProgressTab(
   const [serverList, setServerList] = createSignal<ServerRow[]>([])
   const [selectedServerId, setSelectedServerId] = createSignal<string | null>(props.experiment.remote_server_id ?? null)
   const [saving, setSaving] = createSignal(false)
+  const [editingRemotePath, setEditingRemotePath] = createSignal(false)
+  const [remotePathInput, setRemotePathInput] = createSignal(
+    props.experiment.remote_code_path ?? `experiments/${props.experiment.exp_id}`,
+  )
+  const [savingRemotePath, setSavingRemotePath] = createSignal(false)
+  const [syncingCode, setSyncingCode] = createSignal(false)
+  const [syncError, setSyncError] = createSignal<string | null>(null)
+  const [syncMessage, setSyncMessage] = createSignal<string | null>(null)
 
   // Current server config (mutable after update)
   const [currentServerConfig, setCurrentServerConfig] = createSignal<ServerConfig | null>(
     props.experiment.remote_server_config ?? null,
   )
   const codePath = createMemo(() => props.experiment.code_path)
+  const [currentRemotePath, setCurrentRemotePath] = createSignal<string | null>(props.experiment.remote_code_path ?? null)
+  const remotePath = createMemo(() => currentRemotePath() ?? `experiments/${props.experiment.exp_id}`)
   const describeServer = (cfg: ServerConfig) =>
     "mode" in cfg && cfg.mode === "ssh_config"
       ? `${cfg.user ? `${cfg.user}@` : ""}${cfg.host_alias}`
@@ -573,6 +584,48 @@ export function ExpProgressTab(
       console.error("Failed to update server", e)
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleSaveRemotePath = async () => {
+    const value = remotePathInput().trim()
+    setSavingRemotePath(true)
+    setSyncError(null)
+    setSyncMessage(null)
+    try {
+      await sdk.client.research.experiment.update({
+        expId: props.experiment.exp_id,
+        remoteCodePath: value || null,
+      })
+      setCurrentRemotePath(value || null)
+      setEditingRemotePath(false)
+      props.onUpdated?.()
+    } catch (e) {
+      console.error("Failed to update remote code path", e)
+    } finally {
+      setSavingRemotePath(false)
+    }
+  }
+
+  const handleSyncCode = async () => {
+    setSyncingCode(true)
+    setSyncError(null)
+    setSyncMessage(null)
+    try {
+      const res = await sdk.client.research.experiment.syncCode({
+        expId: props.experiment.exp_id,
+        remoteCodePath: remotePath(),
+      })
+      if (!res.data) throw new Error("Failed to sync code")
+      const path = res.data.remote_code_path
+      setCurrentRemotePath(path)
+      setRemotePathInput(path)
+      setSyncMessage(`Synced to ${path}`)
+      props.onUpdated?.()
+    } catch (err: any) {
+      setSyncError(err?.message ?? "Failed to sync code")
+    } finally {
+      setSyncingCode(false)
     }
   }
 
@@ -690,6 +743,75 @@ export function ExpProgressTab(
                   </button>
                   <button
                     onClick={() => setEditingServer(false)}
+                    class="px-2 py-1 rounded text-11-regular text-text-weak hover:text-text-base transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </Show>
+          </div>
+
+          <div>
+            <div class="text-12-medium text-text-weak mb-1">Remote Code Path</div>
+            <Show
+              when={editingRemotePath()}
+              fallback={
+                <div class="flex flex-col gap-2">
+                  <div class="flex items-center gap-2">
+                    <div class="text-14-regular font-mono truncate">{remotePath()}</div>
+                    <Show when={!currentRemotePath()}>
+                      <div class="text-11-regular text-text-weak">default</div>
+                    </Show>
+                    <button
+                      class="text-11-regular text-text-weak hover:text-text-base transition-colors"
+                      onClick={() => {
+                        setRemotePathInput(remotePath())
+                        setEditingRemotePath(true)
+                      }}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      disabled={syncingCode() || !currentServerConfig()}
+                      onClick={handleSyncCode}
+                      class="px-2 py-1 rounded text-11-regular bg-background-stronger text-text-base hover:text-text-strong transition-colors disabled:opacity-50"
+                    >
+                      {syncingCode() ? "Syncing..." : "Sync Code"}
+                    </button>
+                  </div>
+                  <Show when={!currentServerConfig()}>
+                    <div class="text-11-regular text-text-weak">Select a remote server before syncing code.</div>
+                  </Show>
+                  <Show when={syncMessage()}>
+                    <div class="text-11-regular text-icon-success-base">{syncMessage()}</div>
+                  </Show>
+                  <Show when={syncError()}>
+                    <div class="text-11-regular text-icon-critical-base">{syncError()}</div>
+                  </Show>
+                </div>
+              }
+            >
+              <div class="flex flex-col gap-2">
+                <input
+                  value={remotePathInput()}
+                  onInput={(e) => setRemotePathInput(e.currentTarget.value)}
+                  placeholder={`experiments/${props.experiment.exp_id}`}
+                  class="rounded border border-border-weak-base bg-background-stronger px-2 py-1 text-13-regular text-text-base font-mono outline-none focus:border-border-base"
+                />
+                <div class="text-11-regular text-text-weak">
+                  Full remote directory for this experiment. Leave empty to use the default path.
+                </div>
+                <div class="flex items-center gap-2">
+                  <button
+                    disabled={savingRemotePath()}
+                    onClick={handleSaveRemotePath}
+                    class="px-2 py-1 rounded text-11-regular bg-background-stronger text-text-base hover:text-text-strong transition-colors disabled:opacity-50"
+                  >
+                    {savingRemotePath() ? "Saving..." : "Save"}
+                  </button>
+                  <button
+                    onClick={() => setEditingRemotePath(false)}
                     class="px-2 py-1 rounded text-11-regular text-text-weak hover:text-text-base transition-colors"
                   >
                     Cancel

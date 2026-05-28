@@ -49,6 +49,7 @@ import {
 import { parseSshConfig } from "@/research/ssh-config"
 import { isArticleDirectory } from "@/research/article-source"
 import { readRemoteTaskLog } from "@/research/remote-task-runner"
+import { defaultRemoteCodePath, syncCodeToRemote } from "@/research/remote-code-sync"
 
 const createSchema = z.object({
   name: z.string().min(1, "name required"),
@@ -136,6 +137,7 @@ const experimentSchema = z.object({
   remote_server_id: z.string().nullable(),
   remote_server_config: RemoteServerConfigSchema.nullable(),
   code_path: z.string(),
+  remote_code_path: z.string().nullable(),
   status: z.enum(["pending", "running", "done", "idle", "failed"]),
   started_at: z.number().nullable(),
   finished_at: z.number().nullable(),
@@ -212,6 +214,13 @@ const watchLogSchema = z.object({
   ok: z.boolean(),
   path: z.string(),
   content: z.string(),
+})
+
+const codeSyncSchema = z.object({
+  ok: z.boolean(),
+  server: z.string(),
+  remote_code_path: z.string(),
+  output: z.string(),
 })
 
 const codeSchema = z.object({
@@ -2016,6 +2025,70 @@ export const ResearchRoutes = new Hono()
       }
     },
   )
+  .post(
+    "/experiment/:expId/sync-code",
+    describeRoute({
+      summary: "Sync experiment code to remote server",
+      operationId: "research.experiment.syncCode",
+      responses: {
+        200: {
+          description: "Code sync result",
+          content: {
+            "application/json": {
+              schema: resolver(codeSyncSchema),
+            },
+          },
+        },
+        ...errors(404, 500),
+      },
+    }),
+    validator(
+      "json",
+      z.object({
+        remoteCodePath: z.string().optional(),
+        delete: z.boolean().optional(),
+      }),
+    ),
+    async (c) => {
+      const expId = c.req.param("expId")
+      const body = c.req.valid("json")
+      const experiment = Database.use((db) =>
+        db.select().from(ExperimentTable).where(eq(ExperimentTable.exp_id, expId)).get(),
+      )
+      if (!experiment) return c.json({ success: false, message: `experiment not found: ${expId}` }, 404)
+      if (!experiment.remote_server_id) return c.json({ success: false, message: `experiment has no remote server: ${expId}` }, 500)
+      const row = Database.use((db) =>
+        db.select().from(RemoteServerTable).where(eq(RemoteServerTable.id, experiment.remote_server_id!)).get(),
+      )
+      if (!row) return c.json({ success: false, message: `remote server not found: ${experiment.remote_server_id}` }, 404)
+
+      const remoteCodePath = (body.remoteCodePath ?? experiment.remote_code_path ?? defaultRemoteCodePath(expId)).trim()
+      try {
+        const result = await syncCodeToRemote({
+          server: normalizeRemoteServerConfig(JSON.parse(row.config)),
+          codePath: experiment.code_path,
+          remoteCodePath,
+          delete: body.delete,
+        })
+        if (!result.ok) return c.json({ success: false, message: result.output || "failed to sync code" }, 500)
+        Database.use((db) =>
+          db
+            .update(ExperimentTable)
+            .set({ remote_code_path: result.remoteCodePath, time_updated: Date.now() })
+            .where(eq(ExperimentTable.exp_id, expId))
+            .run(),
+        )
+        return c.json({
+          ok: true,
+          server: result.server,
+          remote_code_path: result.remoteCodePath,
+          output: result.output,
+        })
+      } catch (err) {
+        return c.json({ success: false, message: err instanceof Error ? err.message : String(err) }, 500)
+      }
+    },
+  )
   .get(
     "/experiment/session/:sessionId",
     describeRoute({
@@ -3000,6 +3073,7 @@ export const ResearchRoutes = new Hono()
         baselineBranch: z.string().optional(),
         remoteServerId: z.string().nullable().optional(),
         codePath: z.string().optional(),
+        remoteCodePath: z.string().nullable().optional(),
       }),
     ),
     async (c) => {
@@ -3018,6 +3092,7 @@ export const ResearchRoutes = new Hono()
       if (body.baselineBranch !== undefined) updates.baseline_branch_name = body.baselineBranch
       if (body.remoteServerId !== undefined) updates.remote_server_id = body.remoteServerId
       if (body.codePath !== undefined) updates.code_path = body.codePath
+      if (body.remoteCodePath !== undefined) updates.remote_code_path = body.remoteCodePath
 
       Database.use((db) => db.update(ExperimentTable).set(updates).where(eq(ExperimentTable.exp_id, expId)).run())
 

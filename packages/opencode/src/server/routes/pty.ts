@@ -54,6 +54,30 @@ export const PtyRoutes = lazy(() =>
         return c.json(info)
       },
     )
+    .post(
+      "/remote",
+      describeRoute({
+        summary: "Create remote PTY session",
+        description: "Create a new pseudo-terminal (PTY) session connected to a configured remote server over SSH.",
+        operationId: "pty.createRemote",
+        responses: {
+          200: {
+            description: "Created remote session",
+            content: {
+              "application/json": {
+                schema: resolver(Pty.Info),
+              },
+            },
+          },
+          ...errors(400),
+        },
+      }),
+      validator("json", Pty.CreateRemoteInput),
+      async (c) => {
+        const info = await Pty.createRemote(c.req.valid("json"))
+        return c.json(info)
+      },
+    )
     .get(
       "/:ptyID",
       describeRoute({

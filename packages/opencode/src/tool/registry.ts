@@ -44,6 +44,7 @@ import {
 import { AtomGraphPromptTool } from "./atom-graph-prompt"
 import { AtomGraphPromptSmartTool } from "./atom-graph-prompt-smart"
 import { ExperimentCreateTool } from "./experiment"
+import { ExperimentCodeSyncTool } from "./experiment-code-sync"
 import { ExperimentQueryTool } from "./experiment-query"
 import { ResearchCodeQueryTool } from "./research-code"
 import { ResearchBackgroundTool, ResearchGoalTool, ResearchMacroTool } from "./research-background"
@@ -176,6 +177,7 @@ export namespace ToolRegistry {
       AtomGraphPromptTool,
       AtomGraphPromptSmartTool,
       ExperimentCreateTool,
+      ExperimentCodeSyncTool,
       ExperimentQueryTool,
       ResearchCodeQueryTool,
       ResearchBackgroundTool,

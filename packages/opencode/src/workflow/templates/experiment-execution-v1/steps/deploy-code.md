@@ -14,6 +14,7 @@ Required actions:
    - `message: Syncing code to the remote server`
 3. When sync is required, you MUST invoke the `experiment_deploy` subagent.
 4. Extract the returned `Remote Path` and save it for later environment setup and run steps.
+   - If the experiment already has `remote_code_path`, deployment should use that exact full path.
 5. If deployment is not needed because the remote code path is already valid for the current attempt, record that decision explicitly.
 
 Context writes required before `workflow.next`:
@@ -35,5 +36,6 @@ Failure handling:
 Important rules:
 
 - Do not invent the remote path; use the deploy result.
+- User-configured `remote_code_path` is authoritative when present.
 - Environment setup should consume `remote_code_path` when project files on the server matter.
 - Do not perform the remote code sync yourself when deployment is needed; use `experiment_deploy`.
