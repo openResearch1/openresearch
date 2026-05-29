@@ -88,6 +88,13 @@ export namespace Pty {
 
   export type UpdateInput = z.infer<typeof UpdateInput>
 
+  export const ReadInput = z.object({
+    cursor: z.number().optional(),
+    limit: z.number().positive().optional(),
+  })
+
+  export type ReadInput = z.infer<typeof ReadInput>
+
   export const Event = {
     Created: BusEvent.define("pty.created", z.object({ info: Info })),
     Updated: BusEvent.define("pty.updated", z.object({ info: Info })),
@@ -102,6 +109,7 @@ export namespace Pty {
     bufferCursor: number
     cursor: number
     subscribers: Map<unknown, Socket>
+    waiters: Set<() => void>
   }
 
   const state = Instance.state(
@@ -172,6 +180,7 @@ export namespace Pty {
       bufferCursor: 0,
       cursor: 0,
       subscribers: new Map(),
+      waiters: new Set(),
     }
     state().set(id, session)
     ptyProcess.onData((chunk) => {
@@ -196,6 +205,7 @@ export namespace Pty {
       }
 
       session.buffer += chunk
+      for (const waiter of session.waiters) waiter()
       if (session.buffer.length <= BUFFER_LIMIT) return
       const excess = session.buffer.length - BUFFER_LIMIT
       session.buffer = session.buffer.slice(excess)
@@ -205,6 +215,8 @@ export namespace Pty {
       if (session.info.status === "exited") return
       log.info("session exited", { id, exitCode })
       session.info.status = "exited"
+      for (const waiter of session.waiters) waiter()
+      session.waiters.clear()
       Bus.publish(Event.Exited, { id, exitCode })
       remove(id)
     })
@@ -322,6 +334,8 @@ export namespace Pty {
     if (!session) return
     state().delete(id)
     log.info("removing session", { id })
+    for (const waiter of session.waiters) waiter()
+    session.waiters.clear()
     try {
       session.process.kill()
     } catch {}
@@ -348,6 +362,75 @@ export namespace Pty {
     if (session && session.info.status === "running") {
       session.process.write(data)
     }
+  }
+
+  export function read(id: string, input: ReadInput = {}) {
+    const session = state().get(id)
+    if (!session) return
+
+    const start = session.bufferCursor
+    const end = session.cursor
+    const from =
+      typeof input.cursor === "number" && Number.isSafeInteger(input.cursor)
+        ? Math.max(start, Math.min(input.cursor, end))
+        : start
+    const offset = Math.max(0, from - start)
+    const output = session.buffer.slice(offset)
+    const limited = input.limit && output.length > input.limit ? output.slice(output.length - input.limit) : output
+
+    return {
+      info: session.info,
+      cursor: end,
+      previousCursor: from,
+      output: limited,
+      truncated: limited.length !== output.length || from > start,
+    }
+  }
+
+  export async function wait(input: {
+    id: string
+    cursor?: number
+    pattern?: string
+    regex?: boolean
+    timeoutMs?: number
+    signal?: AbortSignal
+    limit?: number
+  }) {
+    const session = state().get(input.id)
+    if (!session) return
+    const timeout = input.timeoutMs ?? 30000
+    const match = (output: string) => {
+      if (!input.pattern) return output.length > 0
+      if (!input.regex) return output.includes(input.pattern)
+      return new RegExp(input.pattern).test(output)
+    }
+
+    const current = read(input.id, { cursor: input.cursor, limit: input.limit })
+    if (!current) return
+    if (match(current.output) || current.info.status === "exited") return current
+    let latest = current
+
+    await new Promise<void>((resolve) => {
+      const done = () => {
+        cleanup()
+        resolve()
+      }
+      const cleanup = () => {
+        clearTimeout(timer)
+        session.waiters.delete(check)
+        input.signal?.removeEventListener("abort", done)
+      }
+      const check = () => {
+        const next = read(input.id, { cursor: input.cursor, limit: input.limit })
+        if (next) latest = next
+        if (!next || match(next.output) || next.info.status === "exited") done()
+      }
+      const timer = setTimeout(done, timeout)
+      session.waiters.add(check)
+      input.signal?.addEventListener("abort", done, { once: true })
+    })
+
+    return latest
   }
 
   export function connect(id: string, ws: Socket, cursor?: number) {

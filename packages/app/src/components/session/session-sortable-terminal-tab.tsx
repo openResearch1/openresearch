@@ -6,12 +6,15 @@ import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { Icon } from "@opencode-ai/ui/icon"
+import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { useTerminal, type LocalPTY } from "@/context/terminal"
 import { useLanguage } from "@/context/language"
+import { usePrompt } from "@/context/prompt"
 
 export function SortableTerminalTab(props: { terminal: LocalPTY; onClose?: () => void }): JSX.Element {
   const terminal = useTerminal()
   const language = useLanguage()
+  const prompt = usePrompt()
   const sortable = createSortable(props.terminal.id)
   const [store, setStore] = createStore({
     editing: false,
@@ -43,6 +46,11 @@ export function SortableTerminalTab(props: { terminal: LocalPTY; onClose?: () =>
     return language.t("terminal.title")
   }
 
+  const tip = () => {
+    if (props.terminal.type !== "remote") return label()
+    return [label(), props.terminal.remoteLabel, props.terminal.id].filter(Boolean).join(" · ")
+  }
+
   const close = () => {
     const count = terminal.all().length
     terminal.close(props.terminal.id)
@@ -68,6 +76,31 @@ export function SortableTerminalTab(props: { terminal: LocalPTY; onClose?: () =>
     }
     element.focus()
     element.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true }))
+  }
+
+  const reference = () => {
+    const title = label()
+    const content = `@terminal:${title}`
+    prompt.insert({
+      type: "terminal",
+      ptyID: props.terminal.id,
+      title,
+      terminalType: props.terminal.type,
+      remoteLabel: props.terminal.remoteLabel,
+      content,
+      start: 0,
+      end: content.length,
+    })
+  }
+
+  const click = (e: MouseEvent) => {
+    if (e.shiftKey) {
+      e.preventDefault()
+      e.stopPropagation()
+      reference()
+      return
+    }
+    focus()
   }
 
   const edit = (e?: Event) => {
@@ -138,7 +171,7 @@ export function SortableTerminalTab(props: { terminal: LocalPTY; onClose?: () =>
       <div class="relative h-full">
         <Tabs.Trigger
           value={props.terminal.id}
-          onClick={focus}
+          onClick={click}
           onMouseDown={(e) => e.preventDefault()}
           onContextMenu={menu}
           class="!shadow-none"
@@ -157,9 +190,18 @@ export function SortableTerminalTab(props: { terminal: LocalPTY; onClose?: () =>
             />
           }
         >
-          <span onDblClick={edit} classList={{ invisible: store.editing }}>
-            {label()}
-          </span>
+          <Tooltip value={tip()}>
+            <span
+              onDblClick={edit}
+              class="inline-flex items-center gap-1.5 min-w-0"
+              classList={{ invisible: store.editing }}
+            >
+              <Show when={props.terminal.type === "remote"}>
+                <Icon name="server" size="small" class="shrink-0 text-icon-base" />
+              </Show>
+              <span class="truncate">{label()}</span>
+            </span>
+          </Tooltip>
         </Tabs.Trigger>
         <Show when={store.editing}>
           <div class="absolute inset-0 flex items-center px-3 bg-muted z-10 pointer-events-auto">

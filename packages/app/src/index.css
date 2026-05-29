@@ -60,6 +60,35 @@
     color: color-mix(in oklab, #fef3c7 88%, white);
   }
 
+  [data-component="prompt-input"] [data-type="terminal"] {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-inline: 0.05rem;
+    padding: 0.05rem 0.45rem 0.08rem 0.28rem;
+    border: 1px solid color-mix(in oklab, #14b8a6 48%, transparent);
+    border-radius: 999px;
+    background: color-mix(in oklab, #14b8a6 14%, transparent);
+    color: color-mix(in oklab, #99f6e4 88%, currentColor);
+    font-weight: 500;
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, white 5%, transparent);
+  }
+
+  [data-component="prompt-input"] [data-type="terminal"]::before {
+    content: attr(data-label);
+    display: inline-flex;
+    align-items: center;
+    height: 1rem;
+    padding-inline: 0.3rem;
+    border-radius: 999px;
+    background: color-mix(in oklab, #14b8a6 26%, transparent);
+    color: color-mix(in oklab, #ccfbf1 88%, white);
+    font-size: 0.625rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    line-height: 1;
+  }
+
   [data-component="getting-started"] {
     container-type: inline-size;
     container-name: getting-started;

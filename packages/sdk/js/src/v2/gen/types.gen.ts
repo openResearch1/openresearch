@@ -1299,6 +1299,12 @@ export type PermissionConfig =
       experiment_remote_task_start?: PermissionActionConfig
       experiment_remote_task_get?: PermissionActionConfig
       experiment_remote_task_list?: PermissionActionConfig
+      remote_terminal_start?: PermissionActionConfig
+      remote_terminal_write?: PermissionActionConfig
+      remote_terminal_read?: PermissionActionConfig
+      remote_terminal_wait?: PermissionActionConfig
+      remote_terminal_list?: PermissionActionConfig
+      remote_terminal_stop?: PermissionActionConfig
       project_runtime_server_query?: PermissionActionConfig
       project_runtime_env_spec_inspect?: PermissionActionConfig
       project_runtime_ensure?: PermissionActionConfig

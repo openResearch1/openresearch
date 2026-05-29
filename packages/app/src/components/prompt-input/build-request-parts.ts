@@ -2,7 +2,7 @@ import { getFilename } from "@opencode-ai/util/path"
 import { type AgentPartInput, type FilePartInput, type Part, type TextPartInput } from "@opencode-ai/sdk/v2/client"
 import type { FileSelection } from "@/context/file"
 import { encodeFilePath } from "@/context/file/path"
-import type { AgentPart, AtomPart, FileAttachmentPart, ImageAttachmentPart, Prompt } from "@/context/prompt"
+import type { AgentPart, AtomPart, FileAttachmentPart, ImageAttachmentPart, Prompt, TerminalPart } from "@/context/prompt"
 import { Identifier } from "@/utils/id"
 import { createCommentMetadata, formatCommentNote } from "@/utils/comment-note"
 
@@ -42,6 +42,7 @@ const fileQuery = (selection: FileSelection | undefined) =>
 const isFileAttachment = (part: Prompt[number]): part is FileAttachmentPart => part.type === "file"
 const isAgentAttachment = (part: Prompt[number]): part is AgentPart => part.type === "agent"
 const isAtomAttachment = (part: Prompt[number]): part is AtomPart => part.type === "atom"
+const isTerminalAttachment = (part: Prompt[number]): part is TerminalPart => part.type === "terminal"
 
 const toOptimisticPart = (part: PromptRequestPart, sessionID: string, messageID: string): Part => {
   if (part.type === "text") {
@@ -140,6 +141,31 @@ export function buildRequestParts(input: BuildRequestPartsInput) {
     } satisfies PromptRequestPart
   })
 
+  const terminals = input.prompt.filter(isTerminalAttachment).map((attachment) => {
+    const details = [
+      `pty_id: ${attachment.ptyID}`,
+      attachment.terminalType ? `type: ${attachment.terminalType}` : null,
+      attachment.remoteLabel ? `server: ${attachment.remoteLabel}` : null,
+    ].filter(Boolean)
+    return {
+      id: Identifier.ascending("part"),
+      type: "text",
+      synthetic: true,
+      text: `Referenced terminal: ${attachment.title} (${details.join(", ")})`,
+      metadata: {
+        opencodeTerminal: {
+          ptyID: attachment.ptyID,
+          title: attachment.title,
+          terminalType: attachment.terminalType,
+          remoteLabel: attachment.remoteLabel,
+          value: attachment.content,
+          start: attachment.start,
+          end: attachment.end,
+        },
+      },
+    } satisfies PromptRequestPart
+  })
+
   const used = new Set(files.map((part) => part.url))
   const context = input.context.flatMap((item) => {
     const path = absolute(input.sessionDirectory, item.path)
@@ -186,7 +212,7 @@ export function buildRequestParts(input: BuildRequestPartsInput) {
     } satisfies PromptRequestPart
   })
 
-  requestParts.push(...files, ...context, ...atoms, ...agents, ...images)
+  requestParts.push(...files, ...context, ...atoms, ...terminals, ...agents, ...images)
 
   return {
     requestParts,

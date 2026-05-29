@@ -95,6 +95,14 @@ export namespace Agent {
         "*.env.example": "allow",
       },
     })
+    const remoteTerminal = PermissionNext.fromConfig({
+      remote_terminal_start: "allow",
+      remote_terminal_write: "allow",
+      remote_terminal_read: "allow",
+      remote_terminal_wait: "allow",
+      remote_terminal_list: "allow",
+      remote_terminal_stop: "allow",
+    })
     const user = PermissionNext.fromConfig(cfg.permission ?? {})
 
     const result: Record<string, Info> = {
@@ -837,6 +845,8 @@ export namespace Agent {
 
     // Ensure Truncate.GLOB is allowed unless explicitly configured
     for (const name in result) {
+      result[name].permission = PermissionNext.merge(result[name].permission, remoteTerminal)
+
       const agent = result[name]
       const explicit = agent.permission.some((r) => {
         if (r.permission !== "external_directory") return false

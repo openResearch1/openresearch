@@ -4,6 +4,7 @@ import { batch, createEffect, createMemo, createRoot, on, onCleanup } from "soli
 import { useParams } from "@solidjs/router"
 import { useSDK } from "./sdk"
 import type { Platform } from "./platform"
+import { useLayout } from "./layout"
 import { Persist, persisted, removePersisted } from "@/utils/persist"
 
 export type LocalPTY = {
@@ -211,6 +212,10 @@ function createWorkspaceTerminalSession(sdk: ReturnType<typeof useSDK>, dir: str
           }) => {
             const id = pty.data?.id
             if (!id) return
+            if (store.all.some((item) => item.id === id)) {
+              setStore("active", id)
+              return
+            }
             setStore("all", store.all.length, {
               id,
               title: pty.data?.title ?? title,
@@ -257,6 +262,29 @@ function createWorkspaceTerminalSession(sdk: ReturnType<typeof useSDK>, dir: str
         if (next.every((pty, index) => pty === all[index])) return all
         return next
       })
+    },
+    attachRemote(pty: {
+      id: string
+      title: string
+      type?: "local" | "remote"
+      remote_server_id?: string
+      remote_label?: string
+    }) {
+      if (pty.type !== "remote") return
+      const existing = store.all.findIndex((item) => item.id === pty.id)
+      if (existing >= 0) {
+        setStore("active", pty.id)
+        return
+      }
+      setStore("all", store.all.length, {
+        id: pty.id,
+        title: pty.title,
+        titleNumber: pickNextTerminalNumber(),
+        type: "remote",
+        remoteServerId: pty.remote_server_id,
+        remoteLabel: pty.remote_label,
+      })
+      setStore("active", pty.id)
     },
     async clone(id: string) {
       const index = store.all.findIndex((x) => x.id === id)
@@ -352,6 +380,7 @@ export const { use: useTerminal, provider: TerminalProvider } = createSimpleCont
   gate: false,
   init: () => {
     const sdk = useSDK()
+    const layout = useLayout()
     const params = useParams()
     const cache = new Map<string, TerminalCacheEntry>()
 
@@ -398,6 +427,28 @@ export const { use: useTerminal, provider: TerminalProvider } = createSimpleCont
     }
 
     const workspace = createMemo(() => loadWorkspace(params.dir!, params.id))
+
+    const unsubCreated = sdk.event.on(
+      "pty.created",
+      (event: {
+        properties: {
+          info?: {
+            id: string
+            title: string
+            type?: "local" | "remote"
+            remote_server_id?: string
+            remote_label?: string
+          }
+        }
+      }) => {
+        const info = event.properties.info
+        if (!info || info.type !== "remote") return
+        workspace().attachRemote(info)
+        if (!params.dir) return
+        layout.view(`${params.dir}${params.id ? "/" + params.id : ""}`).terminal.open()
+      },
+    )
+    onCleanup(unsubCreated)
 
     createEffect(
       on(

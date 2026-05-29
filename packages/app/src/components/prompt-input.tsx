@@ -14,6 +14,7 @@ import {
   ImageAttachmentPart,
   AgentPart,
   AtomPart,
+  TerminalPart,
   FileAttachmentPart,
   type AtomKind,
 } from "@/context/prompt"
@@ -827,7 +828,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     onSelect: handleSlashSelect,
   })
 
-  const createPill = (part: FileAttachmentPart | AgentPart | AtomPart) => {
+  const createPill = (part: FileAttachmentPart | AgentPart | AtomPart | TerminalPart) => {
     const pill = document.createElement("span")
     pill.textContent = part.content
     pill.setAttribute("data-type", part.type)
@@ -839,6 +840,14 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       pill.setAttribute("data-atom-kind", part.atomType)
       pill.setAttribute("data-label", "ATOM")
       pill.setAttribute("title", `${part.atomType}: ${part.name}`)
+    }
+    if (part.type === "terminal") {
+      pill.setAttribute("data-pty-id", part.ptyID)
+      pill.setAttribute("data-title", part.title)
+      if (part.terminalType) pill.setAttribute("data-terminal-type", part.terminalType)
+      if (part.remoteLabel) pill.setAttribute("data-remote-label", part.remoteLabel)
+      pill.setAttribute("data-label", "TERM")
+      pill.setAttribute("title", [part.title, part.remoteLabel, part.ptyID].filter(Boolean).join(" · "))
     }
     pill.setAttribute("contenteditable", "false")
     pill.style.userSelect = "text"
@@ -863,6 +872,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       if (el.dataset.type === "file") return true
       if (el.dataset.type === "agent") return true
       if (el.dataset.type === "atom") return true
+      if (el.dataset.type === "terminal") return true
       return el.tagName === "BR"
     })
 
@@ -873,7 +883,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
         editorRef.appendChild(createTextFragment(part.content))
         continue
       }
-      if (part.type === "file" || part.type === "agent" || part.type === "atom") {
+      if (part.type === "file" || part.type === "agent" || part.type === "atom" || part.type === "terminal") {
         editorRef.appendChild(createPill(part))
       }
     }
@@ -989,6 +999,21 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       position += content.length
     }
 
+    const pushTerminal = (terminal: HTMLElement) => {
+      const content = terminal.textContent ?? ""
+      parts.push({
+        type: "terminal",
+        ptyID: terminal.dataset.ptyId!,
+        title: terminal.dataset.title!,
+        terminalType: terminal.dataset.terminalType as "local" | "remote" | undefined,
+        remoteLabel: terminal.dataset.remoteLabel,
+        content,
+        start: position,
+        end: position + content.length,
+      })
+      position += content.length
+    }
+
     const visit = (node: Node) => {
       if (node.nodeType === Node.TEXT_NODE) {
         buffer += node.textContent ?? ""
@@ -1010,6 +1035,11 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       if (el.dataset.type === "atom") {
         flushText()
         pushAtom(el)
+        return
+      }
+      if (el.dataset.type === "terminal") {
+        flushText()
+        pushTerminal(el)
         return
       }
       if (el.tagName === "BR") {
@@ -1101,7 +1131,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     const range = selection.getRangeAt(0)
     if (!editorRef.contains(range.startContainer)) return false
 
-    if (part.type === "file" || part.type === "agent" || part.type === "atom") {
+    if (part.type === "file" || part.type === "agent" || part.type === "atom" || part.type === "terminal") {
       const cursorPosition = getCursorPosition(editorRef)
       const rawText = prompt
         .current()
