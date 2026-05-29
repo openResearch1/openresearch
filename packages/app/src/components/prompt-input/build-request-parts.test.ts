@@ -82,6 +82,49 @@ describe("buildRequestParts", () => {
     }
   })
 
+  test("adds terminal references as synthetic context", () => {
+    const prompt: Prompt = [
+      { type: "text", content: "watch ", start: 0, end: 6 },
+      {
+        type: "terminal",
+        ptyID: "pty_123",
+        title: "SSH gpu-1",
+        terminalType: "remote",
+        remoteLabel: "gpu-1",
+        content: "@terminal:SSH gpu-1",
+        start: 6,
+        end: 25,
+      },
+    ]
+
+    const result = buildRequestParts({
+      prompt,
+      context: [],
+      images: [],
+      text: "watch @terminal:SSH gpu-1",
+      messageID: "msg_terminal_1",
+      sessionID: "ses_terminal_1",
+      sessionDirectory: "/repo",
+    })
+
+    const terminal = result.requestParts.find(
+      (part) => part.type === "text" && part.synthetic && part.text.includes("pty_id: pty_123"),
+    )
+
+    expect(terminal).toBeDefined()
+    if (terminal?.type === "text") {
+      expect(terminal.metadata?.opencodeTerminal).toEqual({
+        ptyID: "pty_123",
+        title: "SSH gpu-1",
+        terminalType: "remote",
+        remoteLabel: "gpu-1",
+        value: "@terminal:SSH gpu-1",
+        start: 6,
+        end: 25,
+      })
+    }
+  })
+
   test("deduplicates context files when prompt already includes same path", () => {
     const prompt: Prompt = [{ type: "file", path: "src/foo.ts", content: "@src/foo.ts", start: 0, end: 11 }]
 

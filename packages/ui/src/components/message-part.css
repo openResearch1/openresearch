@@ -433,6 +433,28 @@
   }
 }
 
+[data-slot="shell-tool-chip"] {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  height: 18px;
+  padding: 0 7px;
+  border: 1px solid var(--border-weaker-base);
+  border-radius: 999px;
+  background-color: var(--surface-inset-base);
+  color: var(--text-weak);
+  font-size: var(--font-size-xx-small, 11px);
+  font-weight: var(--font-weight-medium);
+  line-height: 1;
+  letter-spacing: 0.02em;
+
+  &[data-kind="ssh"] {
+    border-color: color-mix(in oklab, var(--border-base) 80%, transparent);
+    background-color: var(--surface-inset-strong);
+    color: var(--text-strong);
+  }
+}
+
 [data-component="edit-trigger"],
 [data-component="write-trigger"] {
   display: flex;

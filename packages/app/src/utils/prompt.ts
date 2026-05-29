@@ -1,5 +1,5 @@
 import type { AgentPart as MessageAgentPart, FilePart, Part, TextPart } from "@opencode-ai/sdk/v2"
-import type { AgentPart, FileAttachmentPart, ImageAttachmentPart, Prompt } from "@/context/prompt"
+import type { AgentPart, FileAttachmentPart, ImageAttachmentPart, Prompt, TerminalPart } from "@/context/prompt"
 
 type Inline =
   | {
@@ -21,6 +21,16 @@ type Inline =
       end: number
       value: string
       name: string
+    }
+  | {
+      type: "terminal"
+      start: number
+      end: number
+      value: string
+      ptyID: string
+      title: string
+      terminalType?: "local" | "remote"
+      remoteLabel?: string
     }
 
 function selectionFromFileUrl(url: string): Extract<Inline, { type: "file" }>["selection"] {
@@ -124,6 +134,26 @@ export function extractPromptFromParts(parts: Part[], opts?: { directory?: strin
         name: agentPart.name,
       })
     }
+
+    if (part.type === "text" && part.synthetic) {
+      const value = part.metadata?.opencodeTerminal
+      if (!value || typeof value !== "object") continue
+      const terminal = value as Record<string, unknown>
+      if (typeof terminal.ptyID !== "string") continue
+      if (typeof terminal.title !== "string") continue
+      if (typeof terminal.value !== "string") continue
+      if (typeof terminal.start !== "number" || typeof terminal.end !== "number") continue
+      inline.push({
+        type: "terminal",
+        start: terminal.start,
+        end: terminal.end,
+        value: terminal.value,
+        ptyID: terminal.ptyID,
+        title: terminal.title,
+        terminalType: terminal.terminalType === "local" || terminal.terminalType === "remote" ? terminal.terminalType : undefined,
+        remoteLabel: typeof terminal.remoteLabel === "string" ? terminal.remoteLabel : undefined,
+      })
+    }
   }
 
   inline.sort((a, b) => {
@@ -173,6 +203,22 @@ export function extractPromptFromParts(parts: Part[], opts?: { directory?: strin
     position += content.length
   }
 
+  const pushTerminal = (item: Extract<Inline, { type: "terminal" }>) => {
+    const content = item.value
+    const terminal: TerminalPart = {
+      type: "terminal",
+      ptyID: item.ptyID,
+      title: item.title,
+      terminalType: item.terminalType,
+      remoteLabel: item.remoteLabel,
+      content,
+      start: position,
+      end: position + content.length,
+    }
+    result.push(terminal)
+    position += content.length
+  }
+
   for (const item of inline) {
     if (item.start < 0 || item.end < item.start) continue
 
@@ -188,6 +234,7 @@ export function extractPromptFromParts(parts: Part[], opts?: { directory?: strin
 
     if (item.type === "file") pushFile(item)
     if (item.type === "agent") pushAgent(item)
+    if (item.type === "terminal") pushTerminal(item)
 
     cursor = end
   }

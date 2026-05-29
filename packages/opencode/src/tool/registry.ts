@@ -58,6 +58,14 @@ import {
   ExperimentRemoteTaskStartTool,
 } from "./experiment-remote-task"
 import {
+  RemoteTerminalListTool,
+  RemoteTerminalReadTool,
+  RemoteTerminalStartTool,
+  RemoteTerminalStopTool,
+  RemoteTerminalWaitTool,
+  RemoteTerminalWriteTool,
+} from "./remote-terminal"
+import {
   ProjectRuntimeEnsureTool,
   ProjectRuntimeEnvQueryTool,
   ProjectRuntimeEnvSpecInspectTool,
@@ -191,6 +199,12 @@ export namespace ToolRegistry {
       ExperimentRemoteTaskStartTool,
       ExperimentRemoteTaskGetTool,
       ExperimentRemoteTaskListTool,
+      RemoteTerminalStartTool,
+      RemoteTerminalWriteTool,
+      RemoteTerminalReadTool,
+      RemoteTerminalWaitTool,
+      RemoteTerminalListTool,
+      RemoteTerminalStopTool,
       ProjectRuntimeServerQueryTool,
       ProjectRuntimeEnvSpecInspectTool,
       ProjectRuntimeEnsureTool,

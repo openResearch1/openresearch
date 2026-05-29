@@ -9,6 +9,7 @@ import { SessionReview } from "@opencode-ai/ui/session-review"
 import { Accordion } from "@opencode-ai/ui/accordion"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
+import { showToast } from "@opencode-ai/ui/toast"
 import type { FileDiff } from "@opencode-ai/sdk/v2"
 
 type DirectServerConfig = {
@@ -508,6 +509,11 @@ export function ExpProgressTab(
   const [syncingCode, setSyncingCode] = createSignal(false)
   const [syncError, setSyncError] = createSignal<string | null>(null)
   const [syncMessage, setSyncMessage] = createSignal<string | null>(null)
+  let syncTimer: ReturnType<typeof setTimeout> | undefined
+
+  onCleanup(() => {
+    if (syncTimer) clearTimeout(syncTimer)
+  })
 
   // Current server config (mutable after update)
   const [currentServerConfig, setCurrentServerConfig] = createSignal<ServerConfig | null>(
@@ -611,19 +617,25 @@ export function ExpProgressTab(
     setSyncingCode(true)
     setSyncError(null)
     setSyncMessage(null)
+    if (syncTimer) clearTimeout(syncTimer)
     try {
       const res = await sdk.client.research.experiment.syncCode({
         expId: props.experiment.exp_id,
         remoteCodePath: remotePath(),
       })
-      if (!res.data) throw new Error("Failed to sync code")
+      if (!res.data?.ok) {
+        throw new Error(res.error?.data.message ?? "Failed to sync code")
+      }
       const path = res.data.remote_code_path
       setCurrentRemotePath(path)
       setRemotePathInput(path)
       setSyncMessage(`Synced to ${path}`)
-      props.onUpdated?.()
-    } catch (err: any) {
-      setSyncError(err?.message ?? "Failed to sync code")
+      syncTimer = setTimeout(() => setSyncMessage(null), 3000)
+      showToast({ variant: "success", title: "Code synced", description: `Synced to ${path}` })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to sync code"
+      setSyncError(message)
+      showToast({ variant: "error", title: "Failed to sync code", description: message })
     } finally {
       setSyncingCode(false)
     }
@@ -710,6 +722,7 @@ export function ExpProgressTab(
                     )}
                   </Show>
                   <button
+                    type="button"
                     class="text-11-regular text-text-weak hover:text-text-base transition-colors"
                     onClick={() => {
                       fetchServers()
@@ -735,6 +748,7 @@ export function ExpProgressTab(
                 </select>
                 <div class="flex items-center gap-2">
                   <button
+                    type="button"
                     disabled={saving()}
                     onClick={handleSaveServer}
                     class="px-2 py-1 rounded text-11-regular bg-background-stronger text-text-base hover:text-text-strong transition-colors disabled:opacity-50"
@@ -742,6 +756,7 @@ export function ExpProgressTab(
                     {saving() ? "Saving..." : "Save"}
                   </button>
                   <button
+                    type="button"
                     onClick={() => setEditingServer(false)}
                     class="px-2 py-1 rounded text-11-regular text-text-weak hover:text-text-base transition-colors"
                   >
@@ -764,6 +779,7 @@ export function ExpProgressTab(
                       <div class="text-11-regular text-text-weak">default</div>
                     </Show>
                     <button
+                      type="button"
                       class="text-11-regular text-text-weak hover:text-text-base transition-colors"
                       onClick={() => {
                         setRemotePathInput(remotePath())
@@ -773,6 +789,7 @@ export function ExpProgressTab(
                       Edit
                     </button>
                     <button
+                      type="button"
                       disabled={syncingCode() || !currentServerConfig()}
                       onClick={handleSyncCode}
                       class="px-2 py-1 rounded text-11-regular bg-background-stronger text-text-base hover:text-text-strong transition-colors disabled:opacity-50"
@@ -804,6 +821,7 @@ export function ExpProgressTab(
                 </div>
                 <div class="flex items-center gap-2">
                   <button
+                    type="button"
                     disabled={savingRemotePath()}
                     onClick={handleSaveRemotePath}
                     class="px-2 py-1 rounded text-11-regular bg-background-stronger text-text-base hover:text-text-strong transition-colors disabled:opacity-50"
@@ -811,6 +829,7 @@ export function ExpProgressTab(
                     {savingRemotePath() ? "Saving..." : "Save"}
                   </button>
                   <button
+                    type="button"
                     onClick={() => setEditingRemotePath(false)}
                     class="px-2 py-1 rounded text-11-regular text-text-weak hover:text-text-base transition-colors"
                   >
@@ -834,6 +853,7 @@ export function ExpProgressTab(
               <div class="flex items-center justify-between gap-2">
                 <div class="text-14-regular font-mono truncate">{codePath()}</div>
                 <button
+                  type="button"
                   onClick={handleOpenInVSCode}
                   disabled={readyLoading()}
                   class="shrink-0 px-2 py-1 rounded text-12-regular bg-background-stronger text-text-base hover:text-text-strong transition-colors disabled:opacity-50"
@@ -852,6 +872,7 @@ export function ExpProgressTab(
                       <For each={conflicts()}>
                         {(c) => (
                           <button
+                            type="button"
                             class="flex items-center gap-2 px-2 py-1 rounded text-left w-full hover:bg-background-stronger transition-colors"
                             onClick={() => navigateToSession(c.exp_id)}
                           >

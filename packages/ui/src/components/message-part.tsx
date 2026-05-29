@@ -197,10 +197,15 @@ export function getToolInfo(tool: string, input: any = {}): ToolInfo {
       }
     }
     case "bash":
-    case "ssh":
       return {
         icon: "console",
         title: i18n.t("ui.tool.shell"),
+        subtitle: input.description,
+      }
+    case "ssh":
+      return {
+        icon: "server",
+        title: "SSH shell",
         subtitle: input.description,
       }
     case "experiment_remote_task_get":
@@ -208,6 +213,41 @@ export function getToolInfo(tool: string, input: any = {}): ToolInfo {
         icon: "mcp",
         title: "Remote task",
         subtitle: input.expId,
+      }
+    case "remote_terminal_start":
+      return {
+        icon: "server",
+        title: "Remote terminal",
+        subtitle: input.title ?? input.serverId,
+      }
+    case "remote_terminal_write":
+      return {
+        icon: "console",
+        title: "Write to terminal",
+        subtitle: input.ptyID,
+      }
+    case "remote_terminal_read":
+      return {
+        icon: "eye",
+        title: "Read terminal",
+        subtitle: input.ptyID,
+      }
+    case "remote_terminal_wait":
+      return {
+        icon: "server",
+        title: "Wait for terminal",
+        subtitle: input.pattern ?? input.ptyID,
+      }
+    case "remote_terminal_list":
+      return {
+        icon: "server",
+        title: "Remote terminals",
+      }
+    case "remote_terminal_stop":
+      return {
+        icon: "stop",
+        title: "Stop terminal",
+        subtitle: input.ptyID,
       }
     case "edit":
       return {
@@ -1466,6 +1506,164 @@ ToolRegistry.register({
   },
 })
 
+const REMOTE_TERMINAL_TOOLS = [
+  "remote_terminal_start",
+  "remote_terminal_write",
+  "remote_terminal_read",
+  "remote_terminal_wait",
+  "remote_terminal_list",
+  "remote_terminal_stop",
+]
+
+function text(value: unknown) {
+  return typeof value === "string" && value.length > 0 ? value : undefined
+}
+
+function number(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined
+}
+
+function terminalTitle(props: ToolProps) {
+  if (props.tool === "remote_terminal_start") return "Remote terminal"
+  if (props.tool === "remote_terminal_write") return "Write to terminal"
+  if (props.tool === "remote_terminal_read") return "Read terminal"
+  if (props.tool === "remote_terminal_wait") {
+    if (busy(props.status)) return "Waiting for terminal"
+    if (props.metadata.matched === true) return "Terminal matched"
+    if (props.metadata.matched === false) return "Terminal timeout"
+    return "Wait for terminal"
+  }
+  if (props.tool === "remote_terminal_list") return "Remote terminals"
+  if (props.tool === "remote_terminal_stop") return "Stopped terminal"
+  return "Remote terminal"
+}
+
+function terminalSubtitle(props: ToolProps) {
+  if (props.tool === "remote_terminal_wait") return text(props.input.pattern) ?? text(props.metadata.title) ?? text(props.input.ptyID)
+  if (props.tool === "remote_terminal_list") {
+    const terminals = props.metadata.terminals
+    if (Array.isArray(terminals)) return `${terminals.length} active`
+  }
+  return text(props.metadata.remoteLabel) ?? text(props.metadata.title) ?? text(props.input.title) ?? text(props.input.ptyID)
+}
+
+function terminalLines(props: ToolProps) {
+  const lines: string[] = []
+  const ptyID = text(props.metadata.ptyID) ?? text(props.input.ptyID)
+  const server = text(props.metadata.remoteLabel) ?? text(props.metadata.remoteServerId) ?? text(props.input.serverId)
+  const prev = number(props.metadata.previousCursor)
+  const cursor = number(props.metadata.cursor)
+  if (ptyID) lines.push(`pty: ${ptyID}`)
+  if (server) lines.push(`server: ${server}`)
+  if (text(props.metadata.status)) lines.push(`status: ${props.metadata.status}`)
+  if (prev !== undefined && cursor !== undefined) lines.push(`cursor: ${prev} -> ${cursor}`)
+  else if (cursor !== undefined) lines.push(`cursor: ${cursor}`)
+  if (props.metadata.truncated === true) lines.push("truncated: true")
+  if (props.tool === "remote_terminal_wait") {
+    if (text(props.input.pattern)) lines.push(`pattern: ${props.input.pattern}`)
+    if (props.input.timeoutMs) lines.push(`timeout: ${props.input.timeoutMs}ms`)
+  }
+  if (props.tool === "remote_terminal_write") {
+    if (props.input.enter === true) lines.push("submitted: true")
+  }
+  if (props.tool === "remote_terminal_start") {
+    if (text(props.input.cwd)) lines.push(`cwd: ${props.input.cwd}`)
+    if (text(props.input.command)) lines.push(`command: ${props.input.command}`)
+  }
+  return lines
+}
+
+function terminalOutput(props: ToolProps) {
+  const meta = text(props.metadata.output)
+  if (meta) return stripAnsi(meta)
+  if (props.output && !props.output.startsWith("PTY ID:")) return stripAnsi(props.output)
+  return ""
+}
+
+function terminalStatus(props: ToolProps) {
+  if (busy(props.status)) return "working"
+  if (props.tool === "remote_terminal_start") return "opened"
+  if (props.tool === "remote_terminal_write") return "sent"
+  if (props.tool === "remote_terminal_read") return "read"
+  if (props.tool === "remote_terminal_list") return "listed"
+  if (props.tool === "remote_terminal_stop") return "stopped"
+  if (props.tool === "remote_terminal_wait") {
+    if (props.metadata.matched === true) return "matched"
+    if (props.metadata.matched === false) return "timeout"
+  }
+  return undefined
+}
+
+function RemoteTerminalTool(props: ToolProps) {
+  const pending = createMemo(() => busy(props.status))
+  const reveal = useToolReveal(pending, () => props.reveal !== false)
+  const lines = createMemo(() => terminalLines(props))
+  const out = createMemo(() => terminalOutput(props))
+  const terminals = createMemo(() => {
+    const value = props.metadata.terminals
+    if (!Array.isArray(value)) return []
+    return value.filter((item): item is Record<string, unknown> => !!item && typeof item === "object")
+  })
+
+  return (
+    <ToolCall
+      variant="panel"
+      icon={props.tool === "remote_terminal_write" ? "console" : "server"}
+      status={props.status}
+      animate
+      springContent
+      defaultOpen={false}
+      trigger={
+        <div data-slot="basic-tool-tool-info-structured">
+          <div data-slot="basic-tool-tool-info-main">
+            <span data-slot="basic-tool-tool-title">
+              <TextShimmer text={terminalTitle(props)} active={pending()} />
+            </span>
+            <Show when={terminalSubtitle(props)}>{(value) => <ToolText text={value()} animate={reveal()} />}</Show>
+          </div>
+        </div>
+      }
+    >
+      <div data-component="tool-output" data-scrollable>
+        <Show when={lines().length > 0 || terminalStatus(props)}>
+          <pre class="text-11-regular text-text-weak whitespace-pre-wrap break-words pb-2">
+            <code>{[terminalStatus(props) ? `status: ${terminalStatus(props)}` : undefined, ...lines()].filter(Boolean).join("\n")}</code>
+          </pre>
+        </Show>
+        <Show when={terminals().length > 0}>
+          <pre class="text-11-regular text-text-weak whitespace-pre-wrap break-words pb-2">
+            <code>
+              {terminals()
+                .map((item) =>
+                  [
+                    text(item.title) ?? text(item.ptyID) ?? "terminal",
+                    text(item.status) ? `status=${text(item.status)}` : undefined,
+                    text(item.remoteLabel) ? `server=${text(item.remoteLabel)}` : undefined,
+                    text(item.ptyID) ? `pty=${text(item.ptyID)}` : undefined,
+                  ]
+                    .filter(Boolean)
+                    .join(" "),
+                )
+                .join("\n")}
+            </code>
+          </pre>
+        </Show>
+        <Show when={out()}>
+          {(value) => (
+            <pre class="text-12-regular text-text-base whitespace-pre-wrap break-words">
+              <code>{value()}</code>
+              </pre>
+          )}
+        </Show>
+      </div>
+    </ToolCall>
+  )
+}
+
+for (const name of REMOTE_TERMINAL_TOOLS) {
+  ToolRegistry.register({ name, render: RemoteTerminalTool })
+}
+
 function useToolReveal(pending: () => boolean, animate?: () => boolean) {
   const enabled = () => animate?.() ?? true
   const [live, setLive] = createSignal(pending() || enabled())
@@ -2316,6 +2514,8 @@ function ShellToolRenderer(props: any) {
   const i18n = useI18n()
   const pending = () => busy(props.status)
   const reveal = useToolReveal(pending, () => props.reveal !== false)
+  const ssh = () => props.tool === "ssh"
+  const title = () => (ssh() ? "SSH shell" : i18n.t("ui.tool.shell"))
   const subtitle = () => props.input.description ?? props.metadata.description
   const cmd = createMemo(() => {
     const value = props.input.command ?? props.metadata.command
@@ -2348,7 +2548,7 @@ function ShellToolRenderer(props: any) {
     <ToolCall
       variant="panel"
       {...props}
-      icon="console"
+      icon={ssh() ? "server" : "console"}
       animate
       springContent
       defaultOpen={false}
@@ -2356,7 +2556,10 @@ function ShellToolRenderer(props: any) {
         <div data-slot="basic-tool-tool-info-structured">
           <div data-slot="basic-tool-tool-info-main">
             <span data-slot="basic-tool-tool-title">
-              <TextShimmer text={i18n.t("ui.tool.shell")} active={pending()} />
+              <TextShimmer text={title()} active={pending()} />
+            </span>
+            <span data-slot="shell-tool-chip" data-kind={ssh() ? "ssh" : "local"}>
+              {ssh() ? "SSH" : "LOCAL"}
             </span>
             <Show when={subtitle()}>{(text) => <ShellText text={text()} animate={reveal()} />}</Show>
           </div>

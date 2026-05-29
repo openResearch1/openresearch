@@ -177,6 +177,8 @@ export function ShellRollingResults(props: { part: ToolPart; animate?: boolean; 
   onMount(() => setMounted(true))
   const state = createMemo(() => props.part.state as Record<string, any>)
   const pending = createMemo(() => busy(props.part.state.status))
+  const ssh = createMemo(() => props.part.tool === "ssh")
+  const title = createMemo(() => (ssh() ? "SSH shell" : i18n.t("ui.tool.shell")))
   const expanded = createMemo(() => open() && !pending())
   const previewOpen = createMemo(() => open() && pending())
   const command = createMemo(() => {
@@ -238,7 +240,10 @@ export function ShellRollingResults(props: { part: ToolPart; animate?: boolean; 
       >
         <div data-slot="shell-rolling-header">
           <span data-slot="shell-rolling-title">
-            <TextShimmer text={i18n.t("ui.tool.shell")} active={pending()} />
+            <TextShimmer text={title()} active={pending()} />
+          </span>
+          <span data-slot="shell-tool-chip" data-kind={ssh() ? "ssh" : "local"}>
+            {ssh() ? "SSH" : "LOCAL"}
           </span>
           <Show when={subtitle()}>{(text) => <ShellRollingSubtitle text={text()} animate={props.animate} />}</Show>
           <span data-slot="shell-rolling-actions">

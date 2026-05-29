@@ -37,6 +37,7 @@ export function clonePromptParts(prompt: Prompt): Prompt {
     if (part.type === "image") return { ...part }
     if (part.type === "agent") return { ...part }
     if (part.type === "atom") return { ...part }
+    if (part.type === "terminal") return { ...part }
     return {
       ...part,
       selection: part.selection ? { ...part.selection } : undefined,
@@ -139,6 +140,8 @@ function isPromptEqual(promptA: PromptHistoryStoredEntry, promptB: PromptHistory
     if (partA.type === "agent" && partA.name !== (partB.type === "agent" ? partB.name : "")) return false
     if (partA.type === "atom" && partA.atomId !== (partB.type === "atom" ? partB.atomId : "")) return false
     if (partA.type === "atom" && partA.atomType !== (partB.type === "atom" ? partB.atomType : "")) return false
+    if (partA.type === "terminal" && partA.ptyID !== (partB.type === "terminal" ? partB.ptyID : "")) return false
+    if (partA.type === "terminal" && partA.title !== (partB.type === "terminal" ? partB.title : "")) return false
     if (partA.type === "image" && partA.id !== (partB.type === "image" ? partB.id : "")) return false
   }
   if (entryA.comments.length !== entryB.comments.length) return false

@@ -36,6 +36,14 @@ export interface AtomPart extends PartBase {
   atomType: AtomKind
 }
 
+export interface TerminalPart extends PartBase {
+  type: "terminal"
+  ptyID: string
+  title: string
+  terminalType?: "local" | "remote"
+  remoteLabel?: string
+}
+
 export interface ImageAttachmentPart {
   type: "image"
   id: string
@@ -44,7 +52,7 @@ export interface ImageAttachmentPart {
   dataUrl: string
 }
 
-export type ContentPart = TextPart | FileAttachmentPart | AgentPart | AtomPart | ImageAttachmentPart
+export type ContentPart = TextPart | FileAttachmentPart | AgentPart | AtomPart | TerminalPart | ImageAttachmentPart
 export type Prompt = ContentPart[]
 export type InlinePart = Exclude<ContentPart, ImageAttachmentPart>
 
@@ -85,6 +93,14 @@ function isPartEqual(partA: ContentPart, partB: ContentPart) {
         partA.name === partB.name &&
         partA.atomType === partB.atomType
       )
+    case "terminal":
+      return (
+        partB.type === "terminal" &&
+        partA.ptyID === partB.ptyID &&
+        partA.title === partB.title &&
+        partA.terminalType === partB.terminalType &&
+        partA.remoteLabel === partB.remoteLabel
+      )
     case "image":
       return partB.type === "image" && partA.id === partB.id
   }
@@ -108,6 +124,7 @@ function clonePart(part: ContentPart): ContentPart {
   if (part.type === "image") return { ...part }
   if (part.type === "agent") return { ...part }
   if (part.type === "atom") return { ...part }
+  if (part.type === "terminal") return { ...part }
   return {
     ...part,
     selection: cloneSelection(part.selection),
