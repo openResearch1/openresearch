@@ -394,17 +394,40 @@ function preProcessMath(markdown: string): { text: string; mathBlocks: Map<strin
   for (const { regex, display } of patterns) {
     result = result.replace(regex, (_, math) => {
       const key = `MATHPLACEHOLDER${counter++}END`
+      const source = normalizeMath(math)
       try {
-        const rendered = katex.renderToString(math, { displayMode: display, throwOnError: false })
+        const rendered = katex.renderToString(source, { displayMode: display, throwOnError: false })
         mathBlocks.set(key, rendered)
       } catch {
-        mathBlocks.set(key, display ? `$$${math}$$` : `$${math}$`)
+        mathBlocks.set(key, display ? `$$${source}$$` : `$${source}$`)
       }
       return key
     })
   }
 
   return { text: result, mathBlocks }
+}
+
+function normalizeMath(math: string): string {
+  const names = [
+    "sqrt",
+    "widetilde",
+    "widehat",
+    "nabla",
+    "theta",
+    "eta",
+    "xi",
+    "pi",
+    "log",
+    "mid",
+    "le",
+    "leq",
+    "operatorname",
+    "mathrm",
+    "langle",
+    "rangle",
+  ]
+  return math.replace(new RegExp(`(^|[^\\\\A-Za-z])(${names.join("|")})(?=[^A-Za-z]|$)`, "g"), "$1\\$2")
 }
 
 function postProcessMath(html: string, mathBlocks: Map<string, string>): string {

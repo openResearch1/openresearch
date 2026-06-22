@@ -56,4 +56,46 @@ describe("tool.ssh", () => {
       process.env.PATH = prev
     }
   })
+
+  test("does not pass ssh as host without password", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        const bin = path.join(dir, "ssh")
+        await Bun.write(bin, '#!/usr/bin/env bash\nprintf "%s\\n" "$@"\n')
+        await chmod(bin, 0o755)
+        return bin
+      },
+    })
+
+    const prev = process.env.PATH
+    process.env.PATH = `${tmp.path}:${prev ?? ""}`
+    try {
+      const tool = await SshTool.init()
+      const result = await tool.execute(
+        {
+          server: {
+            mode: "ssh_config",
+            host_alias: "target-dev-machine-roce",
+            ssh_config_path: "/home/zzh/.ssh/config",
+          },
+          command: "nvidia-smi",
+        },
+        {
+          sessionID: "session",
+          messageID: "message",
+          agent: "build",
+          abort: new AbortController().signal,
+          messages: [],
+          metadata() {},
+          async ask() {},
+        },
+      )
+
+      expect(result.output.split("\n").slice(0, 2)).toEqual(["-F", "/home/zzh/.ssh/config"])
+      expect(result.output).toContain("target-dev-machine-roce")
+      expect(result.output).not.toStartWith("ssh\n")
+    } finally {
+      process.env.PATH = prev
+    }
+  })
 })

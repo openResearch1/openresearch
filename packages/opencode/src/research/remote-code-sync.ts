@@ -105,10 +105,30 @@ export async function syncCodeToRemote(input: {
   const mkdir = await run("bash", ["-lc", wrapRemoteScript(input.server, `set -euo pipefail\nmkdir -p ${remote(dest)}`)], timeout)
   if (!mkdir.ok) return { ...mkdir, remoteCodePath: dest, server: remoteServerLabel(input.server) }
 
+  const probe = await run(
+    "bash",
+    [
+      "-lc",
+      wrapRemoteScript(
+        input.server,
+        [
+          "set +e",
+          "bin=$(command -v rsync 2>/dev/null)",
+          `if [ -z "$bin" ]; then bin=$(bash -lc ${quote("command -v rsync")} 2>/dev/null); fi`,
+          `if [ -z "$bin" ]; then bin=$(bash -ic ${quote("command -v rsync")} 2>/dev/null); fi`,
+          `printf '%s' "$bin"`,
+        ].join("\n"),
+      ),
+    ],
+    timeout,
+  )
+  const bin = probe.ok ? probe.output.split("\n").findLast((line) => line.startsWith("/")) : undefined
+
   const base = [
     "-az",
     ...(input.delete ? ["--delete"] : []),
     ...excludes.flatMap((item) => ["--exclude", item]),
+    ...(bin ? ["--rsync-path", bin] : []),
     "-e",
     shell(ssh(input.server)),
     `${dir.replace(/\/+$/, "")}/`,
