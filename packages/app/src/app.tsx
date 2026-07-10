@@ -7,8 +7,8 @@ import { MarkedProvider } from "@opencode-ai/ui/context/marked"
 import { Font } from "@opencode-ai/ui/font"
 import { ThemeProvider } from "@opencode-ai/ui/theme"
 import { MetaProvider } from "@solidjs/meta"
-import { BaseRouterProps, Navigate, Route, Router } from "@solidjs/router"
-import { Component, ErrorBoundary, type JSX, lazy, type ParentProps, Show, Suspense } from "solid-js"
+import { BaseRouterProps, Navigate, Route, Router, useLocation, useParams } from "@solidjs/router"
+import { Component, createMemo, ErrorBoundary, type JSX, lazy, type ParentProps, Show, Suspense } from "solid-js"
 import { CommandProvider } from "@/context/command"
 import { CommentsProvider } from "@/context/comments"
 import { FileProvider } from "@/context/file"
@@ -25,11 +25,15 @@ import { PromptProvider } from "@/context/prompt"
 import { type ServerConnection, ServerProvider, useServer } from "@/context/server"
 import { SettingsProvider } from "@/context/settings"
 import { TerminalProvider } from "@/context/terminal"
-import DirectoryLayout from "@/pages/directory-layout"
+import DirectoryLayout, { DirectoryDataProvider } from "@/pages/directory-layout"
 import { CollabPeersProvider } from "@/context/collab-peers"
 import Layout from "@/pages/layout"
 import { ErrorPage } from "./pages/error"
 import { Dynamic } from "solid-js/web"
+import { decode64 } from "@/utils/base64"
+import { SDKProvider } from "@/context/sdk"
+import { SyncProvider } from "@/context/sync"
+import { SessionIDProvider } from "@/context/session-id"
 
 const Home = lazy(() => import("@/pages/home"))
 const Session = lazy(() => import("@/pages/session"))
@@ -48,6 +52,34 @@ const SessionRoute = () => (
     </Suspense>
   </SessionProviders>
 )
+
+const RemoteSessionRoute = () => {
+  const params = useParams()
+  const location = useLocation()
+  const directory = createMemo(() => decode64(params.dir) ?? "")
+  const session = createMemo(() => params.id)
+  const back = createMemo(() => `/remote/project/${encodeURIComponent(directory())}${location.search}`)
+
+  return (
+    <Show when={directory() && session()}>
+      <SDKProvider directory={directory}>
+        <SyncProvider>
+          <DirectoryDataProvider directory={directory()} remote>
+            <SessionIDProvider sessionID={session()!} directory={directory()}>
+              <SessionProviders>
+                <div class="mx-auto h-full w-full max-w-[720px] min-h-0 bg-background-base overflow-hidden">
+                  <Suspense fallback={<Loading />}>
+                    <Session remote backHref={back()} />
+                  </Suspense>
+                </div>
+              </SessionProviders>
+            </SessionIDProvider>
+          </DirectoryDataProvider>
+        </SyncProvider>
+      </SDKProvider>
+    </Show>
+  )
+}
 
 const SessionIndexRoute = () => <Navigate href="session" />
 
@@ -71,7 +103,7 @@ function MarkedProviderWithNativeParser(props: ParentProps) {
   return <MarkedProvider nativeParser={platform.parseMarkdown}>{props.children}</MarkedProvider>
 }
 
-function AppShellProviders(props: ParentProps) {
+function AppContextProviders(props: ParentProps) {
   return (
     <SettingsProvider>
       <PermissionProvider>
@@ -80,7 +112,7 @@ function AppShellProviders(props: ParentProps) {
             <ModelsProvider>
               <CommandProvider>
                 <HighlightsProvider>
-                  <Layout>{props.children}</Layout>
+                  {props.children}
                 </HighlightsProvider>
               </CommandProvider>
             </ModelsProvider>
@@ -88,6 +120,14 @@ function AppShellProviders(props: ParentProps) {
         </LayoutProvider>
       </PermissionProvider>
     </SettingsProvider>
+  )
+}
+
+function AppShellProviders(props: ParentProps) {
+  return (
+    <AppContextProviders>
+      <Layout>{props.children}</Layout>
+    </AppContextProviders>
   )
 }
 
@@ -104,6 +144,20 @@ function SessionProviders(props: ParentProps) {
 }
 
 function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
+  const location = useLocation()
+  const remote = createMemo(() => location.pathname.startsWith("/remote/session/"))
+
+  if (remote()) {
+    return (
+      <AppContextProviders>
+        <div class="relative h-screen w-screen min-h-0 overflow-hidden bg-background-base">
+          {props.appChildren}
+          {props.children}
+        </div>
+      </AppContextProviders>
+    )
+  }
+
   return (
     <AppShellProviders>
       {props.appChildren}
@@ -159,6 +213,7 @@ export function AppInterface(props: {
                 root={(routerProps) => <RouterRoot appChildren={props.children}>{routerProps.children}</RouterRoot>}
               >
                 <Route path="/" component={HomeRoute} />
+                <Route path="/remote/session/:dir/:id" component={RemoteSessionRoute} />
                 <Route path="/:dir" component={DirectoryLayout}>
                   <Route path="/" component={SessionIndexRoute} />
                   <Route path="/session/:id?" component={SessionRoute} />

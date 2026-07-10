@@ -1,8 +1,11 @@
+import path from "node:path"
+import { fileURLToPath } from "node:url"
+
 import { BusEvent } from "@/bus/bus-event"
 import { Bus } from "@/bus"
 import { Log } from "../util/log"
 import { describeRoute, generateSpecs, validator, resolver, openAPIRouteHandler } from "hono-openapi"
-import { Hono } from "hono"
+import { Hono, type Context } from "hono"
 import { cors } from "hono/cors"
 import { streamSSE } from "hono/streaming"
 import { proxy } from "hono/proxy"
@@ -42,9 +45,11 @@ import { Filesystem } from "@/util/filesystem"
 import { QuestionRoutes } from "./routes/question"
 import { PermissionRoutes } from "./routes/permission"
 import { GlobalRoutes } from "./routes/global"
+import * as SSE from "./sse"
 import { ResearchRoutes } from "./routes/research"
 import { CollabRoutes } from "./routes/collab"
 import { MDNS } from "./mdns"
+import { RemoteRoutes } from "./routes/remote"
 
 // @ts-ignore This global is needed to prevent ai-sdk from logging warnings to stdout https://github.com/vercel/ai/blob/2dc67e0ef538307f21368db32d5a12345d98831b/packages/ai/src/logger/log-warnings.ts#L85
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -53,10 +58,72 @@ export namespace Server {
   const log = Log.create({ service: "server" })
 
   let _url: URL | undefined
+  let _listen:
+    | {
+        hostname: string
+        port: number
+        mdns?: boolean
+        mdnsDomain?: string
+      }
+    | undefined
   let _corsWhitelist: string[] = []
+  const csp =
+    "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; media-src 'self' data:; connect-src 'self' data:"
+  const dist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../app/dist")
 
   export function url(): URL {
     return _url ?? new URL("http://localhost:4096")
+  }
+
+  export function info() {
+    return _listen
+  }
+
+  function headers(type: string) {
+    return {
+      "Content-Type": type,
+      "Content-Security-Policy": csp,
+    }
+  }
+
+  function local(reqPath: string) {
+    if (reqPath === "" || reqPath === "/" || reqPath.startsWith("/remote/session/")) return "/index.html"
+    if (!reqPath.startsWith("/") || reqPath.includes("\0")) return
+    const parts = reqPath.split("/").filter(Boolean)
+    if (parts.some((part) => part === "..")) return
+    return "/" + parts.join("/")
+  }
+
+  async function assets(c: Context, reqPath: string) {
+    if (typeof OPENCODE_EMBEDDED_WEB !== "undefined" && OPENCODE_EMBEDDED_WEB) {
+      const { webAssets } = await import("./web-assets.gen")
+      const asset =
+        webAssets.get(reqPath) ||
+        (reqPath.endsWith("/") ? webAssets.get(reqPath + "index.html") : null) ||
+        (reqPath === "" ? webAssets.get("/index.html") : null)
+      const resolved = asset || webAssets.get("/index.html")
+      if (!resolved) return
+      const body = resolved.encoding === "base64" ? Buffer.from(resolved.data, "base64") : resolved.data
+      return new Response(body, { headers: headers(resolved.type) })
+    }
+
+    const remote =
+      c.req.header("x-opencode-remote-authenticated") === "true" ||
+      reqPath.startsWith("/remote/session/") ||
+      (reqPath.startsWith("/assets/") && (c.req.header("referer") ?? "").includes("/remote/session/"))
+    if (!remote) return
+
+    const rel = local(reqPath)
+    if (!rel) return
+
+    const file = Bun.file(path.join(dist, rel))
+    if (!(await file.exists())) {
+      if (reqPath.startsWith("/assets/")) return
+      const index = Bun.file(path.join(dist, "index.html"))
+      if (!(await index.exists())) return
+      return new Response(index, { headers: headers("text/html") })
+    }
+    return new Response(file, { headers: headers(Filesystem.mimeType(rel)) })
   }
 
   const app = new Hono()
@@ -86,6 +153,7 @@ export namespace Server {
           // Allow CORS preflight requests to succeed without auth.
           // Browser clients sending Authorization headers will preflight with OPTIONS.
           if (c.req.method === "OPTIONS") return next()
+          if (c.req.header("x-opencode-remote-authenticated") === "true") return next()
           const password = Flag.OPENCODE_SERVER_PASSWORD
           if (!password) return next()
           const username = Flag.OPENCODE_SERVER_USERNAME ?? "opencode"
@@ -257,6 +325,7 @@ export namespace Server {
         .route("/permission", PermissionRoutes())
         .route("/question", QuestionRoutes())
         .route("/provider", ProviderRoutes())
+        .route("/remote", RemoteRoutes())
         .route("/", FileRoutes())
         .route("/mcp", McpRoutes())
         .route("/tui", TuiRoutes())
@@ -529,7 +598,8 @@ export namespace Server {
             c.header("X-Accel-Buffering", "no")
             c.header("X-Content-Type-Options", "nosniff")
             return streamSSE(c, async (stream) => {
-              stream.writeSSE({
+              await SSE.open(stream)
+              await stream.writeSSE({
                 data: JSON.stringify({
                   type: "server.connected",
                   properties: {},
@@ -545,14 +615,10 @@ export namespace Server {
               })
 
               // Send heartbeat every 10s to prevent stalled proxy streams.
-              const heartbeat = setInterval(() => {
-                stream.writeSSE({
-                  data: JSON.stringify({
-                    type: "server.heartbeat",
-                    properties: {},
-                  }),
-                })
-              }, 10_000)
+              const heartbeat = SSE.heartbeat(stream, {
+                type: "server.heartbeat",
+                properties: {},
+              })
 
               await new Promise<void>((resolve) => {
                 stream.onAbort(() => {
@@ -567,24 +633,8 @@ export namespace Server {
         )
         .all("/*", async (c) => {
           const reqPath = c.req.path
-
-          // Serve embedded web assets if available (built with build-web.ts)
-          if (typeof OPENCODE_EMBEDDED_WEB !== "undefined" && OPENCODE_EMBEDDED_WEB) {
-            const { webAssets } = await import("./web-assets.gen")
-            const asset =
-              webAssets.get(reqPath) ||
-              (reqPath.endsWith("/") ? webAssets.get(reqPath + "index.html") : null) ||
-              (reqPath === "" ? webAssets.get("/index.html") : null)
-            const resolved = asset || webAssets.get("/index.html")
-            if (resolved) {
-              const body = resolved.encoding === "base64" ? Buffer.from(resolved.data, "base64") : resolved.data
-              return c.body(body as any, 200, {
-                "Content-Type": resolved.type,
-                "Content-Security-Policy":
-                  "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; media-src 'self' data:; connect-src 'self' data:",
-              })
-            }
-          }
+          const asset = await assets(c, reqPath)
+          if (asset) return asset
 
           const response = await proxy(`https://app.opencode.ai${reqPath}`, {
             ...c.req,
@@ -593,10 +643,7 @@ export namespace Server {
               host: "app.opencode.ai",
             },
           })
-          response.headers.set(
-            "Content-Security-Policy",
-            "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; media-src 'self' data:; connect-src 'self' data:",
-          )
+          response.headers.set("Content-Security-Policy", csp)
           return response
         }) as unknown as Hono,
   )
@@ -640,17 +687,25 @@ export namespace Server {
     }
     const server = opts.port === 0 ? (tryServe(4096) ?? tryServe(0)) : tryServe(opts.port)
     if (!server) throw new Error(`Failed to start server on port ${opts.port}`)
+    const port = server.port
+    if (!port) throw new Error(`Failed to determine server port for ${opts.port}`)
 
     _url = server.url
+    _listen = {
+      hostname: opts.hostname,
+      port,
+      mdns: opts.mdns,
+      mdnsDomain: opts.mdnsDomain,
+    }
 
     const shouldPublishMDNS =
       opts.mdns &&
-      server.port &&
+      port &&
       opts.hostname !== "127.0.0.1" &&
       opts.hostname !== "localhost" &&
       opts.hostname !== "::1"
     if (shouldPublishMDNS) {
-      MDNS.publish(server.port!, opts.mdnsDomain)
+      MDNS.publish(port, opts.mdnsDomain)
     } else if (opts.mdns) {
       log.warn("mDNS enabled but hostname is loopback; skipping mDNS publish")
     }
@@ -658,6 +713,10 @@ export namespace Server {
     const originalStop = server.stop.bind(server)
     server.stop = async (closeActiveConnections?: boolean) => {
       if (shouldPublishMDNS) MDNS.unpublish()
+      if (_listen?.port === port && _listen.hostname === opts.hostname) {
+        _listen = undefined
+        _url = undefined
+      }
       return originalStop(closeActiveConnections)
     }
 

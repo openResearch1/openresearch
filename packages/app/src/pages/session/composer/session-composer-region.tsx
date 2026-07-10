@@ -16,6 +16,7 @@ import { SessionCollabDock } from "@/pages/session/composer/session-collab-dock"
 import type { CollabActivity } from "@/pages/session/composer/session-collab-activity"
 
 export function SessionComposerRegion(props: {
+  compact?: boolean
   state: SessionComposerState
   collabActivity: CollabActivity
   ready: boolean
@@ -142,11 +143,17 @@ export function SessionComposerRegion(props: {
     <div
       ref={props.setPromptDockRef}
       data-component="session-prompt-dock"
-      class="shrink-0 w-full pb-3 flex flex-col justify-center items-center bg-background-stronger pointer-events-none"
+      classList={{
+        "shrink-0 w-full flex flex-col justify-center items-center bg-background-stronger pointer-events-none": true,
+        "pb-3": !props.compact,
+        "pb-2": !!props.compact,
+      }}
     >
       <div
         classList={{
-          "w-full px-3 pointer-events-auto": true,
+          "w-full pointer-events-auto": true,
+          "px-3": !props.compact,
+          "px-2.5": !!props.compact,
           "md:max-w-[500px] md:mx-auto 2xl:max-w-[700px]": props.centered,
         }}
       >
@@ -262,6 +269,7 @@ export function SessionComposerRegion(props: {
               }}
             >
               <PromptInput
+                compact={props.compact}
                 ref={props.inputRef}
                 newSessionWorktree={props.newSessionWorktree}
                 onNewSessionWorktreeReset={props.onNewSessionWorktreeReset}

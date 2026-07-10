@@ -13,6 +13,29 @@ const ISSUER = "https://auth.openai.com"
 const CODEX_API_ENDPOINT = "https://chatgpt.com/backend-api/codex/responses"
 const OAUTH_PORT = 1455
 const OAUTH_POLLING_SAFETY_MARGIN_MS = 3000
+const ALLOWED_MODELS = new Set([
+  "gpt-5.1-codex-max",
+  "gpt-5.1-codex-mini",
+  "gpt-5.2",
+  "gpt-5.4",
+  "gpt-5.2-codex",
+  "gpt-5.3-codex",
+  "gpt-5.1-codex",
+  "gpt-5.5",
+])
+const DISALLOWED_MODELS = new Set(["gpt-5.5-pro"])
+
+export function allowed(id: string) {
+  if (DISALLOWED_MODELS.has(id)) return false
+  if (id.includes("codex")) return true
+  if (ALLOWED_MODELS.has(id)) return true
+
+  const match = id.match(/^gpt-(\d+)\.(\d+)/)
+  if (!match) return false
+  const major = Number(match[1])
+  const minor = Number(match[2])
+  return major > 5 || (major === 5 && minor > 4)
+}
 
 interface PkceCodes {
   verifier: string
@@ -357,21 +380,10 @@ export async function CodexAuthPlugin(input: PluginInput): Promise<Hooks> {
         const auth = await getAuth()
         if (auth.type !== "oauth") return {}
 
-        // Filter models to only allowed Codex models for OAuth
-        const allowedModels = new Set([
-          "gpt-5.1-codex-max",
-          "gpt-5.1-codex-mini",
-          "gpt-5.2",
-          "gpt-5.4",
-          "gpt-5.2-codex",
-          "gpt-5.3-codex",
-          "gpt-5.1-codex",
-          "gpt-5.5",
-        ])
-        for (const modelId of Object.keys(provider.models)) {
-          if (modelId.includes("codex")) continue
-          if (allowedModels.has(modelId)) continue
-          delete provider.models[modelId]
+        // Filter models to those supported by ChatGPT OAuth.
+        for (const [modelID, model] of Object.entries(provider.models)) {
+          if (allowed(model.api.id)) continue
+          delete provider.models[modelID]
         }
 
         if (!provider.models["gpt-5.3-codex"]) {

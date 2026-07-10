@@ -81,6 +81,7 @@ const markBoundaryGesture = (input: {
 }
 
 export function MessageTimeline(props: {
+  remote?: boolean
   mobileChanges: boolean
   mobileFallback: JSX.Element
   scroll: { overflow: boolean; bottom: boolean }
@@ -199,17 +200,20 @@ export function MessageTimeline(props: {
             <Icon name="arrow-down-to-line" />
           </button>
         </div>
-        <SessionTimelineHeader
-          centered={props.centered}
-          showHeader={showHeader}
-          sessionKey={sessionKey}
-          sessionID={sessionID}
-          parentID={parentID}
-          titleValue={titleValue}
-          headerTitle={headerTitle}
-          placeholderTitle={placeholderTitle}
-        />
+        <Show when={!props.remote}>
+          <SessionTimelineHeader
+            centered={props.centered}
+            showHeader={showHeader}
+            sessionKey={sessionKey}
+            sessionID={sessionID}
+            parentID={parentID}
+            titleValue={titleValue}
+            headerTitle={headerTitle}
+            placeholderTitle={placeholderTitle}
+          />
+        </Show>
         <ScrollView
+          data-remote-timeline={props.remote ? "true" : undefined}
           reverse
           viewportRef={props.setScrollRef}
           onWheel={(e) => {
@@ -269,18 +273,20 @@ export function MessageTimeline(props: {
           }}
           class="relative min-w-0 w-full h-full"
           style={{
-            "--session-title-height": showHeader() ? "72px" : "0px",
-            "--sticky-accordion-top": showHeader() ? "48px" : "0px",
+            "--session-title-height": !props.remote && showHeader() ? "72px" : "0px",
+            "--sticky-accordion-top": !props.remote && showHeader() ? "48px" : "0px",
           }}
         >
           <div>
             <div
               ref={props.setContentRef}
               role="log"
-              class="flex flex-col gap-2 items-start justify-start pb-16 transition-[margin]"
+              class="flex flex-col items-start justify-start transition-[margin]"
               style={{ "padding-top": "var(--session-title-height)" }}
               classList={{
                 "w-full": true,
+                "gap-2 pb-16": !props.remote,
+                "gap-1.5 pt-3 pb-6": !!props.remote,
                 "md:max-w-[500px] md:mx-auto 2xl:max-w-[700px]": props.centered,
                 "mt-0.5": props.centered,
                 "mt-0": !props.centered,
@@ -387,7 +393,7 @@ export function MessageTimeline(props: {
                         classes={{
                           root: "min-w-0 w-full relative",
                           content: "flex flex-col justify-between !overflow-visible",
-                          container: "w-full px-4 md:px-5",
+                          container: props.remote ? "w-full px-4" : "w-full px-4 md:px-5",
                         }}
                       />
                     </div>

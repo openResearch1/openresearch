@@ -140,8 +140,8 @@ async function setupServerConnection(): Promise<ServerConnection> {
   }
 
   const port = await getSidecarPort()
-  const hostname = "127.0.0.1"
-  const localUrl = `http://${hostname}:${port}`
+  const hostname = "0.0.0.0"
+  const localUrl = `http://127.0.0.1:${port}`
 
   if (await checkHealth(localUrl)) {
     serverReady.resolve({ url: localUrl, password: null })

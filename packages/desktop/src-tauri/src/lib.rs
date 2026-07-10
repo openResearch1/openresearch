@@ -640,8 +640,8 @@ async fn setup_server_connection(app: AppHandle) -> ServerConnection {
     }
 
     let local_port = get_sidecar_port();
-    let hostname = "127.0.0.1";
-    let local_url = format!("http://{hostname}:{local_port}");
+    let hostname = "0.0.0.0";
+    let local_url = format!("http://127.0.0.1:{local_port}");
 
     tracing::debug!(url = %local_url, "Checking health of local server");
     if server::check_health(&local_url, None).await {

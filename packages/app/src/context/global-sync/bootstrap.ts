@@ -7,6 +7,7 @@ import type {
   ProviderAuthResponse,
   ProviderListResponse,
   QuestionRequest,
+  SessionStatus,
   Todo,
   WorkflowMetadata,
 } from "@opencode-ai/sdk/v2/client"
@@ -14,7 +15,7 @@ import { showToast } from "@opencode-ai/ui/toast"
 import { getFilename } from "@opencode-ai/util/path"
 import { retry } from "@opencode-ai/util/retry"
 import { batch } from "solid-js"
-import { reconcile, type SetStoreFunction, type Store } from "solid-js/store"
+import { produce, reconcile, type SetStoreFunction, type Store } from "solid-js/store"
 import type { State, VcsCache } from "./types"
 import { cmp, normalizeProviderList } from "./utils"
 import { formatServerError } from "@/utils/server-errors"
@@ -115,6 +116,28 @@ function groupBySession<T extends { id: string; sessionID: string }>(input: T[])
   }, {})
 }
 
+export function reconcileSessionStatus(input: {
+  store: Pick<State, "session_status">
+  setStore: SetStoreFunction<State>
+  status: Record<string, SessionStatus>
+  keep?: Iterable<string>
+}) {
+  const keep = new Set(input.keep ?? [])
+  batch(() => {
+    input.setStore(
+      produce((draft) => {
+        for (const sessionID of Object.keys(draft.session_status)) {
+          if (input.status[sessionID] || keep.has(sessionID)) continue
+          delete draft.session_status[sessionID]
+        }
+      }),
+    )
+    for (const [sessionID, status] of Object.entries(input.status)) {
+      input.setStore("session_status", sessionID, reconcile(status))
+    }
+  })
+}
+
 export async function bootstrapDirectory(input: {
   directory: string
   sdk: OpencodeClient
@@ -155,7 +178,13 @@ export async function bootstrapDirectory(input: {
   Promise.all([
     input.sdk.path.get().then((x) => input.setStore("path", x.data!)),
     input.sdk.command.list().then((x) => input.setStore("command", x.data ?? [])),
-    input.sdk.session.status().then((x) => input.setStore("session_status", x.data!)),
+    input.sdk.session.status().then((x) =>
+      reconcileSessionStatus({
+        store: input.store,
+        setStore: input.setStore,
+        status: x.data ?? {},
+      }),
+    ),
     input.loadSessions(input.directory),
     input.sdk.mcp.status().then((x) => input.setStore("mcp", x.data!)),
     input.sdk.lsp.status().then((x) => input.setStore("lsp", x.data!)),

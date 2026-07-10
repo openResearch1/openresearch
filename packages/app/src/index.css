@@ -89,6 +89,63 @@
     line-height: 1;
   }
 
+  [data-remote-session="true"] {
+    --remote-safe-bottom: max(env(safe-area-inset-bottom), 0px);
+  }
+
+  [data-remote-session="true"] [data-component="session-prompt-dock"] {
+    padding-bottom: calc(0.5rem + var(--remote-safe-bottom));
+    background:
+      linear-gradient(to top, var(--background-stronger) 0%, var(--background-stronger) 74%, transparent 100%);
+  }
+
+  [data-remote-session="true"] [data-dock-surface="shell"] {
+    border-radius: 16px;
+    background: color-mix(in oklab, var(--background-base) 92%, transparent);
+    box-shadow:
+      0 0 0 1px color-mix(in oklab, var(--border-base) 62%, transparent),
+      0 10px 28px rgba(0, 0, 0, 0.16);
+  }
+
+  [data-remote-session="true"] [data-dock-surface="tray"] {
+    border-color: color-mix(in oklab, var(--border-base) 58%, transparent);
+    background: color-mix(in oklab, var(--background-base) 88%, transparent);
+    border-radius: 0 0 16px 16px;
+  }
+
+  [data-remote-session="true"] [data-component="prompt-input"] {
+    line-height: 1.55;
+  }
+
+  [data-remote-session="true"] [data-remote-timeline="true"] .scroll-view__viewport {
+    overscroll-behavior: contain;
+  }
+
+  [data-remote-session="true"] [data-slot="session-turn-message-container"] {
+    gap: 0.125rem;
+  }
+
+  [data-remote-session="true"] [data-component="markdown"] {
+    font-size: 0.9375rem;
+    line-height: 1.82;
+  }
+
+  [data-remote-session="true"] [data-component="markdown"] p {
+    margin-bottom: 0.85rem;
+  }
+
+  [data-remote-session="true"] [data-component="markdown"] ol,
+  [data-remote-session="true"] [data-component="markdown"] ul {
+    padding-left: 1.25rem;
+    margin-top: 0.35rem;
+    margin-bottom: 0.85rem;
+  }
+
+  [data-remote-session="true"] [data-component="markdown"] li {
+    padding-left: 0.125rem;
+    margin-bottom: 0.45rem;
+  }
+
   [data-component="getting-started"] {
     container-type: inline-size;
     container-name: getting-started;

@@ -47,8 +47,9 @@ import { useSessionCommands } from "@/pages/session/use-session-commands"
 import { useSessionHashScroll } from "@/pages/session/use-session-hash-scroll"
 import { same } from "@/utils/same"
 import { formatServerError } from "@/utils/server-errors"
+import { Icon } from "@opencode-ai/ui/icon"
 
-export default function Page() {
+export default function Page(props: { remote?: boolean; backHref?: string } = {}) {
   const globalSync = useGlobalSync()
   const layout = useLayout()
   const local = useLocal()
@@ -133,7 +134,8 @@ export default function Page() {
     ),
   )
 
-  const isDesktop = createMediaQuery("(min-width: 768px)")
+  const viewportDesktop = createMediaQuery("(min-width: 768px)")
+  const isDesktop = createMemo(() => viewportDesktop() && !props.remote)
   const size = createSizing()
   const desktopReviewOpen = createMemo(() => isDesktop() && view().reviewPanel.opened())
   const desktopFileTreeOpen = createMemo(() => isDesktop() && layout.fileTree.opened())
@@ -176,6 +178,12 @@ export default function Page() {
 
   const info = createMemo(() => (params.id ? sync.session.get(params.id) : undefined))
   const diffs = createMemo(() => (params.id ? (sync.data.session_diff[params.id] ?? []) : []))
+  const title = createMemo(() => {
+    const value = info()?.title
+    if (!value) return "Session"
+    if (/^(New session - |Child session - )\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)) return "New session"
+    return value
+  })
   const reviewCount = createMemo(() => Math.max(info()?.summary?.files ?? 0, diffs().length))
   const hasReview = createMemo(() => reviewCount() > 0)
   const revertMessageID = createMemo(() => info()?.revert?.messageID)
@@ -394,6 +402,23 @@ export default function Page() {
       })
     }),
   )
+
+  createEffect(() => {
+    if (!props.remote) return
+    const id = params.id
+    if (!id) return
+
+    let busy = false
+    const reload = () => {
+      if (busy) return
+      busy = true
+      void sync.session.reload(id).finally(() => {
+        busy = false
+      })
+    }
+    const interval = setInterval(reload, 1_000)
+    onCleanup(() => clearInterval(interval))
+  })
 
   createEffect(
     on(
@@ -1092,28 +1117,61 @@ export default function Page() {
     if (historyFillFrame !== undefined) cancelAnimationFrame(historyFillFrame)
   })
 
+  const back = () => {
+    if (typeof window === "undefined") return
+    window.location.assign(props.backHref ?? "/remote")
+  }
+
   return (
-    <div class="relative bg-background-base size-full overflow-hidden flex flex-col">
-      <SessionHeader />
+    <div
+      data-remote-session={props.remote ? "true" : undefined}
+      classList={{
+        "relative size-full overflow-hidden flex flex-col": true,
+        "bg-background-base": !props.remote,
+        "bg-background-stronger": !!props.remote,
+      }}
+    >
+      <Show
+        when={props.remote}
+        fallback={<SessionHeader />}
+      >
+        <div class="h-[52px] shrink-0 flex items-center gap-2 px-3 border-b border-border-weak-base bg-background-stronger/95 backdrop-blur">
+          <button
+            type="button"
+            onClick={back}
+            class="size-9 shrink-0 flex items-center justify-center rounded-lg border border-border-weak-base bg-background-base text-text-base active:bg-background-weak"
+            aria-label="Back"
+          >
+            <Icon name="chevron-left" />
+          </button>
+          <div class="min-w-0 flex-1 py-1">
+            <div class="text-14-medium text-text-strong truncate leading-5">{title()}</div>
+            <div class="text-11-regular text-text-weak truncate leading-4">{sdk.directory}</div>
+          </div>
+        </div>
+      </Show>
       <div class="flex-1 min-h-0 flex flex-col md:flex-row">
-        <SessionMobileTabs
-          open={!isDesktop() && !!params.id}
-          mobileTab={store.mobileTab}
-          hasReview={hasReview()}
-          reviewCount={reviewCount()}
-          onSession={() => setStore("mobileTab", "session")}
-          onChanges={() => setStore("mobileTab", "changes")}
-        />
+        <Show when={!props.remote}>
+          <SessionMobileTabs
+            open={!isDesktop() && !!params.id}
+            mobileTab={store.mobileTab}
+            hasReview={hasReview()}
+            reviewCount={reviewCount()}
+            onSession={() => setStore("mobileTab", "session")}
+            onChanges={() => setStore("mobileTab", "changes")}
+          />
+        </Show>
 
         {/* Session panel */}
         <div
           classList={{
-            "@container relative shrink-0 flex flex-col min-h-0 h-full bg-background-stronger flex-1 md:flex-none": true,
+            "@container relative shrink-0 flex flex-col min-h-0 h-full bg-background-stronger flex-1": true,
+            "md:flex-none": !props.remote,
             "transition-[width] duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width] motion-reduce:transition-none":
-              !size.active(),
+              !size.active() && !props.remote,
           }}
           style={{
-            width: sessionPanelWidth(),
+            width: props.remote ? "100%" : sessionPanelWidth(),
           }}
         >
           <div class="flex-1 min-h-0 overflow-hidden">
@@ -1121,6 +1179,7 @@ export default function Page() {
               <Match when={params.id}>
                 <Show when={activeMessage()}>
                   <MessageTimeline
+                    remote={props.remote}
                     mobileChanges={mobileChanges()}
                     mobileFallback={reviewContent({
                       diffStyle: "unified",
@@ -1188,6 +1247,7 @@ export default function Page() {
           </div>
 
           <SessionComposerRegion
+            compact={props.remote}
             state={composer}
             collabActivity={collabActivity}
             ready={!store.deferRender && messagesReady()}
@@ -1207,7 +1267,7 @@ export default function Page() {
             }}
           />
 
-          <Show when={desktopReviewOpen()}>
+          <Show when={!props.remote && desktopReviewOpen()}>
             <div onPointerDown={() => size.start()}>
               <ResizeHandle
                 direction="horizontal"
@@ -1223,15 +1283,19 @@ export default function Page() {
           </Show>
         </div>
 
-        <SessionSidePanel
-          reviewPanel={reviewPanel}
-          activeDiff={tree.activeDiff}
-          focusReviewDiff={focusReviewDiff}
-          size={size}
-        />
+        <Show when={!props.remote}>
+          <SessionSidePanel
+            reviewPanel={reviewPanel}
+            activeDiff={tree.activeDiff}
+            focusReviewDiff={focusReviewDiff}
+            size={size}
+          />
+        </Show>
       </div>
 
-      <TerminalPanel />
+      <Show when={!props.remote}>
+        <TerminalPanel />
+      </Show>
     </div>
   )
 }

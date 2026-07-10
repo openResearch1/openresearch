@@ -63,6 +63,7 @@ import { showToast } from "@opencode-ai/ui/toast"
 
 interface PromptInputProps {
   class?: string
+  compact?: boolean
   ref?: (el: HTMLDivElement) => void
   newSessionWorktree?: string
   onNewSessionWorktreeReset?: () => void
@@ -1412,7 +1413,12 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   }
 
   return (
-    <div class="relative size-full _max-h-[320px] flex flex-col gap-0">
+    <div
+      classList={{
+        "relative size-full _max-h-[320px] flex flex-col gap-0": true,
+        "compact": !!props.compact,
+      }}
+    >
       <PromptPopover
         popover={store.popover}
         setSlashPopoverRef={(el) => (slashPopoverRef = el)}
@@ -1434,6 +1440,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
           "group/prompt-input": true,
           "focus-within:shadow-xs-border": true,
           "border-icon-info-active border-dashed": store.draggingType !== null,
+          "rounded-[14px]": !!props.compact,
           [props.class ?? ""]: !!props.class,
         }}
       >
@@ -1477,7 +1484,14 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
             editorRef?.focus()
           }}
         >
-          <div class="relative max-h-[240px] overflow-y-auto no-scrollbar" ref={(el) => (scrollRef = el)}>
+          <div
+            classList={{
+              "relative overflow-y-auto no-scrollbar": true,
+              "max-h-[240px]": !props.compact,
+              "max-h-[160px]": !!props.compact,
+            }}
+            ref={(el) => (scrollRef = el)}
+          >
             <div
               data-component="prompt-input"
               ref={(el) => {
@@ -1499,7 +1513,9 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               onKeyDown={handleKeyDown}
               classList={{
                 "select-text": true,
-                "w-full pl-3 pr-2 pt-2 pb-11 text-14-regular text-text-strong focus:outline-none whitespace-pre-wrap": true,
+                "w-full text-14-regular text-text-strong focus:outline-none whitespace-pre-wrap": true,
+                "pl-3 pr-2 pt-2 pb-11": !props.compact,
+                "pl-3.5 pr-2.5 pt-3 pb-11 min-h-[92px]": !!props.compact,
                 "[&_[data-type=file]]:text-syntax-property": true,
                 "[&_[data-type=agent]]:text-syntax-type": true,
                 "font-mono!": store.mode !== "normal",
@@ -1507,8 +1523,12 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
             />
             <Show when={!prompt.dirty()}>
               <div
-                class="absolute top-0 inset-x-0 pl-3 pr-2 pt-2 pb-11 text-14-regular text-text-weak pointer-events-none whitespace-nowrap truncate"
-                 classList={{ "font-mono!": store.mode !== "normal" }}
+                classList={{
+                  "absolute top-0 inset-x-0 text-14-regular text-text-weak pointer-events-none whitespace-nowrap truncate": true,
+                  "pl-3 pr-2 pt-2 pb-11": !props.compact,
+                  "pl-3.5 pr-2.5 pt-3 pb-11": !!props.compact,
+                  "font-mono!": store.mode !== "normal",
+                }}
               >
                 {placeholder()}
               </div>
@@ -1544,7 +1564,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                   data-action="prompt-attach"
                   type="button"
                   variant="ghost"
-                  class="size-8 p-0"
+                  class={props.compact ? "size-[34px] p-0" : "size-8 p-0"}
                   style={{
                     opacity: buttonsSpring(),
                     transform: `scale(${0.95 + buttonsSpring() * 0.05})`,
@@ -1586,7 +1606,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                   tabIndex={store.mode === "normal" ? undefined : -1}
                   icon={working() ? "stop" : "arrow-up"}
                   variant="primary"
-                  class="size-8"
+                  class={props.compact ? "size-[34px]" : "size-8"}
                   style={{
                     opacity: buttonsSpring(),
                     transform: `scale(${0.95 + buttonsSpring() * 0.05})`,
@@ -1643,7 +1663,13 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       </DockShellForm>
       <Show when={store.mode === "normal" || store.mode === "shell" || store.mode === "ssh" || store.mode === "remote-task"}>
         <DockTray attach="top">
-          <div class="px-1.75 pt-5.5 pb-2 flex items-center gap-2 min-w-0">
+          <div
+            classList={{
+              "flex items-center min-w-0": true,
+              "px-1.75 pt-5.5 pb-2 gap-2": !props.compact,
+              "px-2 pt-5 pb-2 gap-1.5": !!props.compact,
+            }}
+          >
             <div class="flex items-center gap-1.5 min-w-0 flex-1 relative">
               <div
                 class="h-7 flex items-center gap-1.5 max-w-[360px] min-w-0 absolute inset-y-0 left-0"
@@ -1696,7 +1722,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                     options={agentNames()}
                     current={local.agent.current()?.name ?? ""}
                     onSelect={local.agent.set}
-                    class="capitalize max-w-[160px]"
+                    class={props.compact ? "capitalize max-w-[96px]" : "capitalize max-w-[160px]"}
                     valueClass="truncate text-13-regular"
                     triggerStyle={{
                       height: "28px",
@@ -1721,7 +1747,11 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                         as="div"
                         variant="ghost"
                         size="normal"
-                        class="min-w-0 max-w-[320px] text-13-regular group"
+                        class={
+                          props.compact
+                            ? "min-w-0 max-w-[150px] text-13-regular group"
+                            : "min-w-0 max-w-[320px] text-13-regular group"
+                        }
                         style={{
                           height: "28px",
                           opacity: buttonsSpring(),
@@ -1764,7 +1794,9 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                           filter: `blur(${(1 - buttonsSpring()) * 2}px)`,
                           "pointer-events": buttonsSpring() > 0.5 ? "auto" : "none",
                         },
-                        class: "min-w-0 max-w-[320px] text-13-regular group",
+                        class: props.compact
+                          ? "min-w-0 max-w-[150px] text-13-regular group"
+                          : "min-w-0 max-w-[320px] text-13-regular group",
                       }}
                     >
                       <Show when={local.model.current()?.provider?.id}>
@@ -1781,30 +1813,32 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                     </ModelSelectorPopover>
                   </TooltipKeybind>
                 </Show>
-                <TooltipKeybind
-                  placement="top"
-                  gutter={4}
-                  title={language.t("command.model.variant.cycle")}
-                  keybind={command.keybind("model.variant.cycle")}
-                >
-                  <Select
-                    size="normal"
-                    options={variants()}
-                    current={local.model.variant.current() ?? "default"}
-                    label={(x) => (x === "default" ? language.t("common.default") : x)}
-                    onSelect={(x) => local.model.variant.set(x === "default" ? undefined : x)}
-                    class="capitalize max-w-[160px]"
-                    valueClass="truncate text-13-regular"
-                    triggerStyle={{
-                      height: "28px",
-                      opacity: buttonsSpring(),
-                      transform: `scale(${0.95 + buttonsSpring() * 0.05})`,
-                      filter: `blur(${(1 - buttonsSpring()) * 2}px)`,
-                      "pointer-events": buttonsSpring() > 0.5 ? "auto" : "none",
-                    }}
-                    variant="ghost"
-                  />
-                </TooltipKeybind>
+                <Show when={!props.compact}>
+                  <TooltipKeybind
+                    placement="top"
+                    gutter={4}
+                    title={language.t("command.model.variant.cycle")}
+                    keybind={command.keybind("model.variant.cycle")}
+                  >
+                    <Select
+                      size="normal"
+                      options={variants()}
+                      current={local.model.variant.current() ?? "default"}
+                      label={(x) => (x === "default" ? language.t("common.default") : x)}
+                      onSelect={(x) => local.model.variant.set(x === "default" ? undefined : x)}
+                      class="capitalize max-w-[160px]"
+                      valueClass="truncate text-13-regular"
+                      triggerStyle={{
+                        height: "28px",
+                        opacity: buttonsSpring(),
+                        transform: `scale(${0.95 + buttonsSpring() * 0.05})`,
+                        filter: `blur(${(1 - buttonsSpring()) * 2}px)`,
+                        "pointer-events": buttonsSpring() > 0.5 ? "auto" : "none",
+                      }}
+                      variant="ghost"
+                    />
+                  </TooltipKeybind>
+                </Show>
               </div>
             </div>
             <div class="shrink-0">
@@ -1850,7 +1884,15 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                 onSelect={(mode) => mode && setMode(mode)}
                 fill
                 pad="none"
-                class={remoteTaskAvailable() ? "w-[136px]" : "w-[102px]"}
+                class={
+                  props.compact
+                    ? remoteTaskAvailable()
+                      ? "w-[112px]"
+                      : "w-[84px]"
+                    : remoteTaskAvailable()
+                      ? "w-[136px]"
+                      : "w-[102px]"
+                }
               />
             </div>
           </div>
