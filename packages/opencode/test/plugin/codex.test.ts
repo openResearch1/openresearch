@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test"
+import { createOpenAI } from "@ai-sdk/openai"
+
 import {
   parseJwtClaims,
   extractAccountIdFromClaims,
@@ -14,6 +16,12 @@ function createTestJwt(payload: object): string {
 }
 
 describe("plugin.codex", () => {
+  test("creates a V3 Responses model for GPT-5.6", () => {
+    const model = createOpenAI({ apiKey: "test" }).responses("gpt-5.6")
+    expect(model.specificationVersion).toBe("v3")
+    expect(model.modelId).toBe("gpt-5.6")
+  })
+
   describe("allowed", () => {
     test.each([
       "gpt-5.2",

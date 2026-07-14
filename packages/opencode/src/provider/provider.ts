@@ -3,7 +3,8 @@ import os from "os"
 import fuzzysort from "fuzzysort"
 import { Config } from "../config/config"
 import { mapValues, mergeDeep, omit, pickBy, sortBy } from "remeda"
-import { NoSuchModelError, type Provider as SDK } from "ai"
+import { NoSuchModelError } from "ai"
+import type { LanguageModelV3 } from "@ai-sdk/provider"
 import { Log } from "../util/log"
 import { BunProc } from "../bun"
 import { Hash } from "../util/hash"
@@ -28,7 +29,7 @@ import { createVertex } from "@ai-sdk/google-vertex"
 import { createVertexAnthropic } from "@ai-sdk/google-vertex/anthropic"
 import { createOpenAI } from "@ai-sdk/openai"
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible"
-import { createOpenRouter, type LanguageModelV2 } from "@openrouter/ai-sdk-provider"
+import { createOpenRouter } from "@openrouter/ai-sdk-provider"
 import { createOpenaiCompatible as createGitHubCopilotOpenAICompatible } from "./sdk/copilot"
 import { createXai } from "@ai-sdk/xai"
 import { createMistral } from "@ai-sdk/mistral"
@@ -40,7 +41,7 @@ import { createGateway } from "@ai-sdk/gateway"
 import { createTogetherAI } from "@ai-sdk/togetherai"
 import { createPerplexity } from "@ai-sdk/perplexity"
 import { createVercel } from "@ai-sdk/vercel"
-import { createGitLab, VERSION as GITLAB_PROVIDER_VERSION } from "@gitlab/gitlab-ai-provider"
+import { createGitLab, VERSION as GITLAB_PROVIDER_VERSION } from "gitlab-ai-provider"
 import { fromNodeProviderChain } from "@aws-sdk/credential-providers"
 import { GoogleAuth } from "google-auth-library"
 import { ProviderTransform } from "./transform"
@@ -85,7 +86,18 @@ export namespace Provider {
     })
   }
 
-  const BUNDLED_PROVIDERS: Record<string, (options: any) => SDK> = {
+  type BundledSDK = {
+    languageModel(modelID: string): LanguageModelV3
+    chat?: (modelID: string) => LanguageModelV3
+    responses?: (modelID: string) => LanguageModelV3
+  }
+
+  function normalizePackageName(npm: string) {
+    if (npm === "@gitlab/gitlab-ai-provider") return "gitlab-ai-provider"
+    return npm
+  }
+
+  const BUNDLED_PROVIDERS: Record<string, (options: any) => BundledSDK> = {
     "@ai-sdk/amazon-bedrock": createAmazonBedrock,
     "@ai-sdk/anthropic": createAnthropic,
     "@ai-sdk/azure": createAzure,
@@ -105,7 +117,7 @@ export namespace Provider {
     "@ai-sdk/togetherai": createTogetherAI,
     "@ai-sdk/perplexity": createPerplexity,
     "@ai-sdk/vercel": createVercel,
-    "@gitlab/gitlab-ai-provider": createGitLab,
+    "gitlab-ai-provider": createGitLab,
     // @ts-ignore (TODO: kill this code so we dont have to maintain it)
     "@ai-sdk/github-copilot": createGitHubCopilotOpenAICompatible,
   }
@@ -707,7 +719,7 @@ export namespace Provider {
       api: {
         id: model.id,
         url: model.provider?.api ?? provider.api!,
-        npm: model.provider?.npm ?? provider.npm ?? "@ai-sdk/openai-compatible",
+        npm: normalizePackageName(model.provider?.npm ?? provider.npm ?? "@ai-sdk/openai-compatible"),
       },
       status: model.status ?? "active",
       headers: model.headers ?? {},
@@ -792,11 +804,11 @@ export namespace Provider {
     }
 
     const providers: { [providerID: string]: Info } = {}
-    const languages = new Map<string, LanguageModelV2>()
+    const languages = new Map<string, LanguageModelV3>()
     const modelLoaders: {
       [providerID: string]: CustomModelLoader
     } = {}
-    const sdk = new Map<string, SDK>()
+    const sdk = new Map<string, BundledSDK>()
 
     log.info("init")
 
@@ -853,11 +865,13 @@ export namespace Provider {
           api: {
             id: model.id ?? existingModel?.api.id ?? modelID,
             npm:
-              model.provider?.npm ??
-              provider.npm ??
-              existingModel?.api.npm ??
-              modelsDev[providerID]?.npm ??
-              "@ai-sdk/openai-compatible",
+              normalizePackageName(
+                model.provider?.npm ??
+                  provider.npm ??
+                  existingModel?.api.npm ??
+                  modelsDev[providerID]?.npm ??
+                  "@ai-sdk/openai-compatible",
+              ),
             url: model.provider?.api ?? provider?.api ?? existingModel?.api.url ?? modelsDev[providerID]?.api,
           },
           status: model.status ?? existingModel?.status ?? "active",
@@ -1069,11 +1083,13 @@ export namespace Provider {
       const provider = s.providers[model.providerID]
       const options = { ...provider.options }
 
-      if (model.providerID === "google-vertex" && !model.api.npm.includes("@ai-sdk/openai-compatible")) {
+      const pkg = normalizePackageName(model.api.npm)
+
+      if (model.providerID === "google-vertex" && !pkg.includes("@ai-sdk/openai-compatible")) {
         delete options.fetch
       }
 
-      if (model.api.npm.includes("@ai-sdk/openai-compatible") && options["includeUsage"] !== false) {
+      if (pkg.includes("@ai-sdk/openai-compatible") && options["includeUsage"] !== false) {
         options["includeUsage"] = true
       }
 
@@ -1086,7 +1102,7 @@ export namespace Provider {
           ...model.headers,
         }
 
-      const key = Hash.fast(JSON.stringify({ providerID: model.providerID, npm: model.api.npm, options }))
+      const key = Hash.fast(JSON.stringify({ providerID: model.providerID, npm: pkg, options }))
       const existing = s.sdk.get(key)
       if (existing) return existing
 
@@ -1111,7 +1127,7 @@ export namespace Provider {
         // Codex uses #[serde(skip_serializing)] on id fields for all item types:
         // Message, Reasoning, FunctionCall, LocalShellCall, CustomToolCall, WebSearchCall
         // IDs are only re-attached for Azure with store=true
-        if (model.api.npm === "@ai-sdk/openai" && opts.body && opts.method === "POST") {
+        if (pkg === "@ai-sdk/openai" && opts.body && opts.method === "POST") {
           const body = JSON.parse(opts.body as string)
           const isAzure = model.providerID.includes("azure")
           const keepIds = isAzure && body.store === true
@@ -1132,23 +1148,23 @@ export namespace Provider {
         })
       }
 
-      const bundledFn = BUNDLED_PROVIDERS[model.api.npm]
+      const bundledFn = BUNDLED_PROVIDERS[pkg]
       if (bundledFn) {
-        log.info("using bundled provider", { providerID: model.providerID, pkg: model.api.npm })
+        log.info("using bundled provider", { providerID: model.providerID, pkg })
         const loaded = bundledFn({
           name: model.providerID,
           ...options,
         })
         s.sdk.set(key, loaded)
-        return loaded as SDK
+        return loaded
       }
 
       let installedPath: string
-      if (!model.api.npm.startsWith("file://")) {
-        installedPath = await BunProc.install(model.api.npm, "latest")
+      if (!pkg.startsWith("file://")) {
+        installedPath = await BunProc.install(pkg, "latest")
       } else {
-        log.info("loading local provider", { pkg: model.api.npm })
-        installedPath = model.api.npm
+        log.info("loading local provider", { pkg })
+        installedPath = pkg
       }
 
       const mod = await import(installedPath)
@@ -1159,7 +1175,7 @@ export namespace Provider {
         ...options,
       })
       s.sdk.set(key, loaded)
-      return loaded as SDK
+      return loaded as BundledSDK
     } catch (e) {
       throw new InitError({ providerID: model.providerID }, { cause: e })
     }
@@ -1189,7 +1205,7 @@ export namespace Provider {
     return info
   }
 
-  export async function getLanguage(model: Model): Promise<LanguageModelV2> {
+  export async function getLanguage(model: Model): Promise<LanguageModelV3> {
     const s = await state()
     const key = `${model.providerID}/${model.id}`
     if (s.models.has(key)) return s.models.get(key)!

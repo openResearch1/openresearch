@@ -84,7 +84,7 @@ describe("ProviderTransform.options - setCacheKey", () => {
     expect(result.promptCacheKey).toBe(sessionID)
   })
 
-  test("should set store=false for openai provider", () => {
+  test("should preserve OpenAI request defaults", () => {
     const openaiModel = {
       ...mockModel,
       providerID: "openai",
@@ -100,6 +100,7 @@ describe("ProviderTransform.options - setCacheKey", () => {
       providerOptions: {},
     })
     expect(result.store).toBe(false)
+    expect(result.strictJsonSchema).toBe(false)
   })
 })
 

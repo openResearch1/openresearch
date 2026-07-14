@@ -1,7 +1,7 @@
 import {
-  type LanguageModelV2CallWarning,
-  type LanguageModelV2Prompt,
-  type LanguageModelV2ToolCallPart,
+  type LanguageModelV3Prompt,
+  type LanguageModelV3ToolCallPart,
+  type SharedV3Warning,
   UnsupportedFunctionalityError,
 } from "@ai-sdk/provider"
 import { convertToBase64, parseProviderOptions } from "@ai-sdk/provider-utils"
@@ -25,17 +25,18 @@ export async function convertToOpenAIResponsesInput({
   store,
   hasLocalShellTool = false,
 }: {
-  prompt: LanguageModelV2Prompt
+  prompt: LanguageModelV3Prompt
   systemMessageMode: "system" | "developer" | "remove"
   fileIdPrefixes?: readonly string[]
   store: boolean
   hasLocalShellTool?: boolean
 }): Promise<{
   input: OpenAIResponsesInput
-  warnings: Array<LanguageModelV2CallWarning>
+  warnings: Array<SharedV3Warning>
 }> {
   const input: OpenAIResponsesInput = []
-  const warnings: Array<LanguageModelV2CallWarning> = []
+  const warnings: Array<SharedV3Warning> = []
+  const processedApprovalIds = new Set<string>()
 
   for (const { role, content } of prompt) {
     switch (role) {
@@ -85,7 +86,7 @@ export async function convertToOpenAIResponsesInput({
                         : {
                             image_url: `data:${mediaType};base64,${convertToBase64(part.data)}`,
                           }),
-                    detail: part.providerOptions?.openai?.imageDetail,
+                    detail: part.providerOptions?.copilot?.imageDetail,
                   }
                 } else if (part.mediaType === "application/pdf") {
                   if (part.data instanceof URL) {
@@ -118,7 +119,7 @@ export async function convertToOpenAIResponsesInput({
 
       case "assistant": {
         const reasoningMessages: Record<string, OpenAIResponsesReasoning> = {}
-        const toolCallParts: Record<string, LanguageModelV2ToolCallPart> = {}
+        const toolCallParts: Record<string, LanguageModelV3ToolCallPart> = {}
 
         for (const part of content) {
           switch (part.type) {
@@ -126,7 +127,7 @@ export async function convertToOpenAIResponsesInput({
               input.push({
                 role: "assistant",
                 content: [{ type: "output_text", text: part.text }],
-                id: (part.providerOptions?.openai?.itemId as string) ?? undefined,
+                id: (part.providerOptions?.copilot?.itemId as string) ?? undefined,
               })
               break
             }
@@ -142,7 +143,7 @@ export async function convertToOpenAIResponsesInput({
                 input.push({
                   type: "local_shell_call",
                   call_id: part.toolCallId,
-                  id: (part.providerOptions?.openai?.itemId as string) ?? undefined,
+                  id: (part.providerOptions?.copilot?.itemId as string) ?? undefined,
                   action: {
                     type: "exec",
                     command: parsedInput.action.command,
@@ -161,7 +162,7 @@ export async function convertToOpenAIResponsesInput({
                 call_id: part.toolCallId,
                 name: part.toolName,
                 arguments: JSON.stringify(part.input),
-                id: (part.providerOptions?.openai?.itemId as string) ?? undefined,
+                id: (part.providerOptions?.copilot?.itemId as string) ?? undefined,
               })
               break
             }
@@ -251,7 +252,35 @@ export async function convertToOpenAIResponsesInput({
 
       case "tool": {
         for (const part of content) {
+          if (part.type === "tool-approval-response") {
+            if (processedApprovalIds.has(part.approvalId)) {
+              continue
+            }
+            processedApprovalIds.add(part.approvalId)
+
+            if (store) {
+              input.push({
+                type: "item_reference",
+                id: part.approvalId,
+              })
+            }
+
+            input.push({
+              type: "mcp_approval_response",
+              approval_request_id: part.approvalId,
+              approve: part.approved,
+            })
+            continue
+          }
           const output = part.output
+
+          if (output.type === "execution-denied") {
+            const approvalId = (output.providerOptions?.copilot as { approvalId?: string } | undefined)?.approvalId
+
+            if (approvalId) {
+              continue
+            }
+          }
 
           if (hasLocalShellTool && part.toolName === "local_shell" && output.type === "json") {
             input.push({
@@ -267,6 +296,9 @@ export async function convertToOpenAIResponsesInput({
             case "text":
             case "error-text":
               contentValue = output.value
+              break
+            case "execution-denied":
+              contentValue = output.reason ?? "Tool execution denied."
               break
             case "content":
             case "json":

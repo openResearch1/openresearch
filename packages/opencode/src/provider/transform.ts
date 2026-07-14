@@ -8,6 +8,7 @@ import { iife } from "@/util/iife"
 import { Flag } from "@/flag/flag"
 
 type Modality = NonNullable<ModelsDev.Model["modalities"]>["input"][number]
+type Options = NonNullable<ModelMessage["providerOptions"]>
 
 function mimeToModality(mime: string): Modality | undefined {
   if (mime.startsWith("image/")) return "image"
@@ -73,9 +74,20 @@ export namespace ProviderTransform {
 
     if (model.api.id.includes("claude")) {
       return msgs.map((msg) => {
-        if ((msg.role === "assistant" || msg.role === "tool") && Array.isArray(msg.content)) {
+        if (msg.role === "assistant" && Array.isArray(msg.content)) {
           msg.content = msg.content.map((part) => {
-            if ((part.type === "tool-call" || part.type === "tool-result") && "toolCallId" in part) {
+            if (part.type === "tool-call" || part.type === "tool-result") {
+              return {
+                ...part,
+                toolCallId: part.toolCallId.replace(/[^a-zA-Z0-9_-]/g, "_"),
+              }
+            }
+            return part
+          })
+        }
+        if (msg.role === "tool" && Array.isArray(msg.content)) {
+          msg.content = msg.content.map((part) => {
+            if (part.type === "tool-result") {
               return {
                 ...part,
                 toolCallId: part.toolCallId.replace(/[^a-zA-Z0-9_-]/g, "_"),
@@ -97,9 +109,26 @@ export namespace ProviderTransform {
         const msg = msgs[i]
         const nextMsg = msgs[i + 1]
 
-        if ((msg.role === "assistant" || msg.role === "tool") && Array.isArray(msg.content)) {
+        if (msg.role === "assistant" && Array.isArray(msg.content)) {
           msg.content = msg.content.map((part) => {
-            if ((part.type === "tool-call" || part.type === "tool-result") && "toolCallId" in part) {
+            if (part.type === "tool-call" || part.type === "tool-result") {
+              // Mistral requires alphanumeric tool call IDs with exactly 9 characters
+              const normalizedId = part.toolCallId
+                .replace(/[^a-zA-Z0-9]/g, "") // Remove non-alphanumeric characters
+                .substring(0, 9) // Take first 9 characters
+                .padEnd(9, "0") // Pad with zeros if less than 9 characters
+
+              return {
+                ...part,
+                toolCallId: normalizedId,
+              }
+            }
+            return part
+          })
+        }
+        if (msg.role === "tool" && Array.isArray(msg.content)) {
+          msg.content = msg.content.map((part) => {
+            if (part.type === "tool-result") {
               // Mistral requires alphanumeric tool call IDs with exactly 9 characters
               const normalizedId = part.toolCallId
                 .replace(/[^a-zA-Z0-9]/g, "") // Remove non-alphanumeric characters
@@ -155,11 +184,11 @@ export namespace ProviderTransform {
       const field = model.capabilities.interleaved.field
       return msgs.map((msg) => {
         if (msg.role === "assistant" && Array.isArray(msg.content)) {
-          const reasoningParts = msg.content.filter((part: any) => part.type === "reasoning")
-          const reasoningText = reasoningParts.map((part: any) => part.text).join("")
+          const reasoningParts = msg.content.filter((part) => part.type === "reasoning")
+          const reasoningText = reasoningParts.map((part) => part.text).join("")
 
           // Filter out reasoning parts from content
-          const filteredContent = msg.content.filter((part: any) => part.type !== "reasoning")
+          const filteredContent = msg.content.filter((part) => part.type !== "reasoning")
 
           // Include reasoning_content | reasoning_details directly on the message for all assistant messages
           if (reasoningText) {
@@ -169,7 +198,7 @@ export namespace ProviderTransform {
               providerOptions: {
                 ...msg.providerOptions,
                 openaiCompatible: {
-                  ...(msg.providerOptions as any)?.openaiCompatible,
+                  ...msg.providerOptions?.openaiCompatible,
                   [field]: reasoningText,
                 },
               },
@@ -217,7 +246,12 @@ export namespace ProviderTransform {
 
       if (shouldUseContentOptions) {
         const lastContent = msg.content[msg.content.length - 1]
-        if (lastContent && typeof lastContent === "object") {
+        if (
+          lastContent &&
+          typeof lastContent === "object" &&
+          lastContent.type !== "tool-approval-request" &&
+          lastContent.type !== "tool-approval-response"
+        ) {
           lastContent.providerOptions = mergeDeep(lastContent.providerOptions ?? {}, providerOptions)
           continue
         }
@@ -267,6 +301,21 @@ export namespace ProviderTransform {
     })
   }
 
+  function mapProviderOptions(msgs: ModelMessage[], transform: (opts: Options | undefined) => Options | undefined) {
+    return msgs.map((msg) => {
+      if (!Array.isArray(msg.content)) return { ...msg, providerOptions: transform(msg.providerOptions) }
+      return {
+        ...msg,
+        providerOptions: transform(msg.providerOptions),
+        content: msg.content.map((part) =>
+          part.type === "tool-approval-request" || part.type === "tool-approval-response"
+            ? part
+            : { ...part, providerOptions: transform(part.providerOptions) },
+        ),
+      } as typeof msg
+    })
+  }
+
   export function message(msgs: ModelMessage[], model: Provider.Model, options: Record<string, unknown>) {
     msgs = unsupportedParts(msgs, model)
     msgs = normalizeMessages(msgs, model, options)
@@ -285,7 +334,7 @@ export namespace ProviderTransform {
     // Remap providerOptions keys from stored providerID to expected SDK key
     const key = sdkKey(model.api.npm)
     if (key && key !== model.providerID && model.api.npm !== "@ai-sdk/azure") {
-      const remap = (opts: Record<string, any> | undefined) => {
+      const remap = (opts: Options | undefined) => {
         if (!opts) return opts
         if (!(model.providerID in opts)) return opts
         const result = { ...opts }
@@ -294,14 +343,7 @@ export namespace ProviderTransform {
         return result
       }
 
-      msgs = msgs.map((msg) => {
-        if (!Array.isArray(msg.content)) return { ...msg, providerOptions: remap(msg.providerOptions) }
-        return {
-          ...msg,
-          providerOptions: remap(msg.providerOptions),
-          content: msg.content.map((part) => ({ ...part, providerOptions: remap(part.providerOptions) })),
-        } as typeof msg
-      })
+      msgs = mapProviderOptions(msgs, remap)
     }
 
     return msgs
@@ -710,6 +752,9 @@ export namespace ProviderTransform {
       input.model.api.npm === "@ai-sdk/github-copilot"
     ) {
       result["store"] = false
+      // AI SDK 6 enables strict schemas by default, but existing tools use schemas
+      // that are valid JSON Schema without satisfying OpenAI's strict subset.
+      result["strictJsonSchema"] = false
     }
 
     if (input.model.api.npm === "@openrouter/ai-sdk-provider") {

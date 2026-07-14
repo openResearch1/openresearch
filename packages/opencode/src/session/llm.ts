@@ -5,7 +5,6 @@ import {
   streamText,
   wrapLanguageModel,
   type ModelMessage,
-  type StreamTextResult,
   type Tool,
   type ToolSet,
   tool,
@@ -41,7 +40,7 @@ export namespace LLM {
     toolChoice?: "auto" | "required" | "none"
   }
 
-  export type StreamOutput = StreamTextResult<ToolSet, unknown>
+  export type StreamOutput = ReturnType<typeof streamText<ToolSet>>
 
   export async function stream(input: StreamInput) {
     const l = log
@@ -101,7 +100,7 @@ export namespace LLM {
           sessionID: input.sessionID,
           providerOptions: provider.options,
         })
-    const options: Record<string, any> = pipe(
+    const options: Record<string, unknown> = pipe(
       base,
       mergeDeep(input.model.options),
       mergeDeep(input.agent.options),
@@ -235,6 +234,7 @@ export namespace LLM {
         model: language,
         middleware: [
           {
+            specificationVersion: "v3" as const,
             async transformParams(args) {
               if (args.type === "stream") {
                 // @ts-expect-error
