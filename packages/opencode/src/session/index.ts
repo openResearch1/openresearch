@@ -4,7 +4,7 @@ import { BusEvent } from "@/bus/bus-event"
 import { Bus } from "@/bus"
 import { Decimal } from "decimal.js"
 import z from "zod"
-import { type ProviderMetadata } from "ai"
+import { type LanguageModelUsage, type ProviderMetadata } from "ai"
 import { Config } from "../config/config"
 import { Flag } from "../flag/flag"
 import { Identifier } from "../id/id"
@@ -27,7 +27,6 @@ import { WorkspaceContext } from "../control-plane/workspace-context"
 import type { Provider } from "@/provider/provider"
 import { PermissionNext } from "@/permission/next"
 import { Global } from "@/global"
-import type { LanguageModelV2Usage } from "@ai-sdk/provider"
 import { iife } from "@/util/iife"
 
 export namespace Session {
@@ -791,49 +790,45 @@ export namespace Session {
   export const getUsage = fn(
     z.object({
       model: z.custom<Provider.Model>(),
-      usage: z.custom<LanguageModelV2Usage>(),
+      usage: z.custom<LanguageModelUsage>(),
       metadata: z.custom<ProviderMetadata>().optional(),
     }),
     (input) => {
-      const safe = (value: number) => {
+      const safe = (value: number | undefined) => {
         if (!Number.isFinite(value)) return 0
-        return value
+        return Math.max(0, value ?? 0)
       }
+      const record = (value: unknown) => {
+        if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>
+        return undefined
+      }
+      const number = (value: unknown) => (typeof value === "number" ? value : 0)
+
       const inputTokens = safe(input.usage.inputTokens ?? 0)
-      const outputTokens = safe(input.usage.outputTokens ?? 0)
-      const reasoningTokens = safe(input.usage.reasoningTokens ?? 0)
+      const reasoningTokens = safe(input.usage.outputTokenDetails?.reasoningTokens ?? input.usage.reasoningTokens ?? 0)
+      const outputTokens = safe(
+        input.usage.outputTokenDetails?.textTokens ?? safe(input.usage.outputTokens) - reasoningTokens,
+      )
 
-      const cacheReadInputTokens = safe(input.usage.cachedInputTokens ?? 0)
+      const cacheReadInputTokens = safe(input.usage.inputTokenDetails?.cacheReadTokens ?? input.usage.cachedInputTokens ?? 0)
+      const metadataCacheWriteInputTokens =
+        number(input.metadata?.["anthropic"]?.["cacheCreationInputTokens"]) ||
+        number(input.metadata?.["vertex"]?.["cacheCreationInputTokens"]) ||
+        number(record(input.metadata?.["bedrock"]?.["usage"])?.["cacheWriteInputTokens"]) ||
+        number(record(input.metadata?.["venice"]?.["usage"])?.["cacheCreationInputTokens"])
       const cacheWriteInputTokens = safe(
-        (input.metadata?.["anthropic"]?.["cacheCreationInputTokens"] ??
-          // @ts-expect-error
-          input.metadata?.["bedrock"]?.["usage"]?.["cacheWriteInputTokens"] ??
-          // @ts-expect-error
-          input.metadata?.["venice"]?.["usage"]?.["cacheCreationInputTokens"] ??
-          0) as number,
+        input.usage.inputTokenDetails?.cacheWriteTokens ?? metadataCacheWriteInputTokens,
       )
 
-      // OpenRouter provides inputTokens as the total count of input tokens (including cached).
-      // AFAIK other providers (OpenRouter/OpenAI/Gemini etc.) do it the same way e.g. vercel/ai#8794 (comment)
-      // Anthropic does it differently though - inputTokens doesn't include cached tokens.
-      // It looks like OpenCode's cost calculation assumes all providers return inputTokens the same way Anthropic does (I'm guessing getUsage logic was originally implemented with anthropic), so it's causing incorrect cost calculation for OpenRouter and others.
-      const excludesCachedTokens = !!(input.metadata?.["anthropic"] || input.metadata?.["bedrock"])
       const adjustedInputTokens = safe(
-        excludesCachedTokens ? inputTokens : inputTokens - cacheReadInputTokens - cacheWriteInputTokens,
+        input.usage.inputTokenDetails?.noCacheTokens ??
+          inputTokens - cacheReadInputTokens - cacheWriteInputTokens,
       )
 
-      const total = iife(() => {
-        // Anthropic doesn't provide total_tokens, also ai sdk will vastly undercount if we
-        // don't compute from components
-        if (
-          input.model.api.npm === "@ai-sdk/anthropic" ||
-          input.model.api.npm === "@ai-sdk/amazon-bedrock" ||
-          input.model.api.npm === "@ai-sdk/google-vertex/anthropic"
-        ) {
-          return adjustedInputTokens + outputTokens + cacheReadInputTokens + cacheWriteInputTokens
-        }
-        return input.usage.totalTokens
-      })
+      const total = safe(
+        input.usage.totalTokens ??
+          adjustedInputTokens + outputTokens + reasoningTokens + cacheReadInputTokens + cacheWriteInputTokens,
+      )
 
       const tokens = {
         total,
@@ -847,7 +842,7 @@ export namespace Session {
       }
 
       const costInfo =
-        input.model.cost?.experimentalOver200K && tokens.input + tokens.cache.read > 200_000
+        input.model.cost?.experimentalOver200K && inputTokens > 200_000
           ? input.model.cost.experimentalOver200K
           : input.model.cost
       return {

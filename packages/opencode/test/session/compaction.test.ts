@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import path from "path"
+import type { LanguageModelUsage } from "ai"
+
 import { SessionCompaction } from "../../src/session/compaction"
 import { Token } from "../../src/util/token"
 import { Instance } from "../../src/project/instance"
@@ -38,6 +40,26 @@ function createModel(opts: {
     api: { npm: opts.npm ?? "@ai-sdk/anthropic" },
     options: {},
   } as Provider.Model
+}
+
+function usage(input: Partial<LanguageModelUsage>): LanguageModelUsage {
+  return {
+    inputTokens: input.inputTokens,
+    outputTokens: input.outputTokens,
+    totalTokens: input.totalTokens,
+    reasoningTokens: input.reasoningTokens,
+    cachedInputTokens: input.cachedInputTokens,
+    raw: input.raw,
+    inputTokenDetails: {
+      noCacheTokens: input.inputTokenDetails?.noCacheTokens,
+      cacheReadTokens: input.inputTokenDetails?.cacheReadTokens,
+      cacheWriteTokens: input.inputTokenDetails?.cacheWriteTokens,
+    },
+    outputTokenDetails: {
+      textTokens: input.outputTokenDetails?.textTokens,
+      reasoningTokens: input.outputTokenDetails?.reasoningTokens,
+    },
+  }
 }
 
 describe("session.compaction.isOverflow", () => {
@@ -248,11 +270,11 @@ describe("session.getUsage", () => {
     const model = createModel({ context: 100_000, output: 32_000 })
     const result = Session.getUsage({
       model,
-      usage: {
+      usage: usage({
         inputTokens: 1000,
         outputTokens: 500,
         totalTokens: 1500,
-      },
+      }),
     })
 
     expect(result.tokens.input).toBe(1000)
@@ -266,12 +288,12 @@ describe("session.getUsage", () => {
     const model = createModel({ context: 100_000, output: 32_000 })
     const result = Session.getUsage({
       model,
-      usage: {
+      usage: usage({
         inputTokens: 1000,
         outputTokens: 500,
         totalTokens: 1500,
         cachedInputTokens: 200,
-      },
+      }),
     })
 
     expect(result.tokens.input).toBe(800)
@@ -282,11 +304,11 @@ describe("session.getUsage", () => {
     const model = createModel({ context: 100_000, output: 32_000 })
     const result = Session.getUsage({
       model,
-      usage: {
+      usage: usage({
         inputTokens: 1000,
         outputTokens: 500,
         totalTokens: 1500,
-      },
+      }),
       metadata: {
         anthropic: {
           cacheCreationInputTokens: 300,
@@ -297,22 +319,22 @@ describe("session.getUsage", () => {
     expect(result.tokens.cache.write).toBe(300)
   })
 
-  test("does not subtract cached tokens for anthropic provider", () => {
+  test("subtracts cached tokens for anthropic provider", () => {
     const model = createModel({ context: 100_000, output: 32_000 })
     const result = Session.getUsage({
       model,
-      usage: {
+      usage: usage({
         inputTokens: 1000,
         outputTokens: 500,
         totalTokens: 1500,
         cachedInputTokens: 200,
-      },
+      }),
       metadata: {
         anthropic: {},
       },
     })
 
-    expect(result.tokens.input).toBe(1000)
+    expect(result.tokens.input).toBe(800)
     expect(result.tokens.cache.read).toBe(200)
   })
 
@@ -320,26 +342,27 @@ describe("session.getUsage", () => {
     const model = createModel({ context: 100_000, output: 32_000 })
     const result = Session.getUsage({
       model,
-      usage: {
+      usage: usage({
         inputTokens: 1000,
         outputTokens: 500,
         totalTokens: 1500,
         reasoningTokens: 100,
-      },
+      }),
     })
 
     expect(result.tokens.reasoning).toBe(100)
+    expect(result.tokens.output).toBe(400)
   })
 
   test("handles undefined optional values gracefully", () => {
     const model = createModel({ context: 100_000, output: 32_000 })
     const result = Session.getUsage({
       model,
-      usage: {
+      usage: usage({
         inputTokens: 0,
         outputTokens: 0,
         totalTokens: 0,
-      },
+      }),
     })
 
     expect(result.tokens.input).toBe(0)
@@ -362,62 +385,41 @@ describe("session.getUsage", () => {
     })
     const result = Session.getUsage({
       model,
-      usage: {
+      usage: usage({
         inputTokens: 1_000_000,
         outputTokens: 100_000,
         totalTokens: 1_100_000,
-      },
+      }),
     })
 
     expect(result.cost).toBe(3 + 1.5)
   })
 
-  test.each(["@ai-sdk/anthropic", "@ai-sdk/amazon-bedrock", "@ai-sdk/google-vertex/anthropic"])(
-    "computes total from components for %s models",
-    (npm) => {
-      const model = createModel({ context: 100_000, output: 32_000, npm })
-      const usage = {
-        inputTokens: 1000,
-        outputTokens: 500,
-        // These providers typically report total as input + output only,
-        // excluding cache read/write.
-        totalTokens: 1500,
-        cachedInputTokens: 200,
-      }
-      if (npm === "@ai-sdk/amazon-bedrock") {
-        const result = Session.getUsage({
-          model,
-          usage,
-          metadata: {
-            bedrock: {
-              usage: {
-                cacheWriteInputTokens: 300,
-              },
-            },
-          },
-        })
-
-        expect(result.tokens.input).toBe(1000)
-        expect(result.tokens.cache.read).toBe(200)
-        expect(result.tokens.cache.write).toBe(300)
-        expect(result.tokens.total).toBe(2000)
-        return
-      }
-
-      const result = Session.getUsage({
-        model,
-        usage,
-        metadata: {
-          anthropic: {
-            cacheCreationInputTokens: 300,
-          },
+  test("uses AI SDK 6 detailed token usage", () => {
+    const model = createModel({ context: 100_000, output: 32_000 })
+    const result = Session.getUsage({
+      model,
+      usage: usage({
+        inputTokens: 1500,
+        inputTokenDetails: {
+          noCacheTokens: 1000,
+          cacheReadTokens: 200,
+          cacheWriteTokens: 300,
         },
-      })
+        outputTokens: 500,
+        outputTokenDetails: {
+          textTokens: 400,
+          reasoningTokens: 100,
+        },
+        totalTokens: 2000,
+      }),
+    })
 
-      expect(result.tokens.input).toBe(1000)
-      expect(result.tokens.cache.read).toBe(200)
-      expect(result.tokens.cache.write).toBe(300)
-      expect(result.tokens.total).toBe(2000)
-    },
-  )
+    expect(result.tokens.input).toBe(1000)
+    expect(result.tokens.output).toBe(400)
+    expect(result.tokens.reasoning).toBe(100)
+    expect(result.tokens.cache.read).toBe(200)
+    expect(result.tokens.cache.write).toBe(300)
+    expect(result.tokens.total).toBe(2000)
+  })
 })

@@ -1,7 +1,13 @@
 import { BusEvent } from "@/bus/bus-event"
 import z from "zod"
 import { NamedError } from "@opencode-ai/util/error"
-import { APICallError, convertToModelMessages, LoadAPIKeyError, type ModelMessage, type UIMessage } from "ai"
+import {
+  APICallError,
+  convertToModelMessages,
+  LoadAPIKeyError,
+  type ModelMessage,
+  type UIMessage,
+} from "ai"
 import { Identifier } from "../id/id"
 import { LSP } from "../lsp"
 import { Snapshot } from "@/snapshot"
@@ -17,6 +23,17 @@ import { type SystemError } from "bun"
 import type { Provider } from "@/provider/provider"
 
 export namespace MessageV2 {
+  type ModelToolOutput =
+    | { type: "text"; value: string }
+    | { type: "json"; value: never }
+    | {
+        type: "content"
+        value: Array<
+          | { type: "text"; text: string }
+          | { type: "image-data" | "file-data"; mediaType: string; data: string }
+        >
+      }
+
   export function isMedia(mime: string) {
     return mime.startsWith("image/") || mime === "application/pdf"
   }
@@ -512,7 +529,7 @@ export namespace MessageV2 {
     input: WithParts[],
     model: Provider.Model,
     options?: { stripMedia?: boolean },
-  ): ModelMessage[] {
+  ): Promise<ModelMessage[]> {
     const result: UIMessage[] = []
     const toolNames = new Set<string>()
     // Track media from tool results that need to be injected as user messages
@@ -536,14 +553,15 @@ export namespace MessageV2 {
       return false
     })()
 
-    const toModelOutput = (output: unknown) => {
+    const toModelOutput = (options: { output: unknown }): ModelToolOutput => {
+      const output = options.output
       if (typeof output === "string") {
         return { type: "text", value: output }
       }
 
-      if (typeof output === "object") {
+      if (output && typeof output === "object") {
         const outputObject = output as {
-          text: string
+          text?: string
           attachments?: Array<{ mime: string; url: string }>
         }
         const attachments = (outputObject.attachments ?? []).filter((attachment) => {
@@ -553,9 +571,9 @@ export namespace MessageV2 {
         return {
           type: "content",
           value: [
-            { type: "text", text: outputObject.text },
+            ...(outputObject.text ? [{ type: "text" as const, text: outputObject.text }] : []),
             ...attachments.map((attachment) => ({
-              type: "media",
+              type: attachment.mime.startsWith("image/") ? ("image-data" as const) : ("file-data" as const),
               mediaType: attachment.mime,
               data: iife(() => {
                 const commaIndex = attachment.url.indexOf(",")

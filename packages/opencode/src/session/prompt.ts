@@ -10,7 +10,14 @@ import { SessionRevert } from "./revert"
 import { Session } from "."
 import { Agent } from "../agent/agent"
 import { Provider } from "../provider/provider"
-import { type Tool as AITool, tool, jsonSchema, type ToolCallOptions, asSchema } from "ai"
+import {
+  type JSONSchema7,
+  type Tool as AITool,
+  type ToolExecutionOptions,
+  tool,
+  jsonSchema,
+  asSchema,
+} from "ai"
 import { SessionCompaction } from "./compaction"
 import { Instance } from "../project/instance"
 import { Bus } from "../bus"
@@ -775,7 +782,7 @@ export namespace SessionPrompt {
         sessionID,
         system,
         messages: [
-          ...MessageV2.toModelMessages(msgs, model),
+          ...(await MessageV2.toModelMessages(msgs, model)),
           ...(isLastStep
             ? [
                 {
@@ -910,7 +917,12 @@ export namespace SessionPrompt {
     using _ = log.time("resolveTools")
     const tools: Record<string, AITool> = {}
 
-    const context = (args: any, options: ToolCallOptions): Tool.Context => ({
+    const inputRecord = (value: unknown) => {
+      if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>
+      return {}
+    }
+
+    const context = (args: unknown, options: ToolExecutionOptions): Tool.Context => ({
       sessionID: input.session.id,
       abort: options.abortSignal!,
       messageID: input.processor.message.id,
@@ -918,7 +930,7 @@ export namespace SessionPrompt {
       extra: { model: input.model, bypassAgentCheck: input.bypassAgentCheck },
       agent: input.agent.name,
       messages: input.messages,
-      metadata: async (val: { title?: string; metadata?: any }) => {
+      metadata: async (val: { title?: string; metadata?: Record<string, unknown> }) => {
         const match = input.processor.partFromToolCall(options.toolCallId)
         if (match && match.state.status === "running") {
           await Session.updatePart({
@@ -927,7 +939,7 @@ export namespace SessionPrompt {
               title: val.title,
               metadata: val.metadata,
               status: "running",
-              input: args,
+              input: inputRecord(args),
               time: {
                 start: Date.now(),
               },
@@ -951,9 +963,8 @@ export namespace SessionPrompt {
     )) {
       const schema = ProviderTransform.schema(input.model, z.toJSONSchema(item.parameters))
       tools[item.id] = tool({
-        id: item.id as any,
         description: item.description,
-        inputSchema: jsonSchema(schema as any),
+        inputSchema: jsonSchema(schema as JSONSchema7),
         async execute(args, options) {
           const ctx = context(args, options)
           await Plugin.trigger(
@@ -996,8 +1007,8 @@ export namespace SessionPrompt {
       const execute = item.execute
       if (!execute) continue
 
-      const transformed = ProviderTransform.schema(input.model, asSchema(item.inputSchema).jsonSchema)
-      item.inputSchema = jsonSchema(transformed)
+      const transformed = ProviderTransform.schema(input.model, await asSchema(item.inputSchema).jsonSchema)
+      item.inputSchema = jsonSchema(transformed as JSONSchema7)
       // Wrap execute to add plugin hooks and format output
       item.execute = async (args, opts) => {
         const ctx = context(args, opts)
@@ -1090,32 +1101,34 @@ export namespace SessionPrompt {
 
   /** @internal Exported for testing */
   export function createStructuredOutputTool(input: {
-    schema: Record<string, any>
+    schema: Record<string, unknown>
     onSuccess: (output: unknown) => void
   }): AITool {
     // Remove $schema property if present (not needed for tool input)
     const { $schema, ...toolSchema } = input.schema
 
-    return tool({
-      id: "StructuredOutput" as any,
-      description: STRUCTURED_OUTPUT_DESCRIPTION,
-      inputSchema: jsonSchema(toolSchema as any),
-      async execute(args) {
-        // AI SDK validates args against inputSchema before calling execute()
-        input.onSuccess(args)
-        return {
-          output: "Structured output captured successfully.",
-          title: "Structured Output",
-          metadata: { valid: true },
-        }
-      },
-      toModelOutput(result) {
-        return {
-          type: "text",
-          value: result.output,
-        }
-      },
-    })
+    return Object.assign(
+      tool({
+        description: STRUCTURED_OUTPUT_DESCRIPTION,
+        inputSchema: jsonSchema(toolSchema as JSONSchema7),
+        async execute(args) {
+          // AI SDK validates args against inputSchema before calling execute()
+          input.onSuccess(args)
+          return {
+            output: "Structured output captured successfully.",
+            title: "Structured Output",
+            metadata: { valid: true },
+          }
+        },
+        toModelOutput(result) {
+          return {
+            type: "text",
+            value: result.output.output,
+          }
+        },
+      }),
+      { id: "StructuredOutput" },
+    )
   }
 
   async function createUserMessage(input: PromptInput) {
@@ -2368,10 +2381,12 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         },
         ...(hasOnlySubtaskParts
           ? [{ role: "user" as const, content: subtaskParts.map((p) => p.prompt).join("\n") }]
-          : MessageV2.toModelMessages(contextMessages, model)),
+          : await MessageV2.toModelMessages(contextMessages, model)),
       ],
     })
-    const text = await result.text.catch((err) => log.error("failed to generate title", { error: err }))
+    const text = await Promise.resolve(result.text).catch((err: unknown) =>
+      log.error("failed to generate title", { error: err }),
+    )
     if (text) {
       const cleaned = text
         .replace(/<think>[\s\S]*?<\/think>\s*/g, "")
