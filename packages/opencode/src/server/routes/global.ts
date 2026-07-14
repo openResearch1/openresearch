@@ -10,6 +10,7 @@ import { Log } from "../../util/log"
 import { lazy } from "../../util/lazy"
 import { Config } from "../../config/config"
 import { errors } from "../error"
+import * as SSE from "../sse"
 
 const log = Log.create({ service: "server" })
 
@@ -69,7 +70,8 @@ export const GlobalRoutes = lazy(() =>
         c.header("X-Accel-Buffering", "no")
         c.header("X-Content-Type-Options", "nosniff")
         return streamSSE(c, async (stream) => {
-          stream.writeSSE({
+          await SSE.open(stream)
+          await stream.writeSSE({
             data: JSON.stringify({
               payload: {
                 type: "server.connected",
@@ -85,16 +87,12 @@ export const GlobalRoutes = lazy(() =>
           GlobalBus.on("event", handler)
 
           // Send heartbeat every 10s to prevent stalled proxy streams.
-          const heartbeat = setInterval(() => {
-            stream.writeSSE({
-              data: JSON.stringify({
-                payload: {
-                  type: "server.heartbeat",
-                  properties: {},
-                },
-              }),
-            })
-          }, 10_000)
+          const heartbeat = SSE.heartbeat(stream, {
+            payload: {
+              type: "server.heartbeat",
+              properties: {},
+            },
+          })
 
           await new Promise<void>((resolve) => {
             stream.onAbort(() => {

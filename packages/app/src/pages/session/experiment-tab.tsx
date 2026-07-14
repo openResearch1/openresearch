@@ -38,6 +38,20 @@ type LegacyDirectServerConfig = Omit<DirectServerConfig, "mode">
 
 type ServerConfig = DirectServerConfig | SshConfigServerConfig | LegacyDirectServerConfig
 
+function errorMessage(input: unknown, fallback: string) {
+  if (input instanceof Error && input.message) return input.message
+  if (typeof input === "string" && input) return input
+  if (!input || typeof input !== "object") return fallback
+
+  const error = input as Record<string, unknown>
+  if (typeof error.message === "string" && error.message) return error.message
+  if (!error.data || typeof error.data !== "object") return fallback
+
+  const data = error.data as Record<string, unknown>
+  if (typeof data.message === "string" && data.message) return data.message
+  return fallback
+}
+
 interface ServerRow {
   id: string
   config: ServerConfig
@@ -624,7 +638,7 @@ export function ExpProgressTab(
         remoteCodePath: remotePath(),
       })
       if (!res.data?.ok) {
-        throw new Error(res.error?.data.message ?? "Failed to sync code")
+        throw new Error(errorMessage(res.error, "Failed to sync code"))
       }
       const path = res.data.remote_code_path
       setCurrentRemotePath(path)
@@ -633,7 +647,7 @@ export function ExpProgressTab(
       syncTimer = setTimeout(() => setSyncMessage(null), 3000)
       showToast({ variant: "success", title: "Code synced", description: `Synced to ${path}` })
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to sync code"
+      const message = errorMessage(err, "Failed to sync code")
       setSyncError(message)
       showToast({ variant: "error", title: "Failed to sync code", description: message })
     } finally {

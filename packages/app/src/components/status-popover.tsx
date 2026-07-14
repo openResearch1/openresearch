@@ -5,8 +5,18 @@ import { Popover } from "@opencode-ai/ui/popover"
 import { Switch } from "@opencode-ai/ui/switch"
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { showToast } from "@opencode-ai/ui/toast"
-import { useNavigate } from "@solidjs/router"
-import { type Accessor, createEffect, createMemo, createSignal, For, type JSXElement, onCleanup, Show } from "solid-js"
+import { useNavigate, useParams } from "@solidjs/router"
+import {
+  type Accessor,
+  createEffect,
+  createMemo,
+  createResource,
+  createSignal,
+  For,
+  type JSXElement,
+  onCleanup,
+  Show,
+} from "solid-js"
 import { createStore, reconcile } from "solid-js/store"
 import { ServerHealthIndicator, ServerRow } from "@/components/server/server-row"
 import { useLanguage } from "@/context/language"
@@ -14,10 +24,36 @@ import { usePlatform } from "@/context/platform"
 import { useSDK } from "@/context/sdk"
 import { normalizeServerUrl, ServerConnection, useServer } from "@/context/server"
 import { useSync } from "@/context/sync"
+import { decode64 } from "@/utils/base64"
 import { checkServerHealth, type ServerHealth } from "@/utils/server-health"
 import { DialogSelectServer } from "./dialog-select-server"
 
 const pollMs = 10_000
+
+type RemoteInfo = {
+  urls: string[]
+  local: string
+  exposed: boolean
+  reason?: string
+  tunnel?: {
+    provider: "cloudflare"
+    status: "idle" | "starting" | "ready" | "error"
+    url?: string
+    message?: string
+  }
+}
+
+function remoteLink(url: string, server: ServerConnection.HttpBase) {
+  if (!server.password) return url
+  try {
+    const next = new URL(url)
+    next.username = server.username ?? "opencode"
+    next.password = server.password
+    return next.toString()
+  } catch {
+    return url
+  }
+}
 
 const pluginEmptyMessage = (value: string, file: string): JSXElement => {
   const parts = value.split(file)
@@ -167,6 +203,7 @@ export function StatusPopover() {
   const dialog = useDialog()
   const language = useLanguage()
   const navigate = useNavigate()
+  const params = useParams()
 
   const fetcher = platform.fetch ?? globalThis.fetch
   const servers = createMemo(() => {
@@ -196,6 +233,161 @@ export function StatusPopover() {
     })
     return serverHealthy && !anyMcpIssue
   })
+  const [remote, remoteActions] = createResource(
+    () => server.current?.http,
+    async (http) => {
+      const headers = new Headers()
+      if (http.password) {
+        headers.set("Authorization", `Basic ${btoa(`${http.username ?? "opencode"}:${http.password}`)}`)
+      }
+      const res = await fetcher(`${http.url}/remote/api/info`, { headers })
+      if (!res.ok) throw new Error(await res.text())
+      const info = (await res.json()) as RemoteInfo
+      if (info.reason !== "loopback") return info
+      const url = new URL(`${http.url}/remote/api/expose`)
+      const dir = decode64(params.dir)
+      if (dir) url.searchParams.set("directory", dir)
+      const exposed = await fetcher(url, {
+        method: "POST",
+        headers,
+      })
+      if (!exposed.ok) return info
+      return (await exposed.json()) as RemoteInfo
+    },
+  )
+  const [busy, setBusy] = createSignal(false)
+  const headers = (http: ServerConnection.HttpBase) => {
+    const next = new Headers()
+    if (http.password) {
+      next.set("Authorization", `Basic ${btoa(`${http.username ?? "opencode"}:${http.password}`)}`)
+    }
+    return next
+  }
+  const remoteUrl = createMemo(() => {
+    const info = remote()
+    const current = server.current
+    if (!info?.urls[0] || !current) return ""
+    return remoteLink(info.urls[0], current.http)
+  })
+  const tunnelUrl = createMemo(() => {
+    const info = remote()
+    if (info?.tunnel?.status !== "ready") return ""
+    return info.tunnel.url ?? ""
+  })
+  const tunnelMessage = createMemo(() => {
+    const state = remote()?.tunnel
+    if (state?.status === "error") return state.message ?? "External remote failed"
+    if (state?.status === "starting") return "Starting Cloudflare tunnel..."
+    return "Cloudflare tunnel is off"
+  })
+  const remoteUnavailable = createMemo(() => {
+    const info = remote()
+    if (!info || info.exposed) return ""
+    if (info.reason === "loopback") return "Server is listening on localhost only"
+    if (info.reason === "no_network_address") return "No network address was found"
+    return "Phone remote is not exposed"
+  })
+  createEffect(() => {
+    if (remote()?.tunnel?.status !== "starting") return
+    const id = setInterval(() => void remoteActions.refetch(), 1_500)
+    onCleanup(() => clearInterval(id))
+  })
+  const copyRemote = () => {
+    const url = remoteUrl()
+    if (!url) return
+    navigator.clipboard
+      .writeText(url)
+      .then(() =>
+        showToast({
+          variant: "success",
+          icon: "circle-check",
+          title: "Remote URL copied",
+          description: url,
+        }),
+      )
+      .catch((err: unknown) =>
+        showToast({
+          variant: "error",
+          title: language.t("common.requestFailed"),
+          description: err instanceof Error ? err.message : String(err),
+        }),
+      )
+  }
+  const copyTunnel = () => {
+    const url = tunnelUrl()
+    if (!url) return
+    navigator.clipboard
+      .writeText(url)
+      .then(() =>
+        showToast({
+          variant: "success",
+          icon: "circle-check",
+          title: "External URL copied",
+          description: url,
+        }),
+      )
+      .catch((err: unknown) =>
+        showToast({
+          variant: "error",
+          title: language.t("common.requestFailed"),
+          description: err instanceof Error ? err.message : String(err),
+        }),
+      )
+  }
+  const startTunnel = async () => {
+    const http = server.current?.http
+    if (!http || busy()) return
+    setBusy(true)
+    try {
+      const url = new URL(`${http.url}/remote/api/tunnel/start`)
+      const dir = decode64(params.dir)
+      if (dir) url.searchParams.set("directory", dir)
+      const res = await fetcher(url, {
+        method: "POST",
+        headers: headers(http),
+      })
+      if (!res.ok) throw new Error(await res.text())
+      const info = (await res.json()) as RemoteInfo
+      remoteActions.mutate(info)
+      if (info.tunnel?.status === "error") {
+        showToast({
+          variant: "error",
+          title: "External remote failed",
+          description: info.tunnel.message ?? "Cloudflare tunnel failed",
+        })
+      }
+    } catch (err) {
+      showToast({
+        variant: "error",
+        title: language.t("common.requestFailed"),
+        description: err instanceof Error ? err.message : String(err),
+      })
+    } finally {
+      setBusy(false)
+      setTimeout(() => void remoteActions.refetch(), 800)
+    }
+  }
+  const stopTunnel = async () => {
+    const http = server.current?.http
+    if (!http || busy()) return
+    setBusy(true)
+    try {
+      const res = await fetcher(`${http.url}/remote/api/tunnel`, {
+        method: "DELETE",
+        headers: headers(http),
+      })
+      if (!res.ok) throw new Error(await res.text())
+      remoteActions.mutate((await res.json()) as RemoteInfo)
+    } catch (err) {
+      showToast({
+        variant: "error",
+        title: language.t("common.requestFailed"),
+        description: err instanceof Error ? err.message : String(err),
+      })
+    } finally {
+      setBusy(false)
+    }
+  }
 
   return (
     <Popover
@@ -254,6 +446,76 @@ export function StatusPopover() {
           <Tabs.Content value="servers">
             <div class="flex flex-col px-2 pb-2">
               <div class="flex flex-col p-3 bg-background-base rounded-sm min-h-14">
+                {remoteUrl() || remoteUnavailable() ? (
+                  <div class="flex items-center gap-2 mb-2 px-3 py-2 rounded-md bg-surface-base">
+                    <div class="flex flex-col min-w-0 flex-1">
+                      <div class="text-12-medium text-text-base">Phone remote</div>
+                      <Show
+                        when={remoteUrl()}
+                        fallback={<div class="text-12-regular text-text-weak truncate">{remoteUnavailable()}</div>}
+                      >
+                        {(url) => (
+                          <button
+                            type="button"
+                            class="text-12-regular text-text-weak truncate text-left hover:text-text-base"
+                            onClick={() => platform.openLink(url())}
+                          >
+                            {url()}
+                          </button>
+                        )}
+                      </Show>
+                    </div>
+                    <Show when={remoteUrl()}>
+                      <Button variant="ghost" size="small" class="px-2" onClick={copyRemote}>
+                        <Icon name="copy" size="small" class="text-icon-base" />
+                      </Button>
+                    </Show>
+                  </div>
+                ) : null}
+                <Show when={remote()}>
+                  <div class="flex items-center gap-2 mb-3 px-3 py-2 rounded-md bg-surface-base">
+                    <div class="flex flex-col min-w-0 flex-1">
+                      <div class="text-12-medium text-text-base">External remote</div>
+                      <Show
+                        when={tunnelUrl()}
+                        fallback={<div class="text-12-regular text-text-weak truncate">{tunnelMessage()}</div>}
+                      >
+                        {(url) => (
+                          <button
+                            type="button"
+                            class="text-12-regular text-text-weak truncate text-left hover:text-text-base"
+                            onClick={() => platform.openLink(url())}
+                          >
+                            {url()}
+                          </button>
+                        )}
+                      </Show>
+                    </div>
+                    <Show
+                      when={remote()?.tunnel?.status === "ready"}
+                      fallback={
+                        <Button
+                          variant="ghost"
+                          size="small"
+                          class="px-2"
+                          disabled={busy() || remote()?.tunnel?.status === "starting"}
+                          onClick={startTunnel}
+                        >
+                          <Icon name="share" size="small" class="text-icon-base" />
+                        </Button>
+                      }
+                    >
+                      <div class="flex items-center gap-1">
+                        <Button variant="ghost" size="small" class="px-2" onClick={copyTunnel}>
+                          <Icon name="copy" size="small" class="text-icon-base" />
+                        </Button>
+                        <Button variant="ghost" size="small" class="px-2" disabled={busy()} onClick={stopTunnel}>
+                          <Icon name="stop" size="small" class="text-icon-base" />
+                        </Button>
+                      </div>
+                    </Show>
+                  </div>
+                </Show>
                 <For each={sortedServers()}>
                   {(s) => {
                     const key = ServerConnection.key(s)

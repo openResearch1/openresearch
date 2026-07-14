@@ -1,4 +1,7 @@
+import { networkInterfaces } from "os"
+
 import type { Argv, InferredOptionTypes } from "yargs"
+
 import { Config } from "../config/config"
 
 const options = {
@@ -57,4 +60,33 @@ export async function resolveNetworkOptions(args: NetworkOptions) {
   const cors = [...configCors, ...argsCors]
 
   return { hostname, port, mdns, mdnsDomain, cors }
+}
+
+export function requiresPassword(opts: { hostname: string; mdns?: boolean }) {
+  if (opts.mdns) return true
+  return opts.hostname !== "127.0.0.1" && opts.hostname !== "localhost" && opts.hostname !== "::1"
+}
+
+export function assertPassword(opts: { hostname: string; mdns?: boolean }) {
+  if (!requiresPassword(opts)) return
+  if (process.env.OPENCODE_SERVER_PASSWORD) return
+  throw new Error("OPENCODE_SERVER_PASSWORD is required when exposing opencode on the network.")
+}
+
+export function addresses() {
+  const nets = networkInterfaces()
+  const results: string[] = []
+
+  for (const name of Object.keys(nets)) {
+    const net = nets[name]
+    if (!net) continue
+
+    for (const info of net) {
+      if (info.internal || info.family !== "IPv4") continue
+      if (info.address.startsWith("172.")) continue
+      results.push(info.address)
+    }
+  }
+
+  return results
 }

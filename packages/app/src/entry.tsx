@@ -111,6 +111,7 @@ const platform: Platform = {
 }
 
 const defaultUrl = iife(() => {
+  if (location.pathname.startsWith("/remote/session/")) return `${location.origin}${location.search}`
   const lsDefault = readDefaultServerUrl()
   if (lsDefault) return lsDefault
   if (location.hostname.includes("opencode.ai")) return "http://localhost:4096"

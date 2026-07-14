@@ -1,9 +1,12 @@
 import { marked } from "marked"
 import { codeToHtml } from "shiki"
+import markedKatex from "marked-katex-extension"
 import markedShiki from "marked-shiki"
+import "katex/dist/katex.min.css"
+import { createResource, createSignal } from "solid-js"
+
 import { createOverflow, useShareMessages } from "./common"
 import { CopyButton } from "./copy-button"
-import { createResource, createSignal } from "solid-js"
 import style from "./content-markdown.module.css"
 
 const markedWithShiki = marked.use(
@@ -15,6 +18,10 @@ const markedWithShiki = marked.use(
       },
     },
   },
+  markedKatex({
+    throwOnError: false,
+    nonStandard: true,
+  }),
   markedShiki({
     highlight(code, lang) {
       return codeToHtml(code, {

@@ -3,6 +3,7 @@ import {
   parseJwtClaims,
   extractAccountIdFromClaims,
   extractAccountId,
+  allowed,
   type IdTokenClaims,
 } from "../../src/plugin/codex"
 
@@ -13,6 +14,26 @@ function createTestJwt(payload: object): string {
 }
 
 describe("plugin.codex", () => {
+  describe("allowed", () => {
+    test.each([
+      "gpt-5.2",
+      "gpt-5.4",
+      "gpt-5.1-codex",
+      "gpt-5.6",
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+      "gpt-5.6-luna",
+      "gpt-5.10",
+      "gpt-6.0",
+    ])("allows %s", (id) => {
+      expect(allowed(id)).toBe(true)
+    })
+
+    test.each(["gpt-5.5-pro", "gpt-5.4-mini", "gpt-4.1"])("rejects %s", (id) => {
+      expect(allowed(id)).toBe(false)
+    })
+  })
+
   describe("parseJwtClaims", () => {
     test("parses valid JWT with claims", () => {
       const payload = { email: "test@example.com", chatgpt_account_id: "acc-123" }

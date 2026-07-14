@@ -74,7 +74,7 @@ export const SshTool = Tool.define("ssh", {
             command,
           ]
 
-    const args = cfg.password ? ["-p", cfg.password, "ssh", ...sshArgs] : ["ssh", ...sshArgs]
+    const args = cfg.password ? ["-p", cfg.password, "ssh", ...sshArgs] : sshArgs
     const cmd = cfg.password ? "sshpass" : "ssh"
     const proc = spawn(cmd, args, {
       stdio: ["ignore", "pipe", "pipe"],

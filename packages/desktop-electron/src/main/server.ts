@@ -44,7 +44,7 @@ export function spawnLocalServer(hostname: string, port: number, password: strin
   const { child, exit, events } = serve(hostname, port, password)
 
   const wait = (async () => {
-    const url = `http://${hostname}:${port}`
+    const url = `http://${normalizeHostnameForUrl(hostname)}:${port}`
 
     const ready = async () => {
       while (true) {

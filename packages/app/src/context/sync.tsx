@@ -1,12 +1,13 @@
 import { batch, createMemo } from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
+import type { Message, Part } from "@opencode-ai/sdk/v2/client"
 import { Binary } from "@opencode-ai/util/binary"
 import { retry } from "@opencode-ai/util/retry"
 import { createSimpleContext } from "@opencode-ai/ui/context"
+import { reconcileSessionStatus } from "./global-sync/bootstrap"
+import { SESSION_CACHE_LIMIT, dropSessionCaches, pickSessionCacheEvictions } from "./global-sync/session-cache"
 import { useGlobalSync } from "./global-sync"
 import { useSDK } from "./sdk"
-import type { Message, Part } from "@opencode-ai/sdk/v2/client"
-import { SESSION_CACHE_LIMIT, dropSessionCaches, pickSessionCacheEvictions } from "./global-sync/session-cache"
 
 function sortParts(parts: Part[]) {
   return parts.filter((part) => !!part?.id).sort((a, b) => cmp(a.id, b.id))
@@ -322,6 +323,50 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           })
 
           return runInflight(inflight, key, () => Promise.all([sessionReq, messagesReq]).then(() => {}))
+        },
+        async reload(sessionID: string) {
+          const directory = sdk.directory
+          const client = sdk.client
+          const [store, setStore] = globalSync.child(directory)
+          const key = keyFor(directory, sessionID)
+          touch(directory, setStore, sessionID)
+          const limit = meta.limit[key] ?? messagePageSize
+
+          return runInflight(inflight, `${key}\nreload`, async () => {
+            const [session, status] = await Promise.all([
+              retry(() => client.session.get({ sessionID })),
+              retry(() => client.session.status()),
+              loadMessages({
+                directory,
+                client,
+                setStore,
+                sessionID,
+                limit,
+              }),
+            ])
+            if (!tracked(directory, sessionID)) return
+            batch(() => {
+              if (session.data) {
+                setStore(
+                  "session",
+                  produce((draft) => {
+                    const match = Binary.search(draft, sessionID, (s) => s.id)
+                    if (match.found) {
+                      draft[match.index] = session.data!
+                      return
+                    }
+                    draft.splice(match.index, 0, session.data!)
+                  }),
+                )
+              }
+              reconcileSessionStatus({
+                store,
+                setStore,
+                status: status.data ?? {},
+                keep: Object.keys(status.data ?? {}).filter((id) => id !== sessionID),
+              })
+            })
+          })
         },
         async diff(sessionID: string) {
           const directory = sdk.directory

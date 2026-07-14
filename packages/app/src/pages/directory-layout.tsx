@@ -11,17 +11,19 @@ import { base64Encode } from "@opencode-ai/util/encode"
 import { decode64 } from "@/utils/base64"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useLanguage } from "@/context/language"
-function DirectoryDataProvider(props: ParentProps<{ directory: string }>) {
+export function DirectoryDataProvider(props: ParentProps<{ directory: string; remote?: boolean }>) {
   const navigate = useNavigate()
   const sync = useSync()
   const slug = createMemo(() => base64Encode(props.directory))
+  const path = (sessionID: string) =>
+    props.remote ? `/remote/session/${slug()}/${sessionID}` : `/${slug()}/session/${sessionID}`
 
   return (
     <DataProvider
       data={sync.data}
       directory={props.directory}
-      onNavigateToSession={(sessionID: string) => navigate(`/${slug()}/session/${sessionID}`)}
-      onSessionHref={(sessionID: string) => `/${slug()}/session/${sessionID}`}
+      onNavigateToSession={(sessionID: string) => navigate(path(sessionID))}
+      onSessionHref={path}
     >
       <LocalProvider>{props.children}</LocalProvider>
     </DataProvider>

@@ -1,7 +1,16 @@
 import { describe, expect, test } from "bun:test"
-import type { Message, Part, PermissionRequest, Project, QuestionRequest, Session } from "@opencode-ai/sdk/v2/client"
+import type {
+  Message,
+  Part,
+  PermissionRequest,
+  Project,
+  QuestionRequest,
+  Session,
+  WorkflowMetadata,
+} from "@opencode-ai/sdk/v2/client"
 import { createStore } from "solid-js/store"
 import type { State } from "./types"
+import { reconcileSessionStatus } from "./bootstrap"
 import { applyDirectoryEvent, applyGlobalEvent, cleanupDroppedSessionCaches } from "./event-reducer"
 
 const rootSession = (input: { id: string; parentID?: string; archived?: number }) =>
@@ -57,6 +66,22 @@ const questionRequest = (id: string, sessionID: string, title = id) =>
     ],
   }) as QuestionRequest
 
+const workflow = (id: string) =>
+  ({
+    action: "start",
+    instance: {
+      id,
+      template_id: "template",
+      flow_id: "flow",
+      flow_title: "Flow",
+      title: "Workflow",
+      status: "running",
+      current_index: 0,
+      context: {},
+      steps: [],
+    },
+  }) as WorkflowMetadata
+
 const baseState = (input: Partial<State> = {}) =>
   ({
     status: "complete",
@@ -73,6 +98,7 @@ const baseState = (input: Partial<State> = {}) =>
     session_status: {},
     session_diff: {},
     todo: {},
+    workflow: {},
     permission: {},
     question: {},
     mcp: {},
@@ -132,6 +158,51 @@ describe("applyGlobalEvent", () => {
   })
 })
 
+describe("reconcileSessionStatus", () => {
+  test("clears stale busy status omitted from full status map", () => {
+    const [store, setStore] = createStore(
+      baseState({
+        session_status: {
+          ses_1: { type: "busy" },
+          ses_2: { type: "retry", attempt: 1, message: "retry", next: 2 },
+        },
+      }),
+    )
+
+    reconcileSessionStatus({
+      store,
+      setStore,
+      status: {
+        ses_2: { type: "busy" },
+      },
+    })
+
+    expect(store.session_status.ses_1).toBeUndefined()
+    expect(store.session_status.ses_2).toEqual({ type: "busy" })
+  })
+
+  test("preserves explicitly kept status when reconciling a partial refresh", () => {
+    const [store, setStore] = createStore(
+      baseState({
+        session_status: {
+          ses_1: { type: "busy" },
+          ses_2: { type: "busy" },
+        },
+      }),
+    )
+
+    reconcileSessionStatus({
+      store,
+      setStore,
+      status: {},
+      keep: ["ses_2"],
+    })
+
+    expect(store.session_status.ses_1).toBeUndefined()
+    expect(store.session_status.ses_2).toEqual({ type: "busy" })
+  })
+})
+
 describe("applyDirectoryEvent", () => {
   test("inserts root sessions in sorted order and updates sessionTotal", () => {
     const [store, setStore] = createStore(
@@ -175,6 +246,7 @@ describe("applyDirectoryEvent", () => {
         part: { [message.id]: [textPart("prt_1", "ses_1", message.id)] },
         session_diff: { ses_1: [] },
         todo: { ses_1: [] },
+        workflow: { ses_1: workflow("ses_1") },
         permission: { ses_1: [] },
         question: { ses_1: [] },
         session_status: { ses_1: { type: "busy" } },
@@ -196,6 +268,7 @@ describe("applyDirectoryEvent", () => {
     expect(store.part[message.id]).toBeUndefined()
     expect(store.session_diff.ses_1).toBeUndefined()
     expect(store.todo.ses_1).toBeUndefined()
+    expect(store.workflow.ses_1).toBeUndefined()
     expect(store.permission.ses_1).toBeUndefined()
     expect(store.question.ses_1).toBeUndefined()
     expect(store.session_status.ses_1).toBeUndefined()
@@ -221,6 +294,7 @@ describe("applyDirectoryEvent", () => {
           part: { [message.id]: [textPart("prt_1", item.info.id, message.id)] },
           session_diff: { [item.info.id]: [] },
           todo: { [item.info.id]: [] },
+          workflow: { [item.info.id]: workflow(item.info.id) },
           permission: { [item.info.id]: [] },
           question: { [item.info.id]: [] },
           session_status: { [item.info.id]: { type: "busy" } },
@@ -242,6 +316,7 @@ describe("applyDirectoryEvent", () => {
       expect(store.part[message.id]).toBeUndefined()
       expect(store.session_diff[item.info.id]).toBeUndefined()
       expect(store.todo[item.info.id]).toBeUndefined()
+      expect(store.workflow[item.info.id]).toBeUndefined()
       expect(store.permission[item.info.id]).toBeUndefined()
       expect(store.question[item.info.id]).toBeUndefined()
       expect(store.session_status[item.info.id]).toBeUndefined()
@@ -261,6 +336,7 @@ describe("applyDirectoryEvent", () => {
         part: { [message.id]: [textPart("prt_1", dropped.id, message.id)] },
         session_diff: { [dropped.id]: [] },
         todo: { [dropped.id]: [] },
+        workflow: { [dropped.id]: workflow(dropped.id) },
         permission: { [dropped.id]: [] },
         question: { [dropped.id]: [] },
         session_status: { [dropped.id]: { type: "busy" } },
@@ -285,6 +361,7 @@ describe("applyDirectoryEvent", () => {
     expect(store.part[message.id]).toBeUndefined()
     expect(store.session_diff[dropped.id]).toBeUndefined()
     expect(store.todo[dropped.id]).toBeUndefined()
+    expect(store.workflow[dropped.id]).toBeUndefined()
     expect(store.permission[dropped.id]).toBeUndefined()
     expect(store.question[dropped.id]).toBeUndefined()
     expect(store.session_status[dropped.id]).toBeUndefined()

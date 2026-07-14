@@ -114,7 +114,7 @@ export async function generateWebAssets(distDir: string, outputPath: string) {
 
 // Run directly
 if (import.meta.main) {
-  const distDir = path.resolve(__dirname, "../../../app/dist")
+  const distDir = path.resolve(__dirname, "../../app/dist")
   const outputPath = path.resolve(__dirname, "../src/server/web-assets.gen.ts")
   await generateWebAssets(distDir, outputPath)
 }
