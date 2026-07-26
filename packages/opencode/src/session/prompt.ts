@@ -63,6 +63,7 @@ import { ExperimentTable, RemoteServerTable } from "@/research/research.sql"
 import { normalizeRemoteServerConfig } from "@/research/remote-server"
 import { Research } from "@/research/research"
 import { eq } from "drizzle-orm"
+import { ExperimentWorkspace } from "./experiment-workspace"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -100,28 +101,6 @@ export namespace SessionPrompt {
       }
     },
   )
-
-  async function experimentWorkspace(sessionID: string) {
-    const parent = (await Research.getParentSessionId(sessionID)) ?? sessionID
-    const experiment = Database.use((db) =>
-      db.select().from(ExperimentTable).where(eq(ExperimentTable.exp_session_id, parent)).get(),
-    )
-    if (!experiment) return
-    return [
-      `<system-reminder>`,
-      `This session is linked to an experiment.`,
-      ``,
-      `The primary code workspace for this experiment is:`,
-      `<code_path>`,
-      experiment.code_path,
-      `</code_path>`,
-      ``,
-      `Use this directory as the main workspace for code changes, build/test commands, and git operations.`,
-      `You may read files outside this directory for context, but do not create, edit, delete, or patch files outside this code_path.`,
-      `Do not assume the current session Working directory is the experiment code workspace.`,
-      `</system-reminder>`,
-    ].join("\n")
-  }
 
   export function assertNotBusy(sessionID: string) {
     const match = state()[sessionID]
@@ -757,7 +736,7 @@ export namespace SessionPrompt {
 
       // Build system prompt, adding structured output instruction if needed
       const system = [...(await SystemPrompt.environment(model)), ...(await InstructionPrompt.system())]
-      const workspace = await experimentWorkspace(sessionID)
+      const workspace = await ExperimentWorkspace.prompt(sessionID)
       if (workspace) {
         system.push(workspace)
       }
