@@ -232,6 +232,7 @@ describe("Collab.resume waiting child", () => {
           hasRunningChildren: false,
           hasWaitingChildren: true,
           hasPendingWakeMessages: false,
+          hasRemoteTaskListeners: false,
         })
 
         await Collab.resume({ agentId: childId, prompt: "continue" })
@@ -241,6 +242,7 @@ describe("Collab.resume waiting child", () => {
           hasRunningChildren: true,
           hasWaitingChildren: false,
           hasPendingWakeMessages: false,
+          hasRemoteTaskListeners: false,
         })
         Collab.runtime().abort(childId)
       },

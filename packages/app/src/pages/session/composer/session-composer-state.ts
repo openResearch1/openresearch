@@ -9,6 +9,7 @@ import { usePermission } from "@/context/permission"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { sessionPermissionRequest, sessionQuestionRequest } from "./session-request-tree"
+import { createWorkflowVisibility } from "./session-workflow-visibility"
 
 export function createSessionComposerBlocked() {
   const params = useSessionID()
@@ -63,7 +64,7 @@ export function createSessionComposerState(options?: {
     return globalSync.data.session_todo[id] ?? []
   })
 
-  const workflow = createMemo(() => {
+  const sourceWorkflow = createMemo(() => {
     const id = params.id
     if (!id) return
     return sync.data.workflow[id] ?? globalSync.data.session_workflow[id]
@@ -104,7 +105,7 @@ export function createSessionComposerState(options?: {
   )
 
   const workflowDone = createMemo(() => {
-    const item = workflow()
+    const item = sourceWorkflow()
     if (!item) return true
     return ["completed", "failed", "cancelled"].includes(item.instance.status)
   })
@@ -119,6 +120,8 @@ export function createSessionComposerState(options?: {
     return 400
   }
 
+  const workflow = createWorkflowVisibility(sourceWorkflow, closeMs)
+
   const scheduleClose = () => {
     if (timer) window.clearTimeout(timer)
     timer = window.setTimeout(() => {
@@ -132,12 +135,12 @@ export function createSessionComposerState(options?: {
 
   createEffect(
     on(
-      () => [todos().length, done(), workflow()?.instance.status, extraActive(), extraDone()] as const,
+      () => [todos().length, done(), sourceWorkflow()?.instance.status, extraActive(), extraDone()] as const,
       ([count, complete, , extraOn, extraFinished], prev) => {
         if (raf) cancelAnimationFrame(raf)
         raf = undefined
 
-        const show = count > 0 || !!workflow() || extraOn
+        const show = count > 0 || !!sourceWorkflow() || extraOn
         const settled = (count === 0 || complete) && workflowDone() && extraFinished
 
         if (!show) {

@@ -14,6 +14,7 @@ import {
   buildChildFailedPart,
   buildChildProgressPart,
   buildChildWaitingPart,
+  buildRemoteTaskTerminalPart,
   finalizeParts,
   type PromptPartDraft,
 } from "./return-parts"
@@ -24,6 +25,7 @@ import type {
   ChildFailedPayload,
   ChildProgressPayload,
   ChildWaitingPayload,
+  RemoteTaskTerminalPayload,
   UserInputPayload,
 } from "./types"
 import { WAKE_MESSAGE_KINDS } from "./types"
@@ -234,6 +236,9 @@ export namespace CollabAutoWake {
         }
         case "child_progress":
           progressMsgs.push(payload as ChildProgressPayload)
+          break
+        case "remote_task_terminal":
+          returnParts.push(buildRemoteTaskTerminalPart(payload as RemoteTaskTerminalPayload))
           break
         case "user_input": {
           returnParts.push({ type: "text", text: (payload as UserInputPayload).text })

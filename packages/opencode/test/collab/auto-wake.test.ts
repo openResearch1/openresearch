@@ -22,6 +22,61 @@ Log.init({ print: false })
 CollabAutoWake.setEnabled(true)
 
 describe("CollabAutoWake blocks root on active children", () => {
+  test("queues a remote task terminal event while busy and drives it when idle", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        CollabAutoWake.ensure()
+        const session = await Session.create({ title: "remote-task-wake-root" })
+        const id = Identifier.ascending("collab_agent")
+        CollabAgentNode.create({
+          id,
+          sessionId: session.id,
+          parentAgentId: null,
+          name: "root",
+          projectId: Instance.project.id,
+          rootAgentId: id,
+          subagentType: "general",
+          spec: { initialPrompt: "root" },
+        })
+        CollabAgentNode.transition(id, "running", { phase: "main_loop" })
+        SessionStatus.set(session.id, { type: "busy" })
+
+        let turns = 0
+        CollabAutoWake.setDriveTurnOverrideForTesting(async (agentId) => {
+          turns++
+          CollabMessage.drain(agentId)
+        })
+        try {
+          await CollabMessage.post({
+            recipientAgentId: id,
+            senderAgentId: null,
+            kind: "remote_task_terminal",
+            payload: {
+              taskId: "task-1",
+              expId: "exp-1",
+              kind: "experiment_run",
+              title: "Train model",
+              status: "finished",
+              logPath: "/tmp/task.log",
+              errorMessage: null,
+            },
+          })
+          await new Promise((resolve) => setTimeout(resolve, 20))
+          expect(turns).toBe(0)
+          expect(CollabMessage.hasPendingWakeMsg(id)).toBe(true)
+
+          SessionStatus.set(session.id, { type: "idle" })
+          await new Promise((resolve) => setTimeout(resolve, 20))
+          expect(turns).toBe(1)
+          expect(CollabMessage.hasPendingWakeMsg(id)).toBe(false)
+        } finally {
+          CollabAutoWake.setDriveTurnOverrideForTesting(undefined)
+        }
+      },
+    })
+  })
+
   test("busy child starts its loop for queued resume prompt when it becomes idle", async () => {
     await Instance.provide({
       directory: projectRoot,

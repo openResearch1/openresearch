@@ -1,6 +1,8 @@
 import z from "zod"
+import { Collab } from "@/collab"
 import { Tool } from "./tool"
 import { ExperimentRemoteTask } from "@/research/experiment-remote-task"
+import { ExperimentRemoteTaskListener } from "@/research/experiment-remote-task-listener"
 import { forceRefreshRemoteTask } from "@/research/experiment-remote-task-watcher"
 import { ExperimentTable, RemoteServerTable } from "@/research/research.sql"
 import {
@@ -142,8 +144,23 @@ export const ExperimentRemoteTaskGetTool = Tool.define("experiment_remote_task_g
       .positive()
       .optional()
       .describe("Optional maximum time to wait for terminal status in milliseconds."),
+    listenForTerminal: z
+      .boolean()
+      .optional()
+      .describe(
+        "Register a durable one-shot listener for the exact taskId and return immediately. The session is automatically resumed when the task reaches a terminal status.",
+      ),
   }),
   async execute(params, ctx) {
+    if (params.listenForTerminal && params.waitForTerminal) {
+      throw new Error("listenForTerminal and waitForTerminal cannot both be enabled")
+    }
+    if (params.listenForTerminal && !params.taskId) {
+      throw new Error("taskId is required when listenForTerminal is enabled")
+    }
+    if (params.listenForTerminal && params.waitTimeoutMs !== undefined) {
+      throw new Error("waitTimeoutMs is only supported with waitForTerminal")
+    }
     if (params.taskId) {
       const existing = ExperimentRemoteTask.get(params.taskId)
       if (!existing) throw new Error(`remote task not found: ${params.taskId}`)
@@ -161,6 +178,37 @@ export const ExperimentRemoteTaskGetTool = Tool.define("experiment_remote_task_g
     }
     if (task.exp_id !== params.expId) {
       throw new Error(`remote task does not belong to experiment: ${params.taskId}`)
+    }
+    let listening = false
+    let duplicate = false
+    let recipient: string | undefined
+    if (params.listenForTerminal && !ExperimentRemoteTask.isTerminal(task.status)) {
+      const node = await Collab.ensureRootFromSession(ctx.sessionID, {
+        name: "root",
+        subagentType: ctx.agent,
+        spec: { initialPrompt: "" },
+      })
+      const registered = ExperimentRemoteTaskListener.register({ taskId: task.task_id, agentId: node.id })
+      task = registered.task
+      listening = registered.listening
+      duplicate = registered.duplicate
+      recipient = node.id
+      if (listening) {
+        await ctx.metadata({
+          title: `Listening: ${task.title}`,
+          metadata: {
+            phase: "listening_terminal",
+            message: "The session will resume when the remote task reaches a terminal status",
+            taskId: task.task_id,
+            expId: params.expId,
+            kind: task.kind,
+            title: task.title,
+            status: task.status,
+            listening,
+            duplicate,
+          },
+        })
+      }
     }
     let waited = false
     if (params.waitForTerminal && task.status === "running") {
@@ -201,7 +249,7 @@ export const ExperimentRemoteTaskGetTool = Tool.define("experiment_remote_task_g
     const error = task.status === "failed" || task.status === "crashed" ? task.error_message : null
 
     return {
-      title: `Remote task: ${task.title}`,
+      title: listening ? `Listening: ${task.title}` : `Remote task: ${task.title}`,
       output: [
         `Task ID: ${task.task_id}`,
         `Kind: ${task.kind}`,
@@ -212,6 +260,14 @@ export const ExperimentRemoteTaskGetTool = Tool.define("experiment_remote_task_g
         `Server: ${remoteServerLabel(server)}`,
         `Log: ${task.log_path ?? "-"}`,
         task.error_message ? `Error: ${task.error_message}` : null,
+        listening ? "" : null,
+        listening
+          ? duplicate
+            ? "A terminal-status listener for this task is already active in this session."
+            : "A durable terminal-status listener is now active for this task."
+          : null,
+        listening ? "YOU MUST END YOUR TURN NOW. Do not poll, sleep, or wait for this task." : null,
+        listening ? "The framework will automatically resume this session when the task reaches a terminal status." : null,
         "",
         "Last 20 log lines:",
         tail?.output || "(log unavailable)",
@@ -225,8 +281,11 @@ export const ExperimentRemoteTaskGetTool = Tool.define("experiment_remote_task_g
         title: task.title,
         status: task.status,
         waited,
+        listening,
+        duplicate,
+        recipientAgentId: recipient,
         terminal: ExperimentRemoteTask.isTerminal(task.status),
-        phase: waited ? "terminal" : "inspected",
+        phase: listening ? "listening_terminal" : waited ? "terminal" : "inspected",
         screen,
         logPath: task.log_path,
         errorMessage: error,

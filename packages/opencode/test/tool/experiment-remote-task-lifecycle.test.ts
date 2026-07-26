@@ -11,6 +11,9 @@ import {
   ResearchProjectTable,
 } from "../../src/research/research.sql"
 import { ProjectTable } from "../../src/project/project.sql"
+import { RemoteTaskListenerTable } from "../../src/research/remote-task-listener.sql"
+import { Session } from "../../src/session"
+import { Collab, CollabAutoWake, CollabMessage } from "../../src/collab"
 
 const startRemoteTaskMock = mock(async (input: { taskId: string; remoteRoot: string; server?: unknown }) => ({
   ok: true,
@@ -578,6 +581,95 @@ describe("tool.experiment-remote-task lifecycle", () => {
         expect(ExperimentRemoteTask.get(imagenet.metadata.taskId)?.status).toBe("running")
       },
     })
+  })
+
+  test("registers one durable terminal listener and posts one completion message", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        CollabAutoWake.setEnabled(false)
+        try {
+          await seed(tmp.path)
+          const { ExperimentRemoteTaskGetTool, ExperimentRemoteTaskStartTool } = await import(
+            "../../src/tool/experiment-remote-task"
+          )
+          const { ExperimentRemoteTask } = await import("../../src/research/experiment-remote-task")
+          const session = await Session.create({ title: "remote listener" })
+          const context = { ...ctx, sessionID: session.id }
+          const start = await ExperimentRemoteTaskStartTool.init()
+          const started = await start.execute(
+            {
+              expId: "exp-1",
+              kind: "experiment_run",
+              title: "Train model",
+              remoteRoot: "/mnt/zhouzih",
+              command: "python train.py",
+              targetPath: null,
+            },
+            context,
+          )
+
+          const get = await ExperimentRemoteTaskGetTool.init()
+          const first = await get.execute(
+            { expId: "exp-1", taskId: started.metadata.taskId, listenForTerminal: true },
+            context,
+          )
+          expect(first.metadata.listening).toBe(true)
+          expect(first.metadata.duplicate).toBe(false)
+          expect(first.metadata.phase).toBe("listening_terminal")
+          expect(first.output).toContain("YOU MUST END YOUR TURN NOW")
+
+          const again = await get.execute(
+            { expId: "exp-1", taskId: started.metadata.taskId, listenForTerminal: true },
+            context,
+          )
+          expect(again.metadata.duplicate).toBe(true)
+          expect(Database.use((db) => db.select().from(RemoteTaskListenerTable).all())).toHaveLength(1)
+          expect(Collab.workflowAsyncState(session.id).hasRemoteTaskListeners).toBe(true)
+
+          ExperimentRemoteTask.update({ taskId: started.metadata.taskId, status: "finished", errorMessage: null })
+
+          expect(Database.use((db) => db.select().from(RemoteTaskListenerTable).all())).toHaveLength(0)
+          const node = Collab.getBySession(session.id)!
+          const messages = CollabMessage.list(node.id, { kind: "remote_task_terminal" })
+          expect(messages).toHaveLength(1)
+          expect(messages[0].status).toBe("pending")
+          expect(messages[0].payload_json).toMatchObject({
+            taskId: started.metadata.taskId,
+            expId: "exp-1",
+            status: "finished",
+          })
+          expect(Collab.workflowAsyncState(session.id)).toMatchObject({
+            hasRemoteTaskListeners: false,
+            hasPendingWakeMessages: true,
+          })
+
+          ExperimentRemoteTask.update({ taskId: started.metadata.taskId, status: "finished" })
+          expect(CollabMessage.list(node.id, { kind: "remote_task_terminal" })).toHaveLength(1)
+        } finally {
+          CollabAutoWake.setEnabled(true)
+        }
+      },
+    })
+  })
+
+  test("validates terminal listener parameters before inspecting a task", async () => {
+    const get = await ExperimentRemoteTaskGetTool.init()
+    await expect(get.execute({ expId: "exp-1", listenForTerminal: true }, ctx)).rejects.toThrow(
+      "taskId is required",
+    )
+    await expect(
+      get.execute(
+        {
+          expId: "exp-1",
+          taskId: "task-1",
+          listenForTerminal: true,
+          waitForTerminal: true,
+        },
+        ctx,
+      ),
+    ).rejects.toThrow("cannot both be enabled")
   })
 
   test("refreshes the specified task id even when it is not the current task", async () => {

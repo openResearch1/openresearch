@@ -24,7 +24,7 @@ export namespace CollabMessage {
     payload: unknown
   }
 
-  export async function post(input: PostInput): Promise<string> {
+  export function post(input: PostInput): string {
     const id = Identifier.ascending("collab_msg")
     const now = Date.now()
 

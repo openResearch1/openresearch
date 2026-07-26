@@ -242,7 +242,16 @@ export namespace MessageV2 {
 
   export const CollabReturnPart = PartBase.extend({
     type: z.literal("collab_return"),
-    kind: z.enum(["child_done", "child_failed", "child_waiting", "child_progress", "cancel", "user_input", "system"]),
+    kind: z.enum([
+      "child_done",
+      "child_failed",
+      "child_waiting",
+      "child_progress",
+      "remote_task_terminal",
+      "cancel",
+      "user_input",
+      "system",
+    ]),
     childAgentId: z.string().optional(),
     childName: z.string().optional(),
     childSessionId: z.string().optional(),

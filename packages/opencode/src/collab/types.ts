@@ -14,6 +14,7 @@ export const WAKE_MESSAGE_KINDS: readonly CollabMsgKind[] = [
   "child_done",
   "child_failed",
   "child_waiting",
+  "remote_task_terminal",
   "cancel",
   "user_input",
 ]
@@ -111,6 +112,17 @@ export const ChildProgressPayloadSchema = z.object({
 })
 export type ChildProgressPayload = z.infer<typeof ChildProgressPayloadSchema>
 
+export const RemoteTaskTerminalPayloadSchema = z.object({
+  taskId: z.string(),
+  expId: z.string(),
+  kind: z.enum(["resource_download", "experiment_run", "env_setup"]),
+  title: z.string(),
+  status: z.enum(["finished", "failed", "crashed", "canceled"]),
+  logPath: z.string().nullable(),
+  errorMessage: z.string().nullable(),
+})
+export type RemoteTaskTerminalPayload = z.infer<typeof RemoteTaskTerminalPayloadSchema>
+
 export const CancelPayloadSchema = z.object({
   reason: z.string(),
   initiator: z.enum(["parent", "user", "system", "sibling"]),
@@ -134,6 +146,7 @@ export type CollabPayload =
   | { kind: "child_failed"; data: ChildFailedPayload }
   | { kind: "child_waiting"; data: ChildWaitingPayload }
   | { kind: "child_progress"; data: ChildProgressPayload }
+  | { kind: "remote_task_terminal"; data: RemoteTaskTerminalPayload }
   | { kind: "cancel"; data: CancelPayload }
   | { kind: "user_input"; data: UserInputPayload }
   | { kind: "system"; data: SystemPayload }

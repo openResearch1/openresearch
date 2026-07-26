@@ -1,5 +1,6 @@
 import { and, Database, eq, ne } from "@/storage/db"
 import { ExperimentExecutionWatch } from "./experiment-execution-watch"
+import { ExperimentRemoteTaskListener } from "./experiment-remote-task-listener"
 import { RemoteTaskTable } from "./research.sql"
 
 type Status = typeof RemoteTaskTable.$inferSelect.status
@@ -218,10 +219,10 @@ export namespace ExperimentRemoteTask {
   }
 
   export function update(input: UpdateInput, opts?: UpdateOptions) {
-    const existing = row(input)
-    if (!existing) return
-    const now = Date.now()
-    Database.use((db) =>
+    return Database.transaction((db) => {
+      const existing = row(input)
+      if (!existing) return
+      const now = Date.now()
       db
         .update(RemoteTaskTable)
         .set({
@@ -242,13 +243,16 @@ export namespace ExperimentRemoteTask {
           time_updated: now,
         })
         .where(eq(RemoteTaskTable.task_id, existing.task_id))
-        .run(),
-    )
-    const updated = row({ taskId: existing.task_id })
-    if (updated && existing.status !== updated.status) notify(updated)
-    if (opts?.sync !== false)
-      ExperimentExecutionWatch.syncRemoteTask(existing.exp_id, { preserveStage: opts?.preserveStage })
-    return updated
+        .run()
+      const updated = row({ taskId: existing.task_id })
+      if (updated && existing.status !== updated.status) {
+        Database.effect(() => notify(updated))
+        if (!done(existing.status) && done(updated.status)) ExperimentRemoteTaskListener.notify(updated)
+      }
+      if (opts?.sync !== false)
+        ExperimentExecutionWatch.syncRemoteTask(existing.exp_id, { preserveStage: opts?.preserveStage })
+      return updated
+    })
   }
 
   export function listByExp(expId: string) {

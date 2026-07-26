@@ -742,7 +742,10 @@ export function UserMessageDisplay(props: {
   const isVisibleSystemPart = (p: PartType): boolean => {
     if (!PART_MAPPING[p.type]) return false
     if (p.type === "text" || p.type === "file") return false
-    if (p.type === "collab_return") return ["child_done", "child_waiting"].includes((p as unknown as { kind: string }).kind)
+    if (p.type === "collab_return")
+      return ["child_done", "child_waiting", "remote_task_terminal"].includes(
+        (p as unknown as { kind: string }).kind,
+      )
     return true
   }
   const systemParts = createMemo(() => (props.parts?.filter(isVisibleSystemPart) ?? []) as PartType[])
@@ -1190,9 +1193,11 @@ PART_MAPPING["collab_return"] = function CollabReturnPartDisplay(props) {
       childSessionId?: string
       headline: string
       body: string
+      payload?: Record<string, unknown>
     }
 
-  const visible = () => part().kind === "child_done" || part().kind === "child_waiting"
+  const visible = () =>
+    part().kind === "child_done" || part().kind === "child_waiting" || part().kind === "remote_task_terminal"
   if (!visible()) return null as unknown as JSX.Element
 
   const childHref = createMemo(() => {
@@ -1245,8 +1250,17 @@ PART_MAPPING["collab_return"] = function CollabReturnPartDisplay(props) {
   // to the generic "Child completed" label if a name wasn't provided. This
   // avoids the redundancy of having both a "Child completed" title and a
   // "Done" chip saying the same thing.
-  const title = () => part().childName?.trim() || i18n.t("ui.tool.agent.childCompleted")
+  const remote = () => part().kind === "remote_task_terminal"
+  const title = () =>
+    remote() ? part().headline : part().childName?.trim() || i18n.t("ui.tool.agent.childCompleted")
   const waiting = () => part().kind === "child_waiting"
+  const failed = () => remote() && part().payload?.status !== "finished"
+  const label = (): string => {
+    if (waiting()) return i18n.t("ui.tool.agent.waitingInteraction")
+    const status = part().payload?.status
+    if (remote()) return typeof status === "string" ? status : "terminal"
+    return i18n.t("ui.tool.agent.status.done")
+  }
 
   // Custom trigger: put the success chip BEFORE the title so the status
   // reads left-to-right as "Done: <childName>". The ToolTriggerRow helper
@@ -1255,9 +1269,9 @@ PART_MAPPING["collab_return"] = function CollabReturnPartDisplay(props) {
   const trigger = () => (
     <div data-slot="basic-tool-tool-info-structured">
       <div data-slot="basic-tool-tool-info-main">
-        <span data-slot="agent-card-chip" data-variant={waiting() ? "warning" : "success"}>
-          <Icon name={waiting() ? "warning" : "check-small"} size="small" />
-          <span>{waiting() ? i18n.t("ui.tool.agent.waitingInteraction") : i18n.t("ui.tool.agent.status.done")}</span>
+        <span data-slot="agent-card-chip" data-variant={waiting() || failed() ? "warning" : "success"}>
+          <Icon name={waiting() || failed() ? "warning" : "check-small"} size="small" />
+          <span>{label()}</span>
         </span>
         <span data-slot="basic-tool-tool-title">{title()}</span>
       </div>
@@ -1269,7 +1283,7 @@ PART_MAPPING["collab_return"] = function CollabReturnPartDisplay(props) {
     <div data-component="agent-tool-card">
       <ToolCall
         variant="panel"
-        icon={waiting() ? "warning" : "circle-check"}
+        icon={waiting() || failed() ? "warning" : "circle-check"}
         animate
         springContent
         trigger={trigger()}
@@ -1442,6 +1456,7 @@ ToolRegistry.register({
     const remote = () => (typeof meta().status === "string" ? meta().status : undefined)
     const title = () => {
       if (phase() === "waiting_terminal") return "Waiting for remote task"
+      if (phase() === "listening_terminal") return "Listening for remote task"
       if (remote()) return "Remote task"
       return "Inspect remote task"
     }
@@ -1492,6 +1507,11 @@ ToolRegistry.register({
           <Show when={phase() === "waiting_terminal"}>
             <div class="text-12-regular text-text-weak pb-2">
               Waiting until the remote task reaches a terminal status.
+            </div>
+          </Show>
+          <Show when={phase() === "listening_terminal"}>
+            <div class="text-12-regular text-text-weak pb-2">
+              This session will resume automatically when the remote task reaches a terminal status.
             </div>
           </Show>
           <Show when={lines().length > 0}>

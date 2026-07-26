@@ -4,6 +4,7 @@ import { Session } from "@/session"
 import { SessionPrompt } from "@/session/prompt"
 import { MessageV2 } from "@/session/message-v2"
 import { Workflow } from "@/workflow"
+import { ExperimentRemoteTaskListener } from "@/research/experiment-remote-task-listener"
 import { CollabAgentNode } from "./agent-node"
 import { CollabMessage } from "./message"
 import { CollabRuntime } from "./runtime"
@@ -14,6 +15,7 @@ import {
   buildChildFailedPart,
   buildChildProgressPart,
   buildChildWaitingPart,
+  buildRemoteTaskTerminalPart,
   finalizeParts,
   type PromptPartDraft,
 } from "./return-parts"
@@ -26,6 +28,7 @@ import type {
   ChildProgressPayload,
   ChildWaitingPayload,
   ProgressInjection,
+  RemoteTaskTerminalPayload,
   UserInputPayload,
 } from "./types"
 
@@ -129,6 +132,10 @@ export namespace CollabLoop {
             progressMsgs.push(p)
             break
           }
+          case "remote_task_terminal": {
+            injections.push(buildRemoteTaskTerminalPart(payload as RemoteTaskTerminalPayload))
+            break
+          }
           case "user_input": {
             const p = payload as UserInputPayload
             Workflow.autoResume({
@@ -188,7 +195,7 @@ export namespace CollabLoop {
       }
 
       const refreshed = CollabAgentNode.load(agentId)
-      if (refreshed.active_children === 0) {
+      if (refreshed.active_children === 0 && !ExperimentRemoteTaskListener.has(refreshed.id)) {
         const inst = Workflow.latest(refreshed.session_id)
         if (inst?.status === "waiting_interaction") {
           if (await pauseIfWorkflowWaiting(agentId, abort)) return
@@ -302,7 +309,14 @@ export namespace CollabLoop {
   }
 
   function isWakeKind(kind: string) {
-    return kind === "child_done" || kind === "child_failed" || kind === "child_waiting" || kind === "cancel" || kind === "user_input"
+    return (
+      kind === "child_done" ||
+      kind === "child_failed" ||
+      kind === "child_waiting" ||
+      kind === "remote_task_terminal" ||
+      kind === "cancel" ||
+      kind === "user_input"
+    )
   }
 
   async function finalizeCompleted(node: AgentInfo) {
