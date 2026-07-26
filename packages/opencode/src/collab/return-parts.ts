@@ -4,6 +4,7 @@ import type {
   ChildFailedPayload,
   ChildProgressPayload,
   ChildWaitingPayload,
+  RemoteTaskTerminalPayload,
 } from "./types"
 
 /**
@@ -18,6 +19,7 @@ export type ChildReturnKind =
   | "child_failed"
   | "child_waiting"
   | "child_progress"
+  | "remote_task_terminal"
   | "cancel"
   | "user_input"
   | "system"
@@ -112,6 +114,32 @@ export function buildChildProgressPart(p: ChildProgressPayload): ReturnPartDraft
     childSessionId: childSessionIdForAgent(p.childAgentId),
     headline: `${p.childName ?? p.childAgentId} · step ${p.turn}${tools}`,
     body: "",
+  }
+}
+
+export function buildRemoteTaskTerminalPart(p: RemoteTaskTerminalPayload): ReturnPartDraft {
+  const error = p.errorMessage ? `\nError: ${p.errorMessage}` : ""
+  return {
+    type: "collab_return",
+    kind: "remote_task_terminal",
+    headline: `Remote task ${p.title} reached ${p.status}`,
+    body: [
+      `Task ID: ${p.taskId}`,
+      `Experiment: ${p.expId}`,
+      `Kind: ${p.kind}`,
+      `Status: ${p.status}`,
+      `Log: ${p.logPath ?? "-"}${error}`,
+      "",
+      "Call experiment_remote_task_get with this taskId if you need the latest log tail before continuing.",
+    ].join("\n"),
+    payload: {
+      taskId: p.taskId,
+      expId: p.expId,
+      kind: p.kind,
+      status: p.status,
+      logPath: p.logPath,
+      errorMessage: p.errorMessage,
+    },
   }
 }
 

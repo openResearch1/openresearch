@@ -518,7 +518,15 @@ export type CollabReturnPart = {
   sessionID: string
   messageID: string
   type: "collab_return"
-  kind: "child_done" | "child_failed" | "child_waiting" | "child_progress" | "cancel" | "user_input" | "system"
+  kind:
+    | "child_done"
+    | "child_failed"
+    | "child_waiting"
+    | "child_progress"
+    | "remote_task_terminal"
+    | "cancel"
+    | "user_input"
+    | "system"
   childAgentId?: string
   childName?: string
   childSessionId?: string
@@ -812,7 +820,15 @@ export type EventCollabMessagePosted = {
     messageId: string
     recipientAgentId: string
     senderAgentId: string | null
-    kind: "child_done" | "child_failed" | "child_waiting" | "child_progress" | "cancel" | "user_input" | "system"
+    kind:
+      | "child_done"
+      | "child_failed"
+      | "child_waiting"
+      | "child_progress"
+      | "remote_task_terminal"
+      | "cancel"
+      | "user_input"
+      | "system"
   }
 }
 
@@ -821,7 +837,15 @@ export type EventCollabMessageConsumed = {
   properties: {
     messageId: string
     recipientAgentId: string
-    kind: "child_done" | "child_failed" | "child_waiting" | "child_progress" | "cancel" | "user_input" | "system"
+    kind:
+      | "child_done"
+      | "child_failed"
+      | "child_waiting"
+      | "child_progress"
+      | "remote_task_terminal"
+      | "cancel"
+      | "user_input"
+      | "system"
   }
 }
 
@@ -927,6 +951,48 @@ export type EventResearchAtomsUpdated = {
   type: "research.atoms.updated"
   properties: {
     researchProjectId: string
+  }
+}
+
+export type Pty = {
+  id: string
+  title: string
+  command: string
+  args: Array<string>
+  cwd: string
+  status: "running" | "exited"
+  pid: number
+  type?: "local" | "remote"
+  remote_server_id?: string
+  remote_label?: string
+}
+
+export type EventPtyCreated = {
+  type: "pty.created"
+  properties: {
+    info: Pty
+  }
+}
+
+export type EventPtyUpdated = {
+  type: "pty.updated"
+  properties: {
+    info: Pty
+  }
+}
+
+export type EventPtyExited = {
+  type: "pty.exited"
+  properties: {
+    id: string
+    exitCode: number
+  }
+}
+
+export type EventPtyDeleted = {
+  type: "pty.deleted"
+  properties: {
+    id: string
   }
 }
 
@@ -1118,48 +1184,6 @@ export type EventWorkspaceFailed = {
   }
 }
 
-export type Pty = {
-  id: string
-  title: string
-  command: string
-  args: Array<string>
-  cwd: string
-  status: "running" | "exited"
-  pid: number
-  type?: "local" | "remote"
-  remote_server_id?: string
-  remote_label?: string
-}
-
-export type EventPtyCreated = {
-  type: "pty.created"
-  properties: {
-    info: Pty
-  }
-}
-
-export type EventPtyUpdated = {
-  type: "pty.updated"
-  properties: {
-    info: Pty
-  }
-}
-
-export type EventPtyExited = {
-  type: "pty.exited"
-  properties: {
-    id: string
-    exitCode: number
-  }
-}
-
-export type EventPtyDeleted = {
-  type: "pty.deleted"
-  properties: {
-    id: string
-  }
-}
-
 export type EventWorktreeReady = {
   type: "worktree.ready"
   properties: {
@@ -1210,6 +1234,10 @@ export type Event =
   | EventWorkflowUpdated
   | EventTodoUpdated
   | EventResearchAtomsUpdated
+  | EventPtyCreated
+  | EventPtyUpdated
+  | EventPtyExited
+  | EventPtyDeleted
   | EventTuiPromptAppend
   | EventTuiCommandExecute
   | EventTuiToastShow
@@ -1225,10 +1253,6 @@ export type Event =
   | EventVcsBranchUpdated
   | EventWorkspaceReady
   | EventWorkspaceFailed
-  | EventPtyCreated
-  | EventPtyUpdated
-  | EventPtyExited
-  | EventPtyDeleted
   | EventWorktreeReady
   | EventWorktreeFailed
 
@@ -2011,7 +2035,15 @@ export type SubtaskPartInput = {
 export type CollabReturnPartInput = {
   id?: string
   type: "collab_return"
-  kind: "child_done" | "child_failed" | "child_waiting" | "child_progress" | "cancel" | "user_input" | "system"
+  kind:
+    | "child_done"
+    | "child_failed"
+    | "child_waiting"
+    | "child_progress"
+    | "remote_task_terminal"
+    | "cancel"
+    | "user_input"
+    | "system"
   childAgentId?: string
   childName?: string
   childSessionId?: string
@@ -2039,7 +2071,15 @@ export type CollabMessage = {
   id: string
   recipient_agent_id: string
   sender_agent_id: string | null
-  kind: "child_done" | "child_failed" | "child_waiting" | "child_progress" | "cancel" | "user_input" | "system"
+  kind:
+    | "child_done"
+    | "child_failed"
+    | "child_waiting"
+    | "child_progress"
+    | "remote_task_terminal"
+    | "cancel"
+    | "user_input"
+    | "system"
   payload: unknown
   status: "pending" | "consumed" | "dropped"
   time_created: number
@@ -2070,6 +2110,42 @@ export type ProviderAuthAuthorization = {
   url: string
   method: "auto" | "code"
   instructions: string
+}
+
+export type RemoteSession = {
+  id: string
+  slug: string
+  projectID: string
+  workspaceID?: string
+  directory: string
+  parentID?: string
+  collabPeer?: boolean
+  summary?: {
+    additions: number
+    deletions: number
+    files: number
+    diffs?: Array<FileDiff>
+  }
+  share?: {
+    url: string
+  }
+  title: string
+  version: string
+  time: {
+    created: number
+    updated: number
+    compacting?: number
+    archived?: number
+  }
+  permission?: PermissionRuleset
+  revert?: {
+    messageID: string
+    partID?: string
+    snapshot?: string
+    diff?: string
+  }
+  project: ProjectSummary | null
+  status: SessionStatus
 }
 
 export type Symbol = {
@@ -6478,7 +6554,15 @@ export type CollabAgentMessagesData = {
   query?: {
     directory?: string
     workspace?: string
-    kind?: "child_done" | "child_failed" | "child_waiting" | "child_progress" | "cancel" | "user_input" | "system"
+    kind?:
+      | "child_done"
+      | "child_failed"
+      | "child_waiting"
+      | "child_progress"
+      | "remote_task_terminal"
+      | "cancel"
+      | "user_input"
+      | "system"
     limit?: number
   }
   url: "/collab/agent/{agentId}/messages"
@@ -6889,6 +6973,263 @@ export type ProviderOauthCallbackResponses = {
 }
 
 export type ProviderOauthCallbackResponse = ProviderOauthCallbackResponses[keyof ProviderOauthCallbackResponses]
+
+export type RemotePageData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/remote"
+}
+
+export type RemotePageResponses = {
+  /**
+   * Remote page
+   */
+  200: string
+}
+
+export type RemotePageResponse = RemotePageResponses[keyof RemotePageResponses]
+
+export type RemoteInfoData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/remote/api/info"
+}
+
+export type RemoteInfoResponses = {
+  /**
+   * Remote info
+   */
+  200: {
+    urls: Array<string>
+    local: string
+    exposed: boolean
+    reason?: string
+    tunnel?: {
+      provider: "cloudflare"
+      status: "idle" | "starting" | "ready" | "error"
+      url?: string
+      message?: string
+    }
+  }
+}
+
+export type RemoteInfoResponse = RemoteInfoResponses[keyof RemoteInfoResponses]
+
+export type RemoteExposeData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/remote/api/expose"
+}
+
+export type RemoteExposeResponses = {
+  /**
+   * Remote info
+   */
+  200: {
+    urls: Array<string>
+    local: string
+    exposed: boolean
+    reason?: string
+    tunnel?: {
+      provider: "cloudflare"
+      status: "idle" | "starting" | "ready" | "error"
+      url?: string
+      message?: string
+    }
+  }
+}
+
+export type RemoteExposeResponse = RemoteExposeResponses[keyof RemoteExposeResponses]
+
+export type RemoteTunnelStartData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/remote/api/tunnel/start"
+}
+
+export type RemoteTunnelStartResponses = {
+  /**
+   * Remote info
+   */
+  200: {
+    urls: Array<string>
+    local: string
+    exposed: boolean
+    reason?: string
+    tunnel?: {
+      provider: "cloudflare"
+      status: "idle" | "starting" | "ready" | "error"
+      url?: string
+      message?: string
+    }
+  }
+}
+
+export type RemoteTunnelStartResponse = RemoteTunnelStartResponses[keyof RemoteTunnelStartResponses]
+
+export type RemoteTunnelStopData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/remote/api/tunnel"
+}
+
+export type RemoteTunnelStopResponses = {
+  /**
+   * Remote info
+   */
+  200: {
+    urls: Array<string>
+    local: string
+    exposed: boolean
+    reason?: string
+    tunnel?: {
+      provider: "cloudflare"
+      status: "idle" | "starting" | "ready" | "error"
+      url?: string
+      message?: string
+    }
+  }
+}
+
+export type RemoteTunnelStopResponse = RemoteTunnelStopResponses[keyof RemoteTunnelStopResponses]
+
+export type RemoteSessionsData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/remote/api/session"
+}
+
+export type RemoteSessionsResponses = {
+  /**
+   * Remote sessions
+   */
+  200: Array<RemoteSession>
+}
+
+export type RemoteSessionsResponse = RemoteSessionsResponses[keyof RemoteSessionsResponses]
+
+export type RemoteSessionData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/remote/api/session/{sessionID}"
+}
+
+export type RemoteSessionErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type RemoteSessionError = RemoteSessionErrors[keyof RemoteSessionErrors]
+
+export type RemoteSessionResponses = {
+  /**
+   * Remote session
+   */
+  200: RemoteSession
+}
+
+export type RemoteSessionResponse = RemoteSessionResponses[keyof RemoteSessionResponses]
+
+export type RemoteSessionMessagesData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+    limit?: number
+  }
+  url: "/remote/api/session/{sessionID}/message"
+}
+
+export type RemoteSessionMessagesErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type RemoteSessionMessagesError = RemoteSessionMessagesErrors[keyof RemoteSessionMessagesErrors]
+
+export type RemoteSessionMessagesResponses = {
+  /**
+   * Remote session messages
+   */
+  200: Array<{
+    info: Message
+    parts: Array<Part>
+  }>
+}
+
+export type RemoteSessionMessagesResponse = RemoteSessionMessagesResponses[keyof RemoteSessionMessagesResponses]
+
+export type RemoteMessageData = {
+  body?: {
+    sessionIDs: Array<string>
+    text: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/remote/api/message"
+}
+
+export type RemoteMessageErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type RemoteMessageError = RemoteMessageErrors[keyof RemoteMessageErrors]
+
+export type RemoteMessageResponses = {
+  /**
+   * Send results
+   */
+  200: Array<{
+    sessionID: string
+    ok: boolean
+    message?: string
+  }>
+}
+
+export type RemoteMessageResponse = RemoteMessageResponses[keyof RemoteMessageResponses]
 
 export type FindTextData = {
   body?: never

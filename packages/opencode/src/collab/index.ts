@@ -16,6 +16,7 @@ import { CollabSupervisor } from "./supervisor"
 import { CollabProgressHook } from "./progress-hook"
 import { CollabAutoWake } from "./auto-wake"
 import { CollabEvent } from "./events"
+import { ExperimentRemoteTaskListener } from "@/research/experiment-remote-task-listener"
 import type { AgentInfo, AgentSpec, CancelPayload, UserInputPayload } from "./types"
 
 export { CollabAgentNode } from "./agent-node"
@@ -263,13 +264,19 @@ export namespace Collab {
 
   export function hasOutstandingAsyncWork(sessionId: string): boolean {
     const state = workflowAsyncState(sessionId)
-    return state.hasRunningChildren || state.hasWaitingChildren || state.hasPendingWakeMessages
+    return (
+      state.hasRunningChildren ||
+      state.hasWaitingChildren ||
+      state.hasPendingWakeMessages ||
+      state.hasRemoteTaskListeners
+    )
   }
 
   export function workflowAsyncState(sessionId: string): {
     hasRunningChildren: boolean
     hasWaitingChildren: boolean
     hasPendingWakeMessages: boolean
+    hasRemoteTaskListeners: boolean
   } {
     const node = CollabAgentNode.loadBySessionId(sessionId)
     if (!node || !CollabAgentNode.isActive(node.status)) {
@@ -277,6 +284,7 @@ export namespace Collab {
         hasRunningChildren: false,
         hasWaitingChildren: false,
         hasPendingWakeMessages: false,
+        hasRemoteTaskListeners: false,
       }
     }
 
@@ -287,6 +295,7 @@ export namespace Collab {
       ),
       hasWaitingChildren: children.some((child) => child.status === "waiting_interaction"),
       hasPendingWakeMessages: CollabMessage.hasPendingWakeMsg(node.id),
+      hasRemoteTaskListeners: !!ExperimentRemoteTaskListener.has(node.id),
     }
   }
 
@@ -368,6 +377,7 @@ export namespace Collab {
       if (!node) return true
       if (!CollabAgentNode.isActive(node.status)) return true
       if (node.active_children > 0) return false
+      if (ExperimentRemoteTaskListener.has(rootAgentId)) return false
       if (CollabMessage.hasPendingWakeMsg(rootAgentId)) return false
       if (SessionStatus.get(sessionId).type !== "idle") return false
       // AutoWake's maybeWakeOrBlock claims the inflight lock before it

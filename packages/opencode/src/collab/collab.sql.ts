@@ -22,6 +22,7 @@ export const collabMsgKinds = [
   "child_failed",
   "child_waiting",
   "child_progress",
+  "remote_task_terminal",
   "cancel",
   "user_input",
   "system",

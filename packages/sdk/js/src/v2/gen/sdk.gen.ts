@@ -121,6 +121,18 @@ import type {
   QuestionRejectResponses,
   QuestionReplyErrors,
   QuestionReplyResponses,
+  RemoteExposeResponses,
+  RemoteInfoResponses,
+  RemoteMessageErrors,
+  RemoteMessageResponses,
+  RemotePageResponses,
+  RemoteSessionErrors,
+  RemoteSessionMessagesErrors,
+  RemoteSessionMessagesResponses,
+  RemoteSessionResponses,
+  RemoteSessionsResponses,
+  RemoteTunnelStartResponses,
+  RemoteTunnelStopResponses,
   ResearchArticleCreateErrors,
   ResearchArticleCreateResponses,
   ResearchArticleListErrors,
@@ -4591,7 +4603,15 @@ export class Agent extends HeyApiClient {
       agentId: string
       directory?: string
       workspace?: string
-      kind?: "child_done" | "child_failed" | "child_waiting" | "child_progress" | "cancel" | "user_input" | "system"
+      kind?:
+        | "child_done"
+        | "child_failed"
+        | "child_waiting"
+        | "child_progress"
+        | "remote_task_terminal"
+        | "cancel"
+        | "user_input"
+        | "system"
       limit?: number
     },
     options?: Options<never, ThrowOnError>,
@@ -4982,6 +5002,311 @@ export class Provider extends HeyApiClient {
   private _oauth?: Oauth
   get oauth(): Oauth {
     return (this._oauth ??= new Oauth({ client: this.client }))
+  }
+}
+
+export class Tunnel extends HeyApiClient {
+  /**
+   * Start remote tunnel
+   *
+   * Start a Cloudflare quick tunnel for the token-protected remote page.
+   */
+  public start<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<RemoteTunnelStartResponses, unknown, ThrowOnError>({
+      url: "/remote/api/tunnel/start",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Stop remote tunnel
+   *
+   * Stop the active Cloudflare quick tunnel for the remote page.
+   */
+  public stop<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<RemoteTunnelStopResponses, unknown, ThrowOnError>({
+      url: "/remote/api/tunnel",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Session7 extends HeyApiClient {
+  /**
+   * List remote session messages
+   *
+   * List recent messages for one remote session.
+   */
+  public messages<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      limit?: number
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "limit" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      RemoteSessionMessagesResponses,
+      RemoteSessionMessagesErrors,
+      ThrowOnError
+    >({
+      url: "/remote/api/session/{sessionID}/message",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Remote extends HeyApiClient {
+  /**
+   * Remote mobile page
+   *
+   * Serve a lightweight page for sending a message to active sessions from a phone.
+   */
+  public page<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<RemotePageResponses, unknown, ThrowOnError>({
+      url: "/remote",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get remote page info
+   *
+   * Return candidate phone-accessible remote page URLs for this server.
+   */
+  public info<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<RemoteInfoResponses, unknown, ThrowOnError>({
+      url: "/remote/api/info",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Expose remote page
+   *
+   * Start a token-protected network listener for the lightweight remote page.
+   */
+  public expose<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<RemoteExposeResponses, unknown, ThrowOnError>({
+      url: "/remote/api/expose",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * List remote sessions
+   *
+   * List current project root sessions available to the remote page.
+   */
+  public sessions<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<RemoteSessionsResponses, unknown, ThrowOnError>({
+      url: "/remote/api/session",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get remote session
+   *
+   * Get one remote session with status.
+   */
+  public session<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<RemoteSessionResponses, RemoteSessionErrors, ThrowOnError>({
+      url: "/remote/api/session/{sessionID}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Send remote message
+   *
+   * Send one text message to multiple active sessions.
+   */
+  public message<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      sessionIDs?: Array<string>
+      text?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "sessionIDs" },
+            { in: "body", key: "text" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<RemoteMessageResponses, RemoteMessageErrors, ThrowOnError>({
+      url: "/remote/api/message",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  private _tunnel?: Tunnel
+  get tunnel(): Tunnel {
+    return (this._tunnel ??= new Tunnel({ client: this.client }))
+  }
+
+  private _session?: Session7
+  get session2(): Session7 {
+    return (this._session ??= new Session7({ client: this.client }))
   }
 }
 
@@ -6358,6 +6683,11 @@ export class OpencodeClient extends HeyApiClient {
   private _provider?: Provider
   get provider(): Provider {
     return (this._provider ??= new Provider({ client: this.client }))
+  }
+
+  private _remote?: Remote
+  get remote(): Remote {
+    return (this._remote ??= new Remote({ client: this.client }))
   }
 
   private _find?: Find

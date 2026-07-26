@@ -102,7 +102,7 @@ curl -I https://download.pytorch.org/whl/ || true
    - The command must be the raw remote business command only. Do not include ssh, screen, nohup, or heredocs.
    - Use absolute `conda`/`mamba` paths when known.
    - Use `conda run --no-capture-output` for package checks and installs after creation.
-   - After starting the task, save the returned `taskId` and call `experiment_remote_task_get` with that `taskId` and `waitForTerminal: true`.
+   - After starting the task, save the returned `taskId` and call `experiment_remote_task_get` with that `taskId` and `listenForTerminal: true`. End the turn after registration and continue verification when the framework resumes this session.
 
 7. Verify autonomously after install or reuse.
    - Use `ssh` to run server-specific verification commands.
@@ -139,7 +139,7 @@ conda run --no-capture-output -n <env> python -c "import torch; print(torch.__ve
 - Do not create an experiment-specific environment here.
 - Do not invent a runtime experiment ID. Use `project_runtime_server_query(... ensureRuntime: true)` or `project_runtime_ensure`.
 - Do not include code hashes, file hashes, or plan hashes in the fingerprint.
-- If a remote task is `running`, call `experiment_remote_task_get` with its `taskId` and `waitForTerminal: true` instead of asking the user to come back manually. If the `taskId` is unknown, call `experiment_remote_task_list` for the runtime `expId` first.
+- If a remote task is `running`, call `experiment_remote_task_get` with its `taskId` and `listenForTerminal: true`, then end the turn instead of polling or asking the user to come back manually. If the `taskId` is unknown, call `experiment_remote_task_list` for the runtime `expId` first.
 - Be conservative: if server verification does not prove the dependency environment works, return `failed` or `user_decision_needed`, not `ready`.
 
 ## Return Format

@@ -837,7 +837,7 @@ export namespace SessionPrompt {
 
       if (workflowState === "running") {
         const async = Collab.workflowAsyncState(sessionID)
-        if (async.hasRunningChildren || async.hasPendingWakeMessages) {
+        if (async.hasRunningChildren || async.hasPendingWakeMessages || async.hasRemoteTaskListeners) {
           break
         }
         if (async.hasWaitingChildren) {

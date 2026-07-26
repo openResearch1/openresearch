@@ -35,7 +35,7 @@ Each resource may include:
 - Before starting a project-level remote task, call `project_runtime_ensure` with `remoteServerId` and use the returned `runtimeExpId` as `expId` for `experiment_remote_task_start`.
 - If `remoteServerId` is unavailable, ask for it or return a clear failure. Do not invent a project runtime experiment ID.
 - All real long-running download commands MUST be launched through `experiment_remote_task_start` with `kind: resource_download`.
-- After starting a long-running project-level download task, save the returned `taskId` and immediately call `experiment_remote_task_get` with that `taskId` and `waitForTerminal: true` before reporting final readiness.
+- After starting a long-running project-level download task, save the returned `taskId` and immediately call `experiment_remote_task_get` with that `taskId` and `listenForTerminal: true`. End the turn after the listener is registered; the framework will resume this session when the task reaches a terminal status.
 - If you lose track of project-level active tasks for the runtime experiment, call `experiment_remote_task_list` with the runtime `expId` and choose the correct `taskId` before inspecting or waiting.
 - Do not hand-write `screen`, `nohup`, detached wrappers, ssh wrappers, or heredocs for long-running downloads.
 - Do not install training frameworks or unrelated heavy dependencies just to download resources.
@@ -152,10 +152,10 @@ bash -lc 'python <project_or_user_download_script.py> --output <target_dir>'
 
 Pass the raw remote business command only. Do not include `ssh`, `screen`, `nohup`, or heredoc wrappers. Prefer commands that can resume after network interruption and leave enough logs to diagnose failures.
 
-### Step 7: Wait, verify, and update inventory
+### Step 7: Listen, verify, and update inventory
 
-1. Call `experiment_remote_task_get` with the returned `taskId` and `waitForTerminal: true`.
-2. Inspect recent logs and the target path.
+1. Call `experiment_remote_task_get` with the returned `taskId` and `listenForTerminal: true`, then end the turn without polling or sleeping.
+2. When the framework resumes this session with the terminal event, call `experiment_remote_task_get` once without a wait/listen option to inspect recent logs and the target path.
 3. Run verification checks remotely.
 4. Collect final absolute path, size when practical, and sample files when practical.
 5. If verification passes, call `project_runtime_resource_upsert` with `status: ready`, final target path, source, verify plan, fingerprint when known, and `lastVerifiedAt`.

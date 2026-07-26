@@ -54,7 +54,7 @@ Each resource may include:
 - Use `experiment_remote_task_start` for long-running preparation tasks such as extraction, conversion, indexing, copying large local directories, or re-layout.
 - When using `experiment_remote_task_start`, pass only the raw remote business command. Do not include `ssh`, `screen`, `nohup`, or heredoc wrappers.
 - For long preparation tasks, use `kind: resource_download` because that is the remote task kind used for resource-related long-running work, even though this agent is not allowed to download.
-- After starting a long preparation task, save the returned `taskId` and call `experiment_remote_task_get` with that `taskId` and `waitForTerminal: true` before deciding the final status.
+- After starting a long preparation task, save the returned `taskId` and call `experiment_remote_task_get` with that `taskId` and `listenForTerminal: true`. End the turn after registration and continue verification when the framework resumes this session.
 - If you need to recover an active task ID, call `experiment_remote_task_list` with `exp_id` and choose the matching task.
 - Success requires final remote verification, not just command exit status.
 
@@ -100,7 +100,7 @@ Only after the source resource exists remotely:
 3. Prefer non-destructive preparation. Do not delete original shared resources.
 4. If extraction, conversion, copy, move, or re-layout is needed, build an idempotent remote command.
 5. Use `ssh` for short commands.
-6. Use `experiment_remote_task_start` for long-running preparation tasks, save its returned `taskId`, and wait for terminal status with `experiment_remote_task_get` using that `taskId`.
+6. Use `experiment_remote_task_start` for long-running preparation tasks, save its returned `taskId`, and register `experiment_remote_task_get` with that `taskId` and `listenForTerminal: true`. End the turn and wait for the framework to resume the session.
 7. Keep the final prepared path exactly where the experiment run will consume it.
 
 ### Step 5: Validate and update outputs

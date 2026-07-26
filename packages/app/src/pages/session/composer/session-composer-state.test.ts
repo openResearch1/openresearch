@@ -1,6 +1,7 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, test, vi } from "bun:test"
 import type { PermissionRequest, QuestionRequest, Session } from "@opencode-ai/sdk/v2/client"
 import { sessionPermissionRequest, sessionQuestionRequest } from "./session-request-tree"
+import { createWorkflowHideTimer } from "./session-workflow-visibility"
 
 const session = (input: { id: string; parentID?: string }) =>
   ({
@@ -101,5 +102,42 @@ describe("sessionQuestionRequest", () => {
     }
 
     expect(sessionQuestionRequest(sessions, questions, "root")?.id).toBe("q-grand")
+  })
+})
+
+describe("createWorkflowHideTimer", () => {
+  test("hides terminal workflows after the close delay and resets for the next workflow", () => {
+    vi.useFakeTimers()
+    let hidden: string | undefined
+    const timer = createWorkflowHideTimer({
+      closeMs: () => 400,
+      hide: (id) => {
+        hidden = id
+      },
+    })
+    try {
+      timer.update("wf-1", "running")
+      expect(hidden).toBeUndefined()
+
+      timer.update("wf-1", "failed")
+      vi.advanceTimersByTime(399)
+      expect(hidden).toBeUndefined()
+
+      vi.advanceTimersByTime(1)
+      expect(hidden).toBe("wf-1")
+
+      timer.update("wf-2", "running")
+      expect(hidden).toBeUndefined()
+
+      for (const status of ["completed", "cancelled"]) {
+        const id = `wf-${status}`
+        timer.update(id, status)
+        vi.advanceTimersByTime(400)
+        expect(hidden).toBe(id)
+      }
+    } finally {
+      timer.dispose()
+      vi.useRealTimers()
+    }
   })
 })

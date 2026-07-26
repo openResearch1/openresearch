@@ -41,21 +41,23 @@ Do not use ad-hoc `bash`, `ssh`, `ps`, `grep`, `tail`, or similar commands to ch
 
 ### Step 3: Monitor Startup
 
-Use `experiment_remote_task_get` with the launched task's `taskId` to monitor whether the experiment is still running and whether the startup logs look healthy.
+Use `experiment_remote_task_get` with the launched task's `taskId` to inspect whether startup looks healthy. If the task is still running, call it again with `listenForTerminal: true` and end the turn. The framework will resume this session when the task reaches a terminal status.
 
-1. Wait briefly, then call `experiment_remote_task_get` with the same `taskId` again.
-2. Read the returned task status, screen state, and recent log output.
-3. **If the task output shows errors or the task has exited:**
+1. Read the returned task status, screen state, and recent log output.
+2. If the task is still running after startup inspection, register `listenForTerminal: true`; do not poll, sleep, or keep the turn open.
+3. When resumed with the terminal event, call `experiment_remote_task_get` once without a wait/listen option for the final logs.
+4. **If the task output shows errors or the task has exited:**
    - Summarize the returned error and relevant recent logs.
    - If you can fix the issue safely, apply the fix and re-launch with `experiment_remote_task_start`.
    - If you cannot fix it after 2 attempts, return a detailed error report.
-4. **If the task output shows normal startup** (for example training begins or first metrics appear), return success/running status.
+5. **If the task output shows normal startup** (for example training begins or first metrics appear), register the listener and end the turn.
 
 ## Important Rules
 
 - **Do NOT modify the experiment code.** Your job is launch and monitor only.
 - Always use `experiment_remote_task_start` for the long-running experiment launch.
 - Always use `experiment_remote_task_get` with the launched task's `taskId` for post-launch inspection and startup monitoring. If the `taskId` is unknown, call `experiment_remote_task_list` for the experiment `expId` first.
+- For a running task, prefer `listenForTerminal: true` and end the turn. Do not poll or sleep while waiting for completion.
 - Never use ad-hoc `bash` or `ssh` commands just to verify whether the experiment is running.
 - Always export `WANDB_API_KEY` in the launch command so the remote process can authenticate to W&B.
 - Always export `WANDB_CONSOLE=off` in the launch command so logs stay in the remote task log instead of being captured by W&B.

@@ -1,5 +1,9 @@
 import path from "path"
 import { ExperimentExecutionWorkflowTemplate, ExperimentExecutionWorkflowTemplateDir } from "./experiment-execution-v1"
+import {
+  ExperimentExecutionV2WorkflowTemplate,
+  ExperimentExecutionV2WorkflowTemplateDir,
+} from "./experiment-execution-v2"
 import { ResearchIdeaTreeWorkflowTemplate, ResearchIdeaTreeWorkflowTemplateDir } from "./research-idea-tree-v1"
 import { SimpleTestWorkflowTemplate, SimpleTestWorkflowTemplateDir } from "./simple-test-v1"
 import { DeepResearchWorkflowTemplate, DeepResearchWorkflowTemplateDir } from "./deep-research-v1"
@@ -7,6 +11,7 @@ import { DeepResearchWorkflowTemplate, DeepResearchWorkflowTemplateDir } from ".
 const registry = {
   [SimpleTestWorkflowTemplate.id]: SimpleTestWorkflowTemplate,
   [ExperimentExecutionWorkflowTemplate.id]: ExperimentExecutionWorkflowTemplate,
+  [ExperimentExecutionV2WorkflowTemplate.id]: ExperimentExecutionV2WorkflowTemplate,
   [ResearchIdeaTreeWorkflowTemplate.id]: ResearchIdeaTreeWorkflowTemplate,
   [DeepResearchWorkflowTemplate.id]: DeepResearchWorkflowTemplate,
 }
@@ -14,6 +19,7 @@ const registry = {
 const dirs = {
   [SimpleTestWorkflowTemplate.id]: SimpleTestWorkflowTemplateDir,
   [ExperimentExecutionWorkflowTemplate.id]: ExperimentExecutionWorkflowTemplateDir,
+  [ExperimentExecutionV2WorkflowTemplate.id]: ExperimentExecutionV2WorkflowTemplateDir,
   [ResearchIdeaTreeWorkflowTemplate.id]: ResearchIdeaTreeWorkflowTemplateDir,
   [DeepResearchWorkflowTemplate.id]: DeepResearchWorkflowTemplateDir,
 }
