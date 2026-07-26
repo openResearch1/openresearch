@@ -12,8 +12,6 @@ import {
 } from "../../src/research/research.sql"
 import { ProjectTable } from "../../src/project/project.sql"
 import { RemoteTaskListenerTable } from "../../src/research/remote-task-listener.sql"
-import { Session } from "../../src/session"
-import { Collab, CollabAutoWake, CollabMessage } from "../../src/collab"
 
 const startRemoteTaskMock = mock(async (input: { taskId: string; remoteRoot: string; server?: unknown }) => ({
   ok: true,
@@ -588,6 +586,8 @@ describe("tool.experiment-remote-task lifecycle", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
+        const { Session } = await import("../../src/session")
+        const { Collab, CollabAutoWake, CollabMessage } = await import("../../src/collab")
         CollabAutoWake.setEnabled(false)
         try {
           await seed(tmp.path)
@@ -655,6 +655,7 @@ describe("tool.experiment-remote-task lifecycle", () => {
   })
 
   test("validates terminal listener parameters before inspecting a task", async () => {
+    const { ExperimentRemoteTaskGetTool } = await import("../../src/tool/experiment-remote-task")
     const get = await ExperimentRemoteTaskGetTool.init()
     await expect(get.execute({ expId: "exp-1", listenForTerminal: true }, ctx)).rejects.toThrow(
       "taskId is required",

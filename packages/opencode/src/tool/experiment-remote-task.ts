@@ -137,7 +137,6 @@ export const ExperimentRemoteTaskGetTool = Tool.define("experiment_remote_task_g
     waitForTerminal: z
       .boolean()
       .optional()
-      .default(false)
       .describe("For running tasks, wait until the remote task reaches a terminal status before returning."),
     waitTimeoutMs: z
       .number()
