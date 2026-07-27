@@ -23,7 +23,7 @@ export const ResumeAgentTool = Tool.define("resume_agent", async () => {
         ...(extra?.session_id ? { session_id: extra.session_id } : {}),
       })
 
-      const target = Collab.tryGet(params.agent_id)
+      let target = Collab.tryGet(params.agent_id)
       if (!target) {
         return { title: "resume_agent", metadata: mk(false), output: `No agent ${params.agent_id}` }
       }
@@ -36,7 +36,18 @@ export const ResumeAgentTool = Tool.define("resume_agent", async () => {
           output: "Caller session is not a Collab agent; spawn a peer first.",
         }
       }
+      target =
+        (await import("@/research/experiment-agent").then((mod) => mod.ExperimentAgent.recover(params.agent_id))) ??
+        target
       if (target.root_agent_id !== callerNode.root_agent_id) {
+        const atomId = target.spec.metadata?.atomId
+        if (typeof atomId === "string" && atomId === callerNode.spec.metadata?.atomId) {
+          return {
+            title: "resume_agent",
+            metadata: mk(false, { status: target.status, session_id: target.session_id }),
+            output: `Experiment agent ${params.agent_id} is still finishing reconciliation with its Atom. Retry this same agent; do not spawn a replacement.`,
+          }
+        }
         return {
           title: "resume_agent",
           metadata: mk(false),
@@ -55,7 +66,12 @@ export const ResumeAgentTool = Tool.define("resume_agent", async () => {
       })
 
       try {
-        const info = await Collab.resume({ agentId: params.agent_id, prompt: params.prompt })
+        const current = ctx.extra?.model as { providerID?: string; id?: string } | undefined
+        const info = await Collab.resume({
+          agentId: params.agent_id,
+          prompt: params.prompt,
+          model: current?.providerID && current.id ? { providerID: current.providerID, modelID: current.id } : undefined,
+        })
         return {
           title: "resume_agent",
           metadata: mk(true, { status: info.status, session_id: info.session_id }),

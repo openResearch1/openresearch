@@ -2,10 +2,12 @@ import z from "zod"
 import fs from "fs"
 import path from "path"
 import { Tool } from "./tool"
-import { Database, eq } from "../storage/db"
+import { and, Database, eq } from "../storage/db"
 import { AtomTable, ExperimentTable, RemoteServerTable } from "../research/research.sql"
 import { Research } from "../research/research"
 import { normalizeRemoteServerConfig } from "../research/remote-server"
+import { CollabAgentNode } from "../collab/agent-node"
+import { ExperimentWorkspace } from "../session/experiment-workspace"
 
 type ExpRow = typeof ExperimentTable.$inferSelect
 
@@ -74,12 +76,15 @@ function queryExpWithJoins(expId: string): ExpResult | undefined {
 
 function formatExpResult(r: ExpResult): string {
   const e = r.exp
+  const agent = e.exp_session_id ? CollabAgentNode.loadBySessionId(e.exp_session_id) : undefined
   return [
     `exp_id: ${e.exp_id}`,
     `exp_name: ${e.exp_name}`,
     `research_project_id: ${e.research_project_id}`,
     r.atom_id ? `atom_id: ${r.atom_id}` : `atom_id: (not linked)`,
     e.exp_session_id ? `exp_session_id: ${e.exp_session_id}` : null,
+    agent ? `agent_id: ${agent.id}` : `agent_id: (not attached)`,
+    agent ? `agent_status: ${agent.status}` : null,
     e.baseline_branch_name ? `baseline_branch_name: ${e.baseline_branch_name}` : null,
     e.exp_branch_name ? `exp_branch_name: ${e.exp_branch_name}` : null,
     e.exp_result_path ? `exp_result_path: ${e.exp_result_path}` : null,
@@ -125,13 +130,14 @@ export const ExperimentQueryTool = Tool.define("experiment_query", {
     // Mode 1: query by expId
     if (params.expId) {
       const result = queryExpWithJoins(params.expId)
-      if (!result) {
+      if (!result || result.exp.research_project_id !== researchProjectId) {
         return {
           title: "Not found",
           output: `Experiment not found: ${params.expId}`,
           metadata: { count: 0 },
         }
       }
+      await import("../research/experiment-agent").then((mod) => mod.ExperimentAgent.attach(params.expId!))
       return {
         title: `Experiment: ${result.exp.exp_id}`,
         output: formatExpResult(result),
@@ -141,8 +147,28 @@ export const ExperimentQueryTool = Tool.define("experiment_query", {
 
     // Mode 2: query by atomId
     if (params.atomId) {
+      const atom = Database.use((db) =>
+        db
+          .select({ id: AtomTable.atom_id })
+          .from(AtomTable)
+          .where(and(eq(AtomTable.atom_id, params.atomId!), eq(AtomTable.research_project_id, researchProjectId)))
+          .get(),
+      )
+      if (!atom) {
+        return { title: "Not found", output: `Atom not found: ${params.atomId}`, metadata: { count: 0 } }
+      }
+      await import("../research/experiment-agent").then((mod) => mod.ExperimentAgent.atom(params.atomId!))
       const exps = Database.use((db) =>
-        db.select().from(ExperimentTable).where(eq(ExperimentTable.atom_id, params.atomId!)).all(),
+        db
+          .select()
+          .from(ExperimentTable)
+          .where(
+            and(
+              eq(ExperimentTable.atom_id, params.atomId!),
+              eq(ExperimentTable.research_project_id, researchProjectId),
+            ),
+          )
+          .all(),
       )
       if (exps.length === 0) {
         return {
@@ -161,17 +187,15 @@ export const ExperimentQueryTool = Tool.define("experiment_query", {
     }
 
     // Mode 3: query by current session
-    const parentSessionId = (await Research.getParentSessionId(ctx.sessionID)) ?? ctx.sessionID
-    const exp = Database.use((db) =>
-      db.select().from(ExperimentTable).where(eq(ExperimentTable.exp_session_id, parentSessionId)).get(),
-    )
-    if (!exp) {
+    const exp = ExperimentWorkspace.resolve(ctx.sessionID)
+    if (!exp || exp.research_project_id !== researchProjectId) {
       return {
         title: "No experiment",
         output: "No experiment is linked to the current session.",
         metadata: { count: 0 },
       }
     }
+    await import("../research/experiment-agent").then((mod) => mod.ExperimentAgent.attach(exp.exp_id))
     const result = queryExpWithJoins(exp.exp_id)
     if (!result) {
       return {

@@ -474,7 +474,7 @@ export const ResearchRoutes = new Hono()
           .where(eq(ResearchProjectTable.research_project_id, researchProjectId))
           .get(),
       )
-      if (!project) {
+      if (!project || project.project_id !== Instance.project.id) {
         return c.json({ success: false, message: `research project not found: ${researchProjectId}` }, 404)
       }
 
@@ -1364,10 +1364,21 @@ export const ResearchRoutes = new Hono()
       if (!atom) {
         return c.json({ success: false, message: `atom not found: ${atomId}` }, 404)
       }
+      const project = Database.use((db) =>
+        db
+          .select({ id: ResearchProjectTable.project_id })
+          .from(ResearchProjectTable)
+          .where(eq(ResearchProjectTable.research_project_id, atom.research_project_id))
+          .get(),
+      )
+      if (project?.id !== Instance.project.id) {
+        return c.json({ success: false, message: `atom not found: ${atomId}` }, 404)
+      }
 
       if (atom.session_id) {
         const existing = await Session.get(atom.session_id).catch(() => undefined)
         if (existing && !existing.time.archived) {
+          await import("@/research/experiment-agent").then((mod) => mod.ExperimentAgent.atom(atomId))
           return c.json({ session_id: atom.session_id, created: false })
         }
       }
@@ -1381,6 +1392,8 @@ export const ResearchRoutes = new Hono()
           .where(eq(AtomTable.atom_id, atomId))
           .run(),
       )
+
+      await import("@/research/experiment-agent").then((mod) => mod.ExperimentAgent.atom(atomId))
 
       return c.json({ session_id: session.id, created: true })
     },
@@ -1838,6 +1851,16 @@ export const ResearchRoutes = new Hono()
       if (!atom) {
         return c.json({ success: false, message: `atom not found: ${body.atomId}` }, 404)
       }
+      const project = Database.use((db) =>
+        db
+          .select({ id: ResearchProjectTable.project_id })
+          .from(ResearchProjectTable)
+          .where(eq(ResearchProjectTable.research_project_id, atom.research_project_id))
+          .get(),
+      )
+      if (project?.id !== Instance.project.id) {
+        return c.json({ success: false, message: `atom not found: ${body.atomId}` }, 404)
+      }
       const expId = uniqueID()
       const session = await Session.create({ title: `Exp: ${body.expName}` })
 
@@ -1906,6 +1929,8 @@ export const ResearchRoutes = new Hono()
       )
 
       ExperimentExecutionWatch.createOrGet(expId, `${body.expName} for ${atom.atom_name}`, "pending")
+      await import("@/research/experiment-agent").then((mod) => mod.ExperimentAgent.attach(expId))
+      Bus.publish(Research.Event.AtomsUpdated, { researchProjectId: atom.research_project_id })
 
       return c.json({
         exp_id: expId,
@@ -1954,25 +1979,37 @@ export const ResearchRoutes = new Hono()
       if (!experiment) {
         return c.json({ success: false, message: `experiment not found: ${expId}` }, 404)
       }
+      const project = Database.use((db) =>
+        db
+          .select({ id: ResearchProjectTable.project_id })
+          .from(ResearchProjectTable)
+          .where(eq(ResearchProjectTable.research_project_id, experiment.research_project_id))
+          .get(),
+      )
+      if (project?.id !== Instance.project.id) {
+        return c.json({ success: false, message: `experiment not found: ${expId}` }, 404)
+      }
 
       if (experiment.exp_session_id) {
         const existing = await Session.get(experiment.exp_session_id).catch(() => undefined)
         if (existing && !existing.time.archived) {
+          await import("@/research/experiment-agent").then((mod) => mod.ExperimentAgent.attach(expId))
           return c.json({ session_id: experiment.exp_session_id, created: false })
         }
       }
 
-      const session = await Session.create({ title: `Exp: ${experiment.exp_name}` })
-
-      Database.use((db) =>
-        db
-          .update(ExperimentTable)
-          .set({ exp_session_id: session.id, time_updated: Date.now() })
-          .where(eq(ExperimentTable.exp_id, expId))
-          .run(),
+      const attached = await import("@/research/experiment-agent").then((mod) => mod.ExperimentAgent.attach(expId))
+      const updated = Database.use((db) =>
+        db.select().from(ExperimentTable).where(eq(ExperimentTable.exp_id, expId)).get(),
       )
-
-      return c.json({ session_id: session.id, created: true })
+      if (!updated?.exp_session_id) {
+        return c.json({ success: false, message: `failed to create session for experiment: ${expId}` }, 404)
+      }
+      const ready = await Session.get(updated.exp_session_id).catch(() => undefined)
+      if (!ready || ready.time.archived) {
+        return c.json({ success: false, message: attached.reason ?? `experiment session is unavailable: ${expId}` }, 400)
+      }
+      return c.json({ session_id: updated.exp_session_id, created: updated.exp_session_id !== experiment.exp_session_id })
     },
   )
   .post(

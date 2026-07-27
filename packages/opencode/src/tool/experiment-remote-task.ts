@@ -14,6 +14,7 @@ import {
 } from "@/research/remote-task-runner"
 import { normalizeRemoteServerConfig, remoteServerLabel } from "@/research/remote-server"
 import { Database, eq } from "@/storage/db"
+import { SessionOwnership } from "@/session/ownership"
 
 const kind = z.enum(["resource_download", "experiment_run", "env_setup"])
 
@@ -187,7 +188,11 @@ export const ExperimentRemoteTaskGetTool = Tool.define("experiment_remote_task_g
         subagentType: ctx.agent,
         spec: { initialPrompt: "" },
       })
-      const registered = ExperimentRemoteTaskListener.register({ taskId: task.task_id, agentId: node.id })
+      const registered = ExperimentRemoteTaskListener.register({
+        taskId: task.task_id,
+        agentId: node.id,
+        mode: SessionOwnership.current(ctx.sessionID) === "human" ? "direct" : "collab",
+      })
       task = registered.task
       listening = registered.listening
       duplicate = registered.duplicate

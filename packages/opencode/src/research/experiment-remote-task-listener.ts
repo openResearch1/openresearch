@@ -9,7 +9,7 @@ type Task = typeof RemoteTaskTable.$inferSelect
 const terminal = new Set<Task["status"]>(["finished", "failed", "crashed", "canceled"])
 
 export namespace ExperimentRemoteTaskListener {
-  export function register(input: { taskId: string; agentId: string }) {
+  export function register(input: { taskId: string; agentId: string; mode: "direct" | "collab" }) {
     return Database.transaction((tx) => {
       const task = tx.select().from(RemoteTaskTable).where(eq(RemoteTaskTable.task_id, input.taskId)).get()
       if (!task) throw new Error(`remote task not found: ${input.taskId}`)
@@ -29,18 +29,28 @@ export namespace ExperimentRemoteTaskListener {
 
       const now = Date.now()
       tx.insert(RemoteTaskListenerTable)
-        .values({ task_id: input.taskId, agent_id: input.agentId, time_created: now, time_updated: now })
+        .values({
+          task_id: input.taskId,
+          agent_id: input.agentId,
+          mode: input.mode,
+          time_created: now,
+          time_updated: now,
+        })
         .run()
       return { listening: true as const, duplicate: false, task }
     })
   }
 
-  export function has(agentId: string) {
+  export function has(agentId: string, mode?: "direct" | "collab") {
     return Database.use((db) =>
       db
         .select({ task_id: RemoteTaskListenerTable.task_id })
         .from(RemoteTaskListenerTable)
-        .where(eq(RemoteTaskListenerTable.agent_id, agentId))
+        .where(
+          mode
+            ? and(eq(RemoteTaskListenerTable.agent_id, agentId), eq(RemoteTaskListenerTable.mode, mode))
+            : eq(RemoteTaskListenerTable.agent_id, agentId),
+        )
         .limit(1)
         .get(),
     )
@@ -64,7 +74,7 @@ export namespace ExperimentRemoteTaskListener {
       CollabMessage.post({
         recipientAgentId: listener.agent_id,
         senderAgentId: null,
-        kind: "remote_task_terminal",
+        kind: listener.mode === "direct" ? "session_remote_task_terminal" : "remote_task_terminal",
         payload,
       })
       Database.use((db) =>

@@ -4496,9 +4496,9 @@ export class Active extends HeyApiClient {
 
 export class PeerSessions extends HeyApiClient {
   /**
-   * List session ids of all Collab peer agents (non-root) in current project
+   * List session ids of spawned Collab peer agents in current project
    *
-   * Returns the set of session ids that belong to peer (non-root) Collab agents. Used by the UI sidebar to hide peer sessions from the flat session list — they are only ever reached via the parent agent's dock.
+   * Returns session ids explicitly marked as spawned Collab peers. Domain-owned Atom and Experiment sessions remain visible in the research tree.
    */
   public list<ThrowOnError extends boolean = false>(
     parameters?: {
@@ -4609,6 +4609,7 @@ export class Agent extends HeyApiClient {
         | "child_waiting"
         | "child_progress"
         | "remote_task_terminal"
+        | "session_remote_task_terminal"
         | "cancel"
         | "user_input"
         | "system"

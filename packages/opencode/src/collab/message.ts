@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, sql } from "drizzle-orm"
+import { and, asc, eq, inArray, ne, sql } from "drizzle-orm"
 import { Database } from "@/storage/db"
 import { Bus } from "@/bus"
 import { Identifier } from "@/id/id"
@@ -124,14 +124,22 @@ export namespace CollabMessage {
     return id
   }
 
-  export function drain(agentId: string): Row[] {
+  export function drain(agentId: string, mode: "collab" | "direct" = "collab"): Row[] {
     const consumedAt = Date.now()
 
     return Database.transaction((tx) => {
       const rows = tx
         .select()
         .from(CollabMessageTable)
-        .where(and(eq(CollabMessageTable.recipient_agent_id, agentId), eq(CollabMessageTable.status, "pending")))
+        .where(
+          and(
+            eq(CollabMessageTable.recipient_agent_id, agentId),
+            eq(CollabMessageTable.status, "pending"),
+            mode === "direct"
+              ? eq(CollabMessageTable.kind, "session_remote_task_terminal")
+              : ne(CollabMessageTable.kind, "session_remote_task_terminal"),
+          ),
+        )
         .orderBy(asc(CollabMessageTable.id))
         .limit(DRAIN_BATCH)
         .all()
@@ -192,6 +200,41 @@ export namespace CollabMessage {
     })
   }
 
+  export function hasPendingKind(agentId: string, kind: CollabMsgKind): boolean {
+    return Database.use((db) => {
+      const row = db
+        .select({ id: CollabMessageTable.id })
+        .from(CollabMessageTable)
+        .where(
+          and(
+            eq(CollabMessageTable.recipient_agent_id, agentId),
+            eq(CollabMessageTable.status, "pending"),
+            eq(CollabMessageTable.kind, kind),
+          ),
+        )
+        .limit(1)
+        .get()
+      return !!row
+    })
+  }
+
+  export function direct(projectId: string) {
+    return Database.use((db) =>
+      db
+        .selectDistinct({ agentId: CollabMessageTable.recipient_agent_id })
+        .from(CollabMessageTable)
+        .innerJoin(CollabAgentTable, eq(CollabAgentTable.id, CollabMessageTable.recipient_agent_id))
+        .where(
+          and(
+            eq(CollabAgentTable.project_id, projectId),
+            eq(CollabMessageTable.status, "pending"),
+            eq(CollabMessageTable.kind, "session_remote_task_terminal"),
+          ),
+        )
+        .all(),
+    )
+  }
+
   export function pendingWakeKinds(agentId: string): Set<CollabMsgKind> {
     return Database.use((db) => {
       const rows = db
@@ -214,9 +257,33 @@ export namespace CollabMessage {
     Database.use((db) => {
       db.update(CollabMessageTable)
         .set({ status: "dropped", time_updated: now })
-        .where(and(eq(CollabMessageTable.recipient_agent_id, agentId), eq(CollabMessageTable.status, "pending")))
+        .where(
+          and(
+            eq(CollabMessageTable.recipient_agent_id, agentId),
+            eq(CollabMessageTable.status, "pending"),
+            ne(CollabMessageTable.kind, "session_remote_task_terminal"),
+          ),
+        )
         .run()
     })
+  }
+
+  export function retry(ids: string[]) {
+    if (!ids.length) return
+    const now = Date.now()
+    return Database.use((db) =>
+      db
+        .update(CollabMessageTable)
+        .set({ status: "pending", time_consumed: null, time_updated: now })
+        .where(
+          and(
+            inArray(CollabMessageTable.id, ids),
+            eq(CollabMessageTable.kind, "session_remote_task_terminal"),
+            eq(CollabMessageTable.status, "consumed"),
+          ),
+        )
+        .run(),
+    )
   }
 
   export function list(agentId: string, opts?: { kind?: CollabMsgKind; limit?: number }) {

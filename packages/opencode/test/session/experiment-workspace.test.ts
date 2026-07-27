@@ -18,6 +18,7 @@ describe("session.experiment-workspace", () => {
         const root = Identifier.descending("session")
         const child = Identifier.descending("session")
         const peer = Identifier.descending("session")
+        const nested = Identifier.descending("session")
         const research = crypto.randomUUID()
         const exp = crypto.randomUUID()
         const code = path.join(tmp.path, ".openresearch_worktrees", exp)
@@ -54,6 +55,17 @@ describe("session.experiment-workspace", () => {
                 slug: "peer",
                 directory: tmp.path,
                 title: "peer",
+                version: "test",
+                time_created: now,
+                time_updated: now,
+              },
+              {
+                id: nested,
+                project_id: Instance.project.id,
+                parent_id: peer,
+                slug: "nested-task",
+                directory: tmp.path,
+                title: "nested task",
                 version: "test",
                 time_created: now,
                 time_updated: now,
@@ -107,6 +119,7 @@ describe("session.experiment-workspace", () => {
         expect(ExperimentWorkspace.prompt(root)).toBe(expected)
         expect(ExperimentWorkspace.prompt(child)).toBe(expected)
         expect(ExperimentWorkspace.prompt(peer)).toBe(expected)
+        expect(ExperimentWorkspace.prompt(nested)).toBe(expected)
         expect(expected.split("\n")).toHaveLength(1)
       },
     })

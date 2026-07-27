@@ -81,6 +81,12 @@ const STRUCTURED_OUTPUT_SYSTEM_PROMPT = `IMPORTANT: The user has requested struc
 export namespace SessionPrompt {
   const log = Log.create({ service: "session.prompt" })
 
+  export class ModelUnavailableError extends Error {
+    constructor() {
+      super("No available model can resume this session. The agent remains recoverable and can be resumed later.")
+    }
+  }
+
   const state = Instance.state(
     () => {
       const data: Record<
@@ -876,11 +882,50 @@ export namespace SessionPrompt {
     throw new Error("Impossible")
   })
 
-  async function lastModel(sessionID: string) {
+  async function recentModel(sessionID: string) {
     for await (const item of MessageV2.stream(sessionID)) {
       if (item.info.role === "user" && item.info.model) return item.info.model
     }
-    return Provider.defaultModel()
+  }
+
+  async function lastModel(sessionID: string) {
+    return (await recentModel(sessionID)) ?? Provider.defaultModel()
+  }
+
+  export async function resolveModel(input: {
+    sessionID: string
+    agent: string
+    preferred?: { providerID: string; modelID: string }
+    fallback?: { providerID: string; modelID: string }
+  }) {
+    const agent = await Agent.get(input.agent)
+    const candidates = [input.preferred, agent?.model, await recentModel(input.sessionID), input.fallback]
+    candidates.push(await Provider.defaultModel().catch(() => undefined))
+    const providers = await Provider.list()
+    candidates.push(
+      ...Object.values(providers).flatMap((provider) =>
+        Provider.sort(Object.values(provider.models)).map((model) => ({
+          providerID: model.providerID,
+          modelID: model.id,
+        })),
+      ),
+    )
+
+    const seen = new Set<string>()
+    for (const candidate of candidates) {
+      if (!candidate) continue
+      const key = `${candidate.providerID}/${candidate.modelID}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      const valid = await Provider.getModel(candidate.providerID, candidate.modelID)
+        .then(() => true)
+        .catch((err) => {
+          if (Provider.ModelNotFoundError.isInstance(err)) return false
+          throw err
+        })
+      if (valid) return candidate
+    }
+    throw new ModelUnavailableError()
   }
 
   /** @internal Exported for testing */

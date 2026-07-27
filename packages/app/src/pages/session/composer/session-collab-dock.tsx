@@ -31,9 +31,10 @@ const STATUS_ORDER: Record<string, number> = {
   pending: 1,
   waiting_interaction: 2,
   blocked_on_children: 3,
-  completed: 4,
-  canceled: 5,
-  failed: 6,
+  idle: 4,
+  completed: 5,
+  canceled: 6,
+  failed: 7,
 }
 
 function badge(kind: Badge, labels: { running: string; blocked: string; pending: string }) {

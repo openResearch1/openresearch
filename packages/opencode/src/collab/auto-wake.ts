@@ -1,8 +1,10 @@
 import { Bus } from "@/bus"
 import { Instance } from "@/project/instance"
 import { Log } from "@/util/log"
+import { Session } from "@/session"
 import { SessionPrompt } from "@/session/prompt"
 import { SessionStatus } from "@/session/status"
+import { SessionOwnership } from "@/session/ownership"
 import { CollabAgentNode } from "./agent-node"
 import { CollabMessage } from "./message"
 import { CollabSupervisor } from "./supervisor"
@@ -58,6 +60,12 @@ export namespace CollabAutoWake {
       const unsubMsg = Bus.subscribe(CollabEvent.MessagePosted, (e) => {
         if (!enabled) return
         const { recipientAgentId, kind } = e.properties
+        if (kind === "session_remote_task_terminal") {
+          void tryDriveDirectById(recipientAgentId, inflight).catch((err) =>
+            log.error("onDirectMessagePosted", { recipientAgentId, error: String(err) }),
+          )
+          return
+        }
         if (!(WAKE_MESSAGE_KINDS as readonly string[]).includes(kind)) return
         void tryDriveById(recipientAgentId, inflight).catch((err) =>
           log.error("onMessagePosted", { recipientAgentId, error: String(err) }),
@@ -72,6 +80,13 @@ export namespace CollabAutoWake {
         )
       })
 
+      const unsubAgent = Bus.subscribe(CollabEvent.AgentStatus, (e) => {
+        if (!enabled) return
+        void tryDriveDirectById(e.properties.agentId, inflight).catch((err) =>
+          log.error("onAgentStatus", { agentId: e.properties.agentId, error: String(err) }),
+        )
+      })
+
       // also scan existing idle roots on startup
       queueMicrotask(() => {
         if (!enabled) return
@@ -82,11 +97,12 @@ export namespace CollabAutoWake {
         }
       })
 
-      return { inflight, unsubMsg, unsubIdle }
+      return { inflight, unsubMsg, unsubIdle, unsubAgent }
     },
     async (s) => {
       s.unsubMsg()
       s.unsubIdle()
+      s.unsubAgent()
       s.inflight.clear()
     },
   )
@@ -111,21 +127,46 @@ export namespace CollabAutoWake {
 
   function scanExistingRoots(inflight: Set<string>) {
     const project = Instance.project
+    for (const row of CollabMessage.direct(project.id)) {
+      void tryDriveDirectById(row.agentId, inflight).catch((err) =>
+        log.error("initialScan.direct", { id: row.agentId, error: String(err) }),
+      )
+    }
     const active = CollabAgentNode.loadActiveByProject(project.id)
     for (const node of active) {
-      if (node.parent_agent_id) {
-        maybeStartLoop(node)
-        continue
-      }
-      void maybeWakeOrBlock(node, inflight).catch((err) =>
+      void tryDriveById(node.id, inflight).catch((err) =>
         log.error("initialScan.node", { id: node.id, error: String(err) }),
       )
     }
   }
 
-  async function tryDriveById(agentId: string, inflight: Set<string>) {
-    const node = CollabAgentNode.tryLoad(agentId)
-    if (!node) return
+  async function route(
+    node: AgentInfo,
+    inflight: Set<string>,
+    drive: (fresh: AgentInfo, current: Set<string>) => void | Promise<void>,
+  ) {
+    const session = await Session.get(node.session_id)
+    if (session.directory === Instance.directory) return drive(node, inflight)
+    return Instance.provide({
+      directory: session.directory,
+      init: async () => {
+        const { InstanceBootstrap } = await import("@/project/bootstrap")
+        await InstanceBootstrap()
+      },
+      async fn() {
+        ensure()
+        const fresh = CollabAgentNode.tryLoad(node.id)
+        if (!fresh) return
+        await drive(fresh, state().inflight)
+      },
+    })
+  }
+
+  async function driveNode(node: AgentInfo, inflight: Set<string>) {
+    if (CollabMessage.hasPendingKind(node.id, "session_remote_task_terminal")) {
+      await maybeDriveDirect(node, inflight)
+      return
+    }
     if (!CollabAgentNode.isActive(node.status)) return
     if (node.parent_agent_id) {
       maybeStartLoop(node)
@@ -134,15 +175,65 @@ export namespace CollabAutoWake {
     await maybeWakeOrBlock(node, inflight)
   }
 
+  async function tryDriveById(agentId: string, inflight: Set<string>) {
+    const node = CollabAgentNode.tryLoad(agentId)
+    if (!node) return
+    await route(node, inflight, driveNode)
+  }
+
   async function tryDriveBySession(sessionID: string, inflight: Set<string>) {
     const node = CollabAgentNode.loadBySessionId(sessionID)
     if (!node) return
-    if (!CollabAgentNode.isActive(node.status)) return
-    if (node.parent_agent_id) {
-      maybeStartLoop(node)
+    await route(node, inflight, driveNode)
+  }
+
+  async function tryDriveDirectById(agentId: string, inflight: Set<string>) {
+    const node = CollabAgentNode.tryLoad(agentId)
+    if (!node) return
+    await route(node, inflight, maybeDriveDirect)
+  }
+
+  async function maybeDriveDirect(node: AgentInfo, inflight: Set<string>) {
+    if (inflight.has(node.session_id)) return
+    if (SessionStatus.get(node.session_id).type === "busy") return
+    if (!CollabMessage.hasPendingKind(node.id, "session_remote_task_terminal")) return
+
+    const release = SessionOwnership.claim(node.session_id, "human")
+    if (!release) return
+    inflight.add(node.session_id)
+    try {
+      for (let i = 0; i < MAX_DRIVE_ITERATIONS; i++) {
+        if (SessionStatus.get(node.session_id).type === "busy") return
+        if (!CollabMessage.hasPendingKind(node.id, "session_remote_task_terminal")) return
+        await driveDirect(node.id)
+      }
+      log.warn("maybeDriveDirect hit MAX_DRIVE_ITERATIONS cap", { agentId: node.id })
+    } finally {
+      inflight.delete(node.session_id)
+      release()
+    }
+  }
+
+  async function driveDirect(agentId: string) {
+    if (driveTurnOverride) {
+      await driveTurnOverride(agentId)
       return
     }
-    await maybeWakeOrBlock(node, inflight)
+    const node = CollabAgentNode.load(agentId)
+    const msgs = CollabMessage.drain(agentId, "direct")
+    const parts = msgs.map((msg) => buildRemoteTaskTerminalPart(msg.payload_json as RemoteTaskTerminalPayload))
+    if (!parts.length) return
+    try {
+      await SessionPrompt.prompt({
+        sessionID: node.session_id,
+        agent: node.subagent_type,
+        model: node.spec.model,
+        parts: finalizeParts(parts),
+      })
+    } catch (err) {
+      CollabMessage.retry(msgs.map((msg) => msg.id))
+      throw err
+    }
   }
 
   function maybeStartLoop(node: AgentInfo) {

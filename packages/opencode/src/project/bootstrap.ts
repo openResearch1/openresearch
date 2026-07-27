@@ -34,9 +34,13 @@ export async function InstanceBootstrap() {
   // mounts CollabProgressHook / CollabAutoWake synchronously up front, then
   // kicks off each zombie's loop in the background — run it detached so a slow
   // per-agent restart doesn't stall project bootstrap.
-  void CollabRecovery.scan().catch((err) => {
-    Log.Default.error("collab recovery failed", { error: err })
-  })
+  const { ExperimentAgent } = await import("../research/experiment-agent")
+  ExperimentAgent.ensure()
+  void CollabRecovery.scan()
+    .then(() => ExperimentAgent.scan())
+    .catch((err) => {
+      Log.Default.error("collab recovery failed", { error: err })
+    })
 
   Bus.subscribe(Command.Event.Executed, async (payload) => {
     if (payload.properties.name === Command.Default.INIT) {

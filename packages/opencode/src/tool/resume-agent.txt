@@ -1,12 +1,12 @@
 Continue a peer agent with a new instruction.
 
-Use this when a peer is running, blocked, waiting for your input (`child_waiting`), or when you want a finished peer to continue working on something. The peer continues in its original session (full history preserved), consumes your prompt as its next user message, and posts `child_done` to your inbox when finished.
+Use this when a peer is idle, running, blocked, waiting for your input (`child_waiting`), or when you want a finished peer to continue working on something. The peer continues in its original session (full history preserved), consumes your prompt as its next user message, and posts `child_done` to your inbox when finished.
 
 Rules:
 - If the target is busy, the instruction is queued and consumed after the current turn finishes.
-- If the target is active but idle, the instruction wakes it for a new turn.
-- Your own collab agent must still be active — you cannot resume a peer from a session that has itself finalized (the result would have no one to route back to).
-- The peer runs with its original agent type / model / policy. If you want a different configuration, `spawn_agent` a new peer instead.
+- If the target is `idle`, the instruction starts a parent-owned turn and wakes it.
+- Experiment agents are always recovered in their original session. A missing or finalized Atom parent is repaired before resume; do not spawn a replacement Experiment agent.
+- The peer keeps its original agent type and history. If its previous model is unavailable, the framework uses the current Atom model and persists that replacement for later turns.
 
 Parameters:
 - agent_id: the target peer's id (get from `child_waiting`, `child_done`, `list_children`, or the session's collab agent record).

@@ -9,9 +9,11 @@ type Props = {
 }
 
 const STATUS_COLOR: Record<string, string> = {
+  idle: "#888",
   pending: "#888",
   running: "#3b82f6",
   blocked_on_children: "#d4a017",
+  waiting_interaction: "#d4a017",
   completed: "#2ea043",
   failed: "#da3633",
   canceled: "#6b7280",
