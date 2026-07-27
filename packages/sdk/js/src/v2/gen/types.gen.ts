@@ -764,7 +764,15 @@ export type CollabAgent = {
   project_id: string
   root_agent_id: string
   subagent_type: string
-  status: "pending" | "running" | "blocked_on_children" | "waiting_interaction" | "completed" | "failed" | "canceled"
+  status:
+    | "idle"
+    | "pending"
+    | "running"
+    | "blocked_on_children"
+    | "waiting_interaction"
+    | "completed"
+    | "failed"
+    | "canceled"
   phase: "main_loop" | "awaiting_children" | "draining"
   spec: CollabAgentSpec
   result: CollabAgentResult | null
@@ -789,7 +797,15 @@ export type EventCollabAgentStatus = {
   properties: {
     agentId: string
     rootAgentId: string
-    status: "pending" | "running" | "blocked_on_children" | "waiting_interaction" | "completed" | "failed" | "canceled"
+    status:
+      | "idle"
+      | "pending"
+      | "running"
+      | "blocked_on_children"
+      | "waiting_interaction"
+      | "completed"
+      | "failed"
+      | "canceled"
     phase: "main_loop" | "awaiting_children" | "draining"
     active_children: number
   }
@@ -826,6 +842,7 @@ export type EventCollabMessagePosted = {
       | "child_waiting"
       | "child_progress"
       | "remote_task_terminal"
+      | "session_remote_task_terminal"
       | "cancel"
       | "user_input"
       | "system"
@@ -843,6 +860,7 @@ export type EventCollabMessageConsumed = {
       | "child_waiting"
       | "child_progress"
       | "remote_task_terminal"
+      | "session_remote_task_terminal"
       | "cancel"
       | "user_input"
       | "system"
@@ -2077,6 +2095,7 @@ export type CollabMessage = {
     | "child_waiting"
     | "child_progress"
     | "remote_task_terminal"
+    | "session_remote_task_terminal"
     | "cancel"
     | "user_input"
     | "system"
@@ -6560,6 +6579,7 @@ export type CollabAgentMessagesData = {
       | "child_waiting"
       | "child_progress"
       | "remote_task_terminal"
+      | "session_remote_task_terminal"
       | "cancel"
       | "user_input"
       | "system"

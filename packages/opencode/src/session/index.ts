@@ -399,13 +399,13 @@ export namespace Session {
   export const setArchived = fn(
     z.object({
       sessionID: Identifier.schema("session"),
-      time: z.number().optional(),
+      time: z.number().nullable().optional(),
     }),
     async (input) => {
       return Database.use((db) => {
         const row = db
           .update(SessionTable)
-          .set({ time_archived: input.time })
+          .set({ time_archived: input.time ?? null })
           .where(eq(SessionTable.id, input.sessionID))
           .returning()
           .get()
@@ -660,12 +660,45 @@ export namespace Session {
     return rows.map(fromRow)
   })
 
-  export const remove = fn(Identifier.schema("session"), async (sessionID) => {
+  export const remove = fn(Identifier.schema("session"), async (sessionID) => removeNext(sessionID, new Set()))
+
+  async function removeNext(sessionID: string, removing: Set<string>) {
     const project = Instance.project
     try {
+      if (removing.has(sessionID)) return
+      removing.add(sessionID)
       const session = await get(sessionID)
       for (const child of await children(sessionID)) {
-        await remove(child.id)
+        await removeNext(child.id, removing)
+      }
+      const { CollabAgentNode } = await import("@/collab/agent-node")
+      const agent = CollabAgentNode.loadBySessionId(sessionID)
+      if (agent) {
+        for (const child of CollabAgentNode.loadChildren(agent.id)) {
+          const info = await get(child.session_id).catch(() => undefined)
+          if (info?.collabPeer) {
+            await removeNext(child.session_id, removing)
+            continue
+          }
+          CollabAgentNode.detach(child.id)
+        }
+        const parent = agent.parent_agent_id ? CollabAgentNode.tryLoad(agent.parent_agent_id) : undefined
+        const report = !!parent && CollabAgentNode.isActive(agent.status) && !removing.has(parent.session_id)
+        if (report) {
+          const { CollabMessage } = await import("@/collab/message")
+          await CollabMessage.post({
+            recipientAgentId: parent.id,
+            senderAgentId: agent.id,
+            kind: "child_failed",
+            payload: {
+              childAgentId: agent.id,
+              childName: agent.name,
+              reason: "canceled",
+              message: "Agent session was deleted",
+            },
+          })
+        }
+        CollabAgentNode.drop(agent.id, report)
       }
       await unshare(sessionID).catch(() => {})
       // CASCADE delete handles messages and parts automatically
@@ -680,7 +713,7 @@ export namespace Session {
     } catch (e) {
       log.error(e)
     }
-  })
+  }
 
   export const updateMessage = fn(MessageV2.Info, async (msg) => {
     const time_created = msg.time.created

@@ -12,6 +12,7 @@ export const RemoteTaskListenerTable = sqliteTable(
     agent_id: text()
       .notNull()
       .references(() => CollabAgentTable.id, { onDelete: "cascade" }),
+    mode: text().$type<"direct" | "collab">().notNull().default("collab"),
     ...Timestamps,
   },
   (table) => [

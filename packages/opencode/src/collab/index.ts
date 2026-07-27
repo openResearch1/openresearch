@@ -8,6 +8,7 @@ import { Bus } from "@/bus"
 import { NotFoundError } from "@/storage/db"
 import { PermissionNext } from "@/permission/next"
 import { SessionStatus } from "@/session/status"
+import { SessionOwnership } from "@/session/ownership"
 import { CollabAgentNode } from "./agent-node"
 import { CollabMessage } from "./message"
 import { CollabLoop } from "./loop"
@@ -161,14 +162,31 @@ export namespace Collab {
    * consuming the new prompt. Waiting agents remain active children; terminal
    * agents are re-counted as active before their additional turn.
    */
-  export async function resume(input: { agentId: string; prompt: string }): Promise<AgentInfo> {
+  export async function resume(input: {
+    agentId: string
+    prompt: string
+    model?: { providerID: string; modelID: string }
+  }): Promise<AgentInfo> {
     CollabProgressHook.ensure()
     CollabAutoWake.ensure()
 
-    const node = CollabAgentNode.tryLoad(input.agentId)
+    let node = CollabAgentNode.tryLoad(input.agentId)
     if (!node) throw new NotFoundError({ message: `Agent not found: ${input.agentId}` })
+    node =
+      (await import("@/research/experiment-agent").then((mod) => mod.ExperimentAgent.recover(input.agentId))) ?? node
+    if (
+      ExperimentRemoteTaskListener.has(node.id, "direct") ||
+      CollabMessage.hasPendingKind(node.id, "session_remote_task_terminal")
+    ) {
+      throw new Error(`Cannot resume agent ${node.id}: its human session is waiting for a remote task update.`)
+    }
 
     const waiting = node.status === "waiting_interaction"
+
+    if (!SessionOwnership.available(node.session_id, "collab")) throw new Session.BusyError(node.session_id)
+    if (!CollabAgentNode.isActive(node.status) && SessionStatus.get(node.session_id).type === "busy") {
+      throw new Session.BusyError(node.session_id)
+    }
 
     // If the parent has also finalized, resuming would orphan the child —
     // no one to receive `child_done`. Refuse.
@@ -186,7 +204,7 @@ export namespace Collab {
         recipientAgentId: node.id,
         senderAgentId: null,
         kind: "user_input",
-        payload: { text: input.prompt },
+        payload: { text: input.prompt, model: input.model },
       })
 
       if (SessionStatus.get(node.session_id).type !== "busy" && !CollabRuntime.has(node.id)) {
@@ -205,13 +223,10 @@ export namespace Collab {
     // 1) Transition child back to running; clear prior error but keep result
     //    history. 2) Re-bump parent's active_children only for terminal
     //    resumes. Waiting children never left the active count.
-    CollabAgentNode.transition(node.id, "running", {
-      phase: "main_loop",
-      error: null,
-      timeEnded: null,
-    })
-    if (node.parent_agent_id && !waiting) {
-      CollabAgentNode.bumpActiveChildren(node.parent_agent_id, 1)
+    if (waiting) {
+      CollabAgentNode.transition(node.id, "running", { phase: "main_loop" })
+    } else {
+      CollabAgentNode.activate(node.id)
     }
 
     // Post the instruction into its inbox BEFORE starting the loop, so the
@@ -221,7 +236,7 @@ export namespace Collab {
       recipientAgentId: node.id,
       senderAgentId: null,
       kind: "user_input",
-      payload: { text: input.prompt },
+      payload: { text: input.prompt, model: input.model },
     })
 
     void CollabLoop.start(node.id)
@@ -295,7 +310,7 @@ export namespace Collab {
       ),
       hasWaitingChildren: children.some((child) => child.status === "waiting_interaction"),
       hasPendingWakeMessages: CollabMessage.hasPendingWakeMsg(node.id),
-      hasRemoteTaskListeners: !!ExperimentRemoteTaskListener.has(node.id),
+      hasRemoteTaskListeners: !!ExperimentRemoteTaskListener.has(node.id, "collab"),
     }
   }
 
@@ -377,7 +392,7 @@ export namespace Collab {
       if (!node) return true
       if (!CollabAgentNode.isActive(node.status)) return true
       if (node.active_children > 0) return false
-      if (ExperimentRemoteTaskListener.has(rootAgentId)) return false
+      if (ExperimentRemoteTaskListener.has(rootAgentId, "collab")) return false
       if (CollabMessage.hasPendingWakeMsg(rootAgentId)) return false
       if (SessionStatus.get(sessionId).type !== "idle") return false
       // AutoWake's maybeWakeOrBlock claims the inflight lock before it

@@ -10,6 +10,7 @@ import { git } from "../util/git"
 import { ensureRepoInitialized, GIT_ENV } from "../session/experiment-guard"
 import { ExperimentExecutionWatch } from "../research/experiment-execution-watch"
 import { Session } from "@/session"
+import { Bus } from "@/bus"
 
 export const ExperimentCreateTool = Tool.define("experiment_create", {
   description:
@@ -32,7 +33,7 @@ export const ExperimentCreateTool = Tool.define("experiment_create", {
       return {
         title: "Failed",
         output: "Current session is not associated with any research project.",
-        metadata: { expId: undefined as string | undefined },
+        metadata: { expId: undefined as string | undefined, agentId: undefined as string | undefined },
       }
     }
 
@@ -41,7 +42,14 @@ export const ExperimentCreateTool = Tool.define("experiment_create", {
       return {
         title: "Failed",
         output: `Atom not found: ${params.atomId}`,
-        metadata: { expId: undefined as string | undefined },
+        metadata: { expId: undefined as string | undefined, agentId: undefined as string | undefined },
+      }
+    }
+    if (atom.research_project_id !== researchProjectId) {
+      return {
+        title: "Failed",
+        output: `Atom does not belong to the current research project: ${params.atomId}`,
+        metadata: { expId: undefined as string | undefined, agentId: undefined as string | undefined },
       }
     }
 
@@ -62,7 +70,7 @@ export const ExperimentCreateTool = Tool.define("experiment_create", {
       return {
         title: "Failed",
         output: `Failed to initialise repo at ${params.codePath}: ${initResult.message}`,
-        metadata: { expId: undefined as string | undefined },
+        metadata: { expId: undefined as string | undefined, agentId: undefined as string | undefined },
       }
     }
 
@@ -71,7 +79,7 @@ export const ExperimentCreateTool = Tool.define("experiment_create", {
       return {
         title: "Failed",
         output: `Baseline branch "${params.baselineBranch}" not found at ${params.codePath}`,
-        metadata: { expId: undefined as string | undefined },
+        metadata: { expId: undefined as string | undefined, agentId: undefined as string | undefined },
       }
     }
 
@@ -84,7 +92,7 @@ export const ExperimentCreateTool = Tool.define("experiment_create", {
       return {
         title: "Failed",
         output: `Failed to create worktree for ${expId}: ${createWorktree.stderr?.toString().trim() || "unknown error"}`,
-        metadata: { expId: undefined as string | undefined },
+        metadata: { expId: undefined as string | undefined, agentId: undefined as string | undefined },
       }
     }
 
@@ -113,6 +121,8 @@ export const ExperimentCreateTool = Tool.define("experiment_create", {
     )
 
     ExperimentExecutionWatch.createOrGet(expId, `${params.expName} for ${atom.atom_name}`, "pending")
+    const attached = await import("@/research/experiment-agent").then((mod) => mod.ExperimentAgent.attach(expId))
+    Bus.publish(Research.Event.AtomsUpdated, { researchProjectId })
 
     let remoteServerConfig: string | null = null
     if (params.remoteServerId) {
@@ -129,6 +139,7 @@ export const ExperimentCreateTool = Tool.define("experiment_create", {
         `- Experiment ID: ${expId}`,
         `- Atom: ${atom.atom_name} (${atom.atom_id})`,
         `- Session ID: ${session.id}`,
+        attached.agentId ? `- Agent ID: ${attached.agentId}` : null,
         `- Baseline branch: ${params.baselineBranch}`,
         `- Experiment branch: ${expId}`,
         `- Result path: ${expResultPath}`,
@@ -137,7 +148,7 @@ export const ExperimentCreateTool = Tool.define("experiment_create", {
       ]
         .filter(Boolean)
         .join("\n"),
-      metadata: { expId: expId as string | undefined },
+      metadata: { expId: expId as string | undefined, agentId: attached.agentId },
     }
   },
 })

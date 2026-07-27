@@ -625,7 +625,9 @@ describe("tool.experiment-remote-task lifecycle", () => {
             context,
           )
           expect(again.metadata.duplicate).toBe(true)
-          expect(Database.use((db) => db.select().from(RemoteTaskListenerTable).all())).toHaveLength(1)
+          const listeners = Database.use((db) => db.select().from(RemoteTaskListenerTable).all())
+          expect(listeners).toHaveLength(1)
+          expect(listeners[0].mode).toBe("collab")
           expect(Collab.workflowAsyncState(session.id).hasRemoteTaskListeners).toBe(true)
 
           ExperimentRemoteTask.update({ taskId: started.metadata.taskId, status: "finished", errorMessage: null })
@@ -647,6 +649,55 @@ describe("tool.experiment-remote-task lifecycle", () => {
 
           ExperimentRemoteTask.update({ taskId: started.metadata.taskId, status: "finished" })
           expect(CollabMessage.list(node.id, { kind: "remote_task_terminal" })).toHaveLength(1)
+        } finally {
+          CollabAutoWake.setEnabled(true)
+        }
+      },
+    })
+  })
+
+  test("registers human session listeners in direct mode", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const { Session } = await import("../../src/session")
+        const { Collab, CollabAutoWake } = await import("../../src/collab")
+        const { ExperimentRemoteTaskGetTool, ExperimentRemoteTaskStartTool } = await import(
+          "../../src/tool/experiment-remote-task"
+        )
+        const { SessionOwnership } = await import("../../src/session/ownership")
+        CollabAutoWake.setEnabled(false)
+        try {
+          await seed(tmp.path)
+          const session = await Session.create({ title: "human remote listener" })
+          const context = { ...ctx, sessionID: session.id }
+          const start = await ExperimentRemoteTaskStartTool.init()
+          const started = await start.execute(
+            {
+              expId: "exp-1",
+              kind: "experiment_run",
+              title: "Train model",
+              remoteRoot: "/mnt/zhouzih",
+              command: "python train.py",
+              targetPath: null,
+            },
+            context,
+          )
+          const release = SessionOwnership.claim(session.id, "human")!
+          try {
+            const get = await ExperimentRemoteTaskGetTool.init()
+            await get.execute(
+              { expId: "exp-1", taskId: started.metadata.taskId, listenForTerminal: true },
+              context,
+            )
+          } finally {
+            release()
+          }
+
+          const listener = Database.use((db) => db.select().from(RemoteTaskListenerTable).get())
+          expect(listener?.mode).toBe("direct")
+          expect(Collab.workflowAsyncState(session.id).hasRemoteTaskListeners).toBe(false)
         } finally {
           CollabAutoWake.setEnabled(true)
         }

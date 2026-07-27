@@ -10,9 +10,11 @@ type Props = {
 }
 
 const STATUS_COLOR: Record<string, string> = {
+  idle: "var(--sl-color-text-secondary, #888)",
   pending: "var(--sl-color-text-secondary, #888)",
   running: "var(--sl-color-green, #2ea043)",
   blocked_on_children: "var(--sl-color-yellow, #d4a017)",
+  waiting_interaction: "var(--sl-color-yellow, #d4a017)",
   completed: "var(--sl-color-blue, #3b82f6)",
   failed: "var(--sl-color-red, #da3633)",
   canceled: "var(--sl-color-gray, #6b7280)",

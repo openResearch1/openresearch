@@ -1,0 +1,1 @@
+ALTER TABLE `remote_task_listener` ADD `mode` text DEFAULT 'collab' NOT NULL;

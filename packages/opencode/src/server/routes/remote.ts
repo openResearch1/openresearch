@@ -99,7 +99,8 @@ function auth(token: string) {
     const value = header || query || cookie
     if (value !== token) return c.text("Unauthorized", 401)
     c.req.raw.headers.set("x-opencode-remote-authenticated", "true")
-    if (query === token) c.header("Set-Cookie", `${COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax`)
+    if (query === token)
+      c.header("Set-Cookie", `${COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax`)
     await next()
   }
 }
@@ -894,15 +895,22 @@ function createRemoteRoutes(opts: { expose: boolean }): Hono {
             return Instance.provide({
               directory: session.directory,
               async fn() {
+                let release: (() => void) | undefined
                 try {
+                  release = await import("@/research/experiment-agent").then((mod) =>
+                    mod.ExperimentAgent.claimHuman(sessionID),
+                  )
                   SessionPrompt.assertNotBusy(sessionID)
                 } catch (err) {
+                  release?.()
                   return { sessionID, ok: false, message: message(err) }
                 }
                 void SessionPrompt.prompt({
                   sessionID,
                   parts: [{ type: "text", text: body.text }],
-                }).catch(() => undefined)
+                })
+                  .catch(() => undefined)
+                  .finally(release)
                 return { sessionID, ok: true, message: "accepted" }
               },
             })

@@ -25,7 +25,7 @@ If you need a child's actual output, call `read_agent_output(agent_id)` on that 
 
 For each direct child:
 - `agent_id`, `name`, `subagent_type`
-- `status`: `pending` | `running` | `blocked_on_children` | `completed` | `failed` | `canceled`
+- `status`: `idle` | `pending` | `running` | `blocked_on_children` | `waiting_interaction` | `completed` | `failed` | `canceled`
 - `active_children`: how many grand-children are still running
 - `spawned_at`, `ended_at`
 

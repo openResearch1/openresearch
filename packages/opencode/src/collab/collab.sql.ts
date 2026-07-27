@@ -4,6 +4,7 @@ import { ProjectTable } from "../project/project.sql"
 import { Timestamps } from "@/storage/schema.sql"
 
 export const collabAgentStatuses = [
+  "idle",
   "pending",
   "running",
   "blocked_on_children",
@@ -23,6 +24,7 @@ export const collabMsgKinds = [
   "child_waiting",
   "child_progress",
   "remote_task_terminal",
+  "session_remote_task_terminal",
   "cancel",
   "user_input",
   "system",

@@ -1,8 +1,11 @@
 import { Bus } from "@/bus"
+import { GlobalBus } from "@/bus/global"
 import { Log } from "@/util/log"
+import { Instance } from "@/project/instance"
 import { Session } from "@/session"
 import { SessionPrompt } from "@/session/prompt"
 import { MessageV2 } from "@/session/message-v2"
+import { Provider } from "@/provider/provider"
 import { Workflow } from "@/workflow"
 import { ExperimentRemoteTaskListener } from "@/research/experiment-remote-task-listener"
 import { CollabAgentNode } from "./agent-node"
@@ -34,16 +37,36 @@ import type {
 
 export namespace CollabLoop {
   const log = Log.create({ service: "collab.loop" })
+  const waiters = new Map<string, Set<() => void>>()
 
-  export function start(agentId: string): Promise<void> {
+  GlobalBus.on("event", (e) => {
+    if (e.payload.type !== CollabEvent.MessagePosted.type) return
+    const props = e.payload.properties as { recipientAgentId?: string; kind?: string }
+    if (!props.recipientAgentId || !isWakeKind(props.kind ?? "")) return
+    for (const wake of [...(waiters.get(props.recipientAgentId) ?? [])]) wake()
+  })
+
+  export async function start(agentId: string): Promise<void> {
+    const node = CollabAgentNode.load(agentId)
+    const session = await Session.get(node.session_id)
+    if (session.directory !== Instance.directory) {
+      return Instance.provide({
+        directory: session.directory,
+        fn: () => start(agentId),
+      })
+    }
     if (CollabRuntime.has(agentId)) {
       log.warn("loop already running", { agentId })
       return CollabRuntime.get(agentId)!.promise
     }
     const abort = new AbortController()
-    const promise = runLoop(agentId, abort.signal).catch((err) => {
+    const promise = runLoop(agentId, abort.signal).catch(async (err) => {
       log.error("loop crashed", { agentId, error: String(err) })
-      void markLoopFailed(agentId, err)
+      if (Provider.ModelNotFoundError.isInstance(err) || err instanceof SessionPrompt.ModelUnavailableError) {
+        await waitForModel(agentId, err)
+        return
+      }
+      await markLoopFailed(agentId, err)
     })
     CollabRuntime.register(agentId, abort, promise)
     return promise
@@ -62,6 +85,31 @@ export namespace CollabLoop {
     } catch (e) {
       log.error("markLoopFailed failed", { agentId, error: String(e) })
     }
+  }
+
+  async function waitForModel(agentId: string, err: unknown) {
+    const node = CollabAgentNode.tryLoad(agentId)
+    if (!node || !CollabAgentNode.isActive(node.status)) return
+    const unavailable = Provider.ModelNotFoundError.isInstance(err)
+      ? `${err.data.providerID}/${err.data.modelID}`
+      : "the configured models"
+    const message = `Model ${unavailable} is unavailable. Resume this same agent after selecting an available model.`
+    if (!node.parent_agent_id) {
+      CollabAgentNode.transition(node.id, "waiting_interaction", { phase: "main_loop" })
+      return
+    }
+    await CollabMessage.postChildWaiting({
+      agentId: node.id,
+      rootAgentId: node.root_agent_id,
+      recipientAgentId: node.parent_agent_id,
+      payload: {
+        childAgentId: node.id,
+        childName: node.name,
+        childSessionId: node.session_id,
+        reason: "model_unavailable",
+        message,
+      },
+    })
   }
 
   async function runLoop(agentId: string, abort: AbortSignal) {
@@ -102,6 +150,7 @@ export namespace CollabLoop {
       const injections: PromptPartDraft[] = []
       const progressMsgs: ChildProgressPayload[] = []
       let failFastTrigger: ChildFailedPayload | undefined
+      let fallback: UserInputPayload["model"]
 
       for (const m of msgs) {
         const payload = m.payload_json as unknown
@@ -138,6 +187,7 @@ export namespace CollabLoop {
           }
           case "user_input": {
             const p = payload as UserInputPayload
+            fallback = p.model ?? fallback
             Workflow.autoResume({
               sessionID: node.session_id,
               userMessageID: p.messageId ?? m.id,
@@ -178,7 +228,7 @@ export namespace CollabLoop {
 
       if (injections.length > 0) {
         if (abort.aborted) return
-        await runPromptTurn(node, { parts: finalizeParts(injections) }, abort)
+        await runPromptTurn(node, { parts: finalizeParts(injections), fallback }, abort)
         if (await pauseIfWorkflowWaiting(agentId, abort)) return
         firstTick = false
         hasRunInitialPrompt = true
@@ -195,7 +245,11 @@ export namespace CollabLoop {
       }
 
       const refreshed = CollabAgentNode.load(agentId)
-      if (refreshed.active_children === 0 && !ExperimentRemoteTaskListener.has(refreshed.id)) {
+      if (
+        refreshed.active_children === 0 &&
+        !ExperimentRemoteTaskListener.has(refreshed.id, "collab") &&
+        !CollabMessage.hasPendingWakeMsg(refreshed.id)
+      ) {
         const inst = Workflow.latest(refreshed.session_id)
         if (inst?.status === "waiting_interaction") {
           if (await pauseIfWorkflowWaiting(agentId, abort)) return
@@ -218,8 +272,8 @@ export namespace CollabLoop {
           hasRunInitialPrompt = true
           continue
         }
-        await finalizeCompleted(refreshed)
-        return
+        if (await finalizeCompleted(refreshed)) return
+        continue
       }
 
       CollabAgentNode.transition(agentId, "blocked_on_children", { phase: "awaiting_children" })
@@ -231,16 +285,27 @@ export namespace CollabLoop {
 
   async function runPromptTurn(
     node: AgentInfo,
-    input: { parts: PromptPartDraft[] },
+    input: { parts: PromptPartDraft[]; fallback?: { providerID: string; modelID: string } },
     abort: AbortSignal,
   ) {
+    const model = input.fallback
+      ? await SessionPrompt.resolveModel({
+          sessionID: node.session_id,
+          agent: node.subagent_type,
+          preferred: node.spec.model,
+          fallback: input.fallback,
+        })
+      : node.spec.model
+    if (input.fallback && model) {
+      CollabAgentNode.spec(node.id, { ...node.spec, model })
+    }
     const onAbort = () => SessionPrompt.cancel(node.session_id)
     abort.addEventListener("abort", onAbort, { once: true })
     try {
       await SessionPrompt.prompt({
         sessionID: node.session_id,
         agent: node.subagent_type,
-        model: node.spec.model,
+        model,
         parts: input.parts,
       })
     } catch (err) {
@@ -293,16 +358,16 @@ export namespace CollabLoop {
       const finish = () => {
         if (done) return
         done = true
-        unsub()
+        const waits = waiters.get(agentId)
+        waits?.delete(finish)
+        if (waits?.size === 0) waiters.delete(agentId)
         abort.removeEventListener("abort", onAbort)
         resolve()
       }
-      const unsub = Bus.subscribe(CollabEvent.MessagePosted, (e) => {
-        if (e.properties.recipientAgentId !== agentId) return
-        if (!isWakeKind(e.properties.kind)) return
-        finish()
-      })
       const onAbort = () => finish()
+      const waits = waiters.get(agentId) ?? new Set()
+      waits.add(finish)
+      waiters.set(agentId, waits)
       abort.addEventListener("abort", onAbort)
       if (CollabMessage.hasPendingWakeMsg(agentId)) finish()
     })
@@ -321,35 +386,41 @@ export namespace CollabLoop {
 
   async function finalizeCompleted(node: AgentInfo) {
     const summary = await extractSessionSummary(node.session_id)
+    const fresh = CollabAgentNode.load(node.id)
+    if (!CollabAgentNode.isActive(fresh.status)) return false
+    if (fresh.active_children > 0) return false
+    if (ExperimentRemoteTaskListener.has(fresh.id, "collab")) return false
+    if (CollabMessage.hasPendingWakeMsg(fresh.id)) return false
     const result: AgentResult = { summary: summary ?? undefined }
 
-    CollabAgentNode.transition(node.id, "completed", {
+    CollabAgentNode.transition(fresh.id, "completed", {
       phase: "main_loop",
       result,
       timeEnded: Date.now(),
     })
-    CollabMessage.closeInbox(node.id)
+    CollabMessage.closeInbox(fresh.id)
 
-    if (node.parent_agent_id) {
+    if (fresh.parent_agent_id) {
       const payload: ChildDonePayload = {
-        childAgentId: node.id,
-        childName: node.name,
+        childAgentId: fresh.id,
+        childName: fresh.name,
         summary: summary ?? "",
       }
       await CollabMessage.post({
-        recipientAgentId: node.parent_agent_id,
-        senderAgentId: node.id,
+        recipientAgentId: fresh.parent_agent_id,
+        senderAgentId: fresh.id,
         kind: "child_done",
         payload,
       })
     }
 
     Bus.publish(CollabEvent.AgentCompleted, {
-      agentId: node.id,
-      rootAgentId: node.root_agent_id,
+      agentId: fresh.id,
+      rootAgentId: fresh.root_agent_id,
       summary: summary ?? undefined,
     })
-    log.info("completed", { agentId: node.id })
+    log.info("completed", { agentId: fresh.id })
+    return true
   }
 
   async function finalizeFailed(node: AgentInfo, error: AgentError) {

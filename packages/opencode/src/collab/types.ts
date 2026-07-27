@@ -132,6 +132,12 @@ export type CancelPayload = z.infer<typeof CancelPayloadSchema>
 export const UserInputPayloadSchema = z.object({
   text: z.string(),
   messageId: z.string().optional(),
+  model: z
+    .object({
+      providerID: z.string(),
+      modelID: z.string(),
+    })
+    .optional(),
 })
 export type UserInputPayload = z.infer<typeof UserInputPayloadSchema>
 
@@ -147,6 +153,7 @@ export type CollabPayload =
   | { kind: "child_waiting"; data: ChildWaitingPayload }
   | { kind: "child_progress"; data: ChildProgressPayload }
   | { kind: "remote_task_terminal"; data: RemoteTaskTerminalPayload }
+  | { kind: "session_remote_task_terminal"; data: RemoteTaskTerminalPayload }
   | { kind: "cancel"; data: CancelPayload }
   | { kind: "user_input"; data: UserInputPayload }
   | { kind: "system"; data: SystemPayload }

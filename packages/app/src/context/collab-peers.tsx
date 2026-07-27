@@ -25,10 +25,14 @@ export function CollabPeersProvider(props: { children: JSX.Element }) {
   const sdk = useGlobalSDK()
   const [store, setStore] = createStore<Record<string, DirectoryState>>({})
   const hydrating = new Set<string>()
+  const stale = new Set<string>()
   const subscribed = new Map<string, () => void>()
 
   async function refresh(directory: string) {
-    if (hydrating.has(directory)) return
+    if (hydrating.has(directory)) {
+      stale.add(directory)
+      return
+    }
     hydrating.add(directory)
     try {
       const res = await sdk.client.collab.peerSessions.list({ directory })
@@ -39,6 +43,7 @@ export function CollabPeersProvider(props: { children: JSX.Element }) {
       setStore(directory, (prev) => ({ ids: prev?.ids ?? [], loaded: true }))
     } finally {
       hydrating.delete(directory)
+      if (stale.delete(directory)) void refresh(directory)
     }
   }
 
@@ -46,14 +51,7 @@ export function CollabPeersProvider(props: { children: JSX.Element }) {
     if (subscribed.has(directory)) return
     const off = sdk.event.on(directory, (e) => {
       if (e.type !== "collab.agent.created") return
-      const info = e.properties.info as { session_id: string; parent_agent_id: string | null }
-      if (!info?.session_id || !info.parent_agent_id) return
-      const existing = store[directory]?.ids ?? []
-      if (existing.includes(info.session_id)) return
-      setStore(directory, (prev) => ({
-        ids: prev ? [...prev.ids, info.session_id] : [info.session_id],
-        loaded: prev?.loaded ?? true,
-      }))
+      void refresh(directory)
     })
     subscribed.set(directory, off)
   }
@@ -61,6 +59,7 @@ export function CollabPeersProvider(props: { children: JSX.Element }) {
   onCleanup(() => {
     for (const off of subscribed.values()) off()
     subscribed.clear()
+    stale.clear()
   })
 
   const value: CollabPeersValue = {

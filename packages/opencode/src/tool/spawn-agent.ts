@@ -1,6 +1,7 @@
 import z from "zod"
 import { Agent } from "@/agent/agent"
 import { Collab } from "@/collab"
+import { CollabAgentNode } from "@/collab/agent-node"
 import { AgentPolicySchema, type AgentSpec } from "@/collab/types"
 import { MessageV2 } from "@/session/message-v2"
 import { PermissionNext } from "@/permission/next"
@@ -57,6 +58,9 @@ export const SpawnAgentTool = Tool.define("spawn_agent", async (ctx) => {
 
       // Make sure the current primary session is a Collab root if it is not yet.
       const parentNode = Collab.getBySession(ctx.sessionID)
+      if (parentNode?.parent_agent_id && !CollabAgentNode.isActive(parentNode.status)) {
+        throw new Error("This experiment agent is inactive. Its Atom parent must call resume_agent before it can spawn peers.")
+      }
       if (!parentNode) {
         await Collab.ensureRootFromSession(ctx.sessionID, {
           name: "root",

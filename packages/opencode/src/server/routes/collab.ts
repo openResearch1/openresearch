@@ -91,9 +91,9 @@ export const CollabRoutes = new Hono()
   .get(
     "/peer-sessions",
     describeRoute({
-      summary: "List session ids of all Collab peer agents (non-root) in current project",
+      summary: "List session ids of spawned Collab peer agents in current project",
       description:
-        "Returns the set of session ids that belong to peer (non-root) Collab agents. Used by the UI sidebar to hide peer sessions from the flat session list — they are only ever reached via the parent agent's dock.",
+        "Returns session ids explicitly marked as spawned Collab peers. Domain-owned Atom and Experiment sessions remain visible in the research tree.",
       operationId: "collab.peerSessions.list",
       responses: {
         200: {

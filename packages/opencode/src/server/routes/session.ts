@@ -350,9 +350,16 @@ export const SessionRoutes = lazy(() =>
       validator("json", Session.initialize.schema.omit({ sessionID: true })),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
+        const release = await import("@/research/experiment-agent").then((mod) =>
+          mod.ExperimentAgent.claimHuman(sessionID),
+        )
         const body = c.req.valid("json")
-        await Session.initialize({ ...body, sessionID })
-        return c.json(true)
+        try {
+          await Session.initialize({ ...body, sessionID })
+          return c.json(true)
+        } finally {
+          release()
+        }
       },
     )
     .post(
@@ -411,7 +418,9 @@ export const SessionRoutes = lazy(() =>
         }),
       ),
       async (c) => {
-        SessionPrompt.cancel(c.req.valid("param").sessionID)
+        const sessionID = c.req.valid("param").sessionID
+        await import("@/research/experiment-agent").then((mod) => mod.ExperimentAgent.assertHuman(sessionID))
+        SessionPrompt.cancel(sessionID)
         return c.json(true)
       },
     )
@@ -550,29 +559,36 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
+        const release = await import("@/research/experiment-agent").then((mod) =>
+          mod.ExperimentAgent.claimHuman(sessionID),
+        )
         const body = c.req.valid("json")
-        const session = await Session.get(sessionID)
-        await SessionRevert.cleanup(session)
-        const msgs = await Session.messages({ sessionID })
-        let currentAgent = await Agent.defaultAgent()
-        for (let i = msgs.length - 1; i >= 0; i--) {
-          const info = msgs[i].info
-          if (info.role === "user") {
-            currentAgent = info.agent || (await Agent.defaultAgent())
-            break
+        try {
+          const session = await Session.get(sessionID)
+          await SessionRevert.cleanup(session)
+          const msgs = await Session.messages({ sessionID })
+          let currentAgent = await Agent.defaultAgent()
+          for (let i = msgs.length - 1; i >= 0; i--) {
+            const info = msgs[i].info
+            if (info.role === "user") {
+              currentAgent = info.agent || (await Agent.defaultAgent())
+              break
+            }
           }
+          await SessionCompaction.create({
+            sessionID,
+            agent: currentAgent,
+            model: {
+              providerID: body.providerID,
+              modelID: body.modelID,
+            },
+            auto: body.auto,
+          })
+          await SessionPrompt.loop({ sessionID })
+          return c.json(true)
+        } finally {
+          release()
         }
-        await SessionCompaction.create({
-          sessionID,
-          agent: currentAgent,
-          model: {
-            providerID: body.providerID,
-            modelID: body.modelID,
-          },
-          auto: body.auto,
-        })
-        await SessionPrompt.loop({ sessionID })
-        return c.json(true)
       },
     )
     .get(
@@ -793,13 +809,20 @@ export const SessionRoutes = lazy(() =>
       ),
       validator("json", SessionPrompt.PromptInput.omit({ sessionID: true })),
       async (c) => {
+        const sessionID = c.req.valid("param").sessionID
+        const release = await import("@/research/experiment-agent").then((mod) =>
+          mod.ExperimentAgent.claimHuman(sessionID),
+        )
         c.status(200)
         c.header("Content-Type", "application/json")
         return stream(c, async (stream) => {
-          const sessionID = c.req.valid("param").sessionID
-          const body = c.req.valid("json")
-          const msg = await SessionPrompt.prompt({ ...body, sessionID })
-          stream.write(JSON.stringify(msg))
+          try {
+            const body = c.req.valid("json")
+            const msg = await SessionPrompt.prompt({ ...body, sessionID })
+            stream.write(JSON.stringify(msg))
+          } finally {
+            release()
+          }
         })
       },
     )
@@ -825,12 +848,15 @@ export const SessionRoutes = lazy(() =>
       ),
       validator("json", SessionPrompt.PromptInput.omit({ sessionID: true })),
       async (c) => {
+        const sessionID = c.req.valid("param").sessionID
+        const release = await import("@/research/experiment-agent").then((mod) =>
+          mod.ExperimentAgent.claimHuman(sessionID),
+        )
         c.status(204)
         c.header("Content-Type", "application/json")
         return stream(c, async () => {
-          const sessionID = c.req.valid("param").sessionID
           const body = c.req.valid("json")
-          SessionPrompt.prompt({ ...body, sessionID })
+          void SessionPrompt.prompt({ ...body, sessionID }).finally(release)
         })
       },
     )
@@ -866,9 +892,15 @@ export const SessionRoutes = lazy(() =>
       validator("json", SessionPrompt.CommandInput.omit({ sessionID: true })),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
+        const release = await import("@/research/experiment-agent").then((mod) =>
+          mod.ExperimentAgent.claimHuman(sessionID),
+        )
         const body = c.req.valid("json")
-        const msg = await SessionPrompt.command({ ...body, sessionID })
-        return c.json(msg)
+        try {
+          return c.json(await SessionPrompt.command({ ...body, sessionID }))
+        } finally {
+          release()
+        }
       },
     )
     .post(
@@ -898,9 +930,15 @@ export const SessionRoutes = lazy(() =>
       validator("json", SessionPrompt.ShellInput.omit({ sessionID: true })),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
+        const release = await import("@/research/experiment-agent").then((mod) =>
+          mod.ExperimentAgent.claimHuman(sessionID),
+        )
         const body = c.req.valid("json")
-        const msg = await SessionPrompt.shell({ ...body, sessionID })
-        return c.json(msg)
+        try {
+          return c.json(await SessionPrompt.shell({ ...body, sessionID }))
+        } finally {
+          release()
+        }
       },
     )
     .post(
@@ -930,9 +968,15 @@ export const SessionRoutes = lazy(() =>
       validator("json", SessionPrompt.RemoteTaskInput.omit({ sessionID: true })),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
+        const release = await import("@/research/experiment-agent").then((mod) =>
+          mod.ExperimentAgent.claimHuman(sessionID),
+        )
         const body = c.req.valid("json")
-        const msg = await SessionPrompt.remoteTask({ ...body, sessionID })
-        return c.json(msg)
+        try {
+          return c.json(await SessionPrompt.remoteTask({ ...body, sessionID }))
+        } finally {
+          release()
+        }
       },
     )
     .post(

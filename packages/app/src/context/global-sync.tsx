@@ -30,6 +30,7 @@ import { bootstrapDirectory, bootstrapGlobal } from "./global-sync/bootstrap"
 import { createChildStoreManager } from "./global-sync/child-store"
 import { applyDirectoryEvent, applyGlobalEvent, cleanupDroppedSessionCaches } from "./global-sync/event-reducer"
 import { createRefreshQueue } from "./global-sync/queue"
+import { routeSessionEvent, sessionEventID } from "./global-sync/session-event-routing"
 import { estimateRootSessionTotal, loadRootSessionsWithFallback } from "./global-sync/session-load"
 import { trimSessions } from "./global-sync/session-trim"
 import type { ProjectMeta } from "./global-sync/types"
@@ -64,6 +65,7 @@ function createGlobalSync() {
   const booting = new Map<string, Promise<void>>()
   const sessionLoads = new Map<string, Promise<void>>()
   const sessionMeta = new Map<string, { limit: number }>()
+  const eventDirectories = new Map<string, string>()
 
   const [projectCache, setProjectCache, projectInit] = persisted(
     Persist.global("globalSync.project", ["globalSync.project.v1"]),
@@ -180,6 +182,9 @@ function createGlobalSync() {
       queue.clear(directory)
       sessionMeta.delete(directory)
       sdkCache.delete(directory)
+      for (const [sessionID, target] of eventDirectories) {
+        if (target === directory) eventDirectories.delete(sessionID)
+      }
     },
   })
 
@@ -310,25 +315,38 @@ function createGlobalSync() {
       return
     }
 
-    const existing = children.children[directory]
+    const sessionID = sessionEventID(event)
+    const cached = sessionID ? eventDirectories.get(sessionID) : undefined
+    if (sessionID && cached && !children.children[cached]) eventDirectories.delete(sessionID)
+    const routed = routeSessionEvent({
+      event,
+      directory,
+      directories: Object.keys(children.children),
+      owns: (target, sessionID) =>
+        children.children[target]?.[0].session.some((session) => session.id === sessionID) ?? false,
+      cached: cached && children.children[cached] ? cached : undefined,
+    })
+    if (routed.sessionID) eventDirectories.set(routed.sessionID, routed.directory)
+    const existing = children.children[routed.directory]
     if (!existing) return
-    children.mark(directory)
+    children.mark(routed.directory)
     const [store, setStore] = existing
     applyDirectoryEvent({
       event,
-      directory,
+      directory: routed.directory,
       store,
       setStore,
       push: queue.push,
       setSessionTodo,
       setSessionWorkflow,
-      vcsCache: children.vcsCache.get(directory),
+      vcsCache: children.vcsCache.get(routed.directory),
       loadLsp: () => {
-        sdkFor(directory)
+        sdkFor(routed.directory)
           .lsp.status()
           .then((x) => setStore("lsp", x.data ?? []))
       },
     })
+    if (event.type === "session.deleted") eventDirectories.delete(event.properties.info.id)
   })
 
   onCleanup(unsub)
