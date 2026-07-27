@@ -729,6 +729,7 @@ export type CollabAgentPolicy = {
   maxChildren?: number
   progress_injection?: "none" | "latest" | "all"
   summarize?: boolean
+  detach_on_terminal?: boolean
 }
 
 export type CollabAgentSpec = {
@@ -763,6 +764,7 @@ export type CollabAgent = {
   name: string
   project_id: string
   root_agent_id: string
+  run_id: string | null
   subagent_type: string
   status:
     | "idle"
@@ -808,6 +810,17 @@ export type EventCollabAgentStatus = {
       | "canceled"
     phase: "main_loop" | "awaiting_children" | "draining"
     active_children: number
+  }
+}
+
+export type EventCollabAgentReparented = {
+  type: "collab.agent.reparented"
+  properties: {
+    info: CollabAgent
+    oldParentAgentId: string | null
+    newParentAgentId: string | null
+    oldRootAgentId: string
+    newRootAgentId: string
   }
 }
 
@@ -1244,6 +1257,7 @@ export type Event =
   | EventFileWatcherUpdated
   | EventCollabAgentCreated
   | EventCollabAgentStatus
+  | EventCollabAgentReparented
   | EventCollabAgentCompleted
   | EventCollabAgentFailed
   | EventCollabMessagePosted
@@ -2089,6 +2103,7 @@ export type CollabMessage = {
   id: string
   recipient_agent_id: string
   sender_agent_id: string | null
+  run_id: string | null
   kind:
     | "child_done"
     | "child_failed"
@@ -2100,7 +2115,7 @@ export type CollabMessage = {
     | "user_input"
     | "system"
   payload: unknown
-  status: "pending" | "consumed" | "dropped"
+  status: "pending" | "processing" | "consumed" | "dropped"
   time_created: number
   time_updated: number
   time_consumed: number | null

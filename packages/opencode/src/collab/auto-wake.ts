@@ -2,6 +2,7 @@ import { Bus } from "@/bus"
 import { Instance } from "@/project/instance"
 import { Log } from "@/util/log"
 import { Session } from "@/session"
+import { MessageV2 } from "@/session/message-v2"
 import { SessionPrompt } from "@/session/prompt"
 import { SessionStatus } from "@/session/status"
 import { SessionOwnership } from "@/session/ownership"
@@ -18,6 +19,7 @@ import {
   buildChildWaitingPart,
   buildRemoteTaskTerminalPart,
   finalizeParts,
+  matchParts,
   type PromptPartDraft,
 } from "./return-parts"
 import type {
@@ -196,42 +198,74 @@ export namespace CollabAutoWake {
   async function maybeDriveDirect(node: AgentInfo, inflight: Set<string>) {
     if (inflight.has(node.session_id)) return
     if (SessionStatus.get(node.session_id).type === "busy") return
-    if (!CollabMessage.hasPendingKind(node.id, "session_remote_task_terminal")) return
+    if (!CollabMessage.hasOutstanding(node.id, "session_remote_task_terminal")) return
 
-    const release = SessionOwnership.claim(node.session_id, "human")
-    if (!release) return
+    const release = SessionOwnership.claim(node.session_id, "collab")
+    if (!release) {
+      CollabRuntime.schedule(
+        node.id,
+        SessionOwnership.retryAfter(node.session_id),
+        () => void tryDriveDirectById(node.id, inflight),
+      )
+      return
+    }
+    const lost = () => SessionPrompt.cancel(node.session_id)
+    release.signal.addEventListener("abort", lost, { once: true })
     inflight.add(node.session_id)
     try {
+      CollabMessage.retryProcessing(node.id)
       for (let i = 0; i < MAX_DRIVE_ITERATIONS; i++) {
         if (SessionStatus.get(node.session_id).type === "busy") return
         if (!CollabMessage.hasPendingKind(node.id, "session_remote_task_terminal")) return
-        await driveDirect(node.id)
+        await driveDirect(node.id, release.signal)
       }
       log.warn("maybeDriveDirect hit MAX_DRIVE_ITERATIONS cap", { agentId: node.id })
     } finally {
       inflight.delete(node.session_id)
+      release.signal.removeEventListener("abort", lost)
       release()
     }
   }
 
-  async function driveDirect(agentId: string) {
+  async function driveDirect(agentId: string, abort: AbortSignal) {
     if (driveTurnOverride) {
       await driveTurnOverride(agentId)
+      if (abort.aborted) {
+        CollabMessage.retryProcessing(agentId)
+        return
+      }
+      CollabMessage.ackProcessing(agentId)
       return
     }
     const node = CollabAgentNode.load(agentId)
     const msgs = CollabMessage.drain(agentId, "direct")
     const parts = msgs.map((msg) => buildRemoteTaskTerminalPart(msg.payload_json as RemoteTaskTerminalPayload))
     if (!parts.length) return
+    const drafts = finalizeParts(parts)
+    const delivery = (msgs[0].payload_json as { deliveryMessageId?: unknown }).deliveryMessageId
+    const messageID = typeof delivery === "string" ? delivery : undefined
     try {
-      await SessionPrompt.prompt({
-        sessionID: node.session_id,
-        agent: node.subagent_type,
-        model: node.spec.model,
-        parts: finalizeParts(parts),
-      })
+      const durable = messageID
+        ? await MessageV2.get({ sessionID: node.session_id, messageID }).catch(() => undefined)
+        : undefined
+      if (abort.aborted) throw new Error("Session ownership lost during direct delivery")
+      if (durable?.info.role === "user" && matchParts(durable.parts, drafts)) {
+        await SessionPrompt.loop({ sessionID: node.session_id })
+      } else {
+        if (durable) await Session.removeMessage({ sessionID: node.session_id, messageID: durable.info.id })
+        await SessionPrompt.prompt({
+          sessionID: node.session_id,
+          messageID,
+          agent: node.subagent_type,
+          model: node.spec.model,
+          parts: drafts,
+        })
+      }
+      if (abort.aborted) throw new Error("Session ownership lost during direct delivery")
+      CollabMessage.ack(msgs)
     } catch (err) {
-      CollabMessage.retry(msgs.map((msg) => msg.id))
+      CollabMessage.retry(msgs, false)
+      CollabRuntime.schedule(agentId, 1000, () => void tryDriveDirectById(agentId, state().inflight))
       throw err
     }
   }
@@ -256,8 +290,20 @@ export namespace CollabAutoWake {
     if (inflight.has(node.session_id)) return
     if (SessionStatus.get(node.session_id).type === "busy") return
 
+    const release = SessionOwnership.claim(node.session_id, "collab")
+    if (!release) {
+      CollabRuntime.schedule(
+        node.id,
+        SessionOwnership.retryAfter(node.session_id),
+        () => void tryDriveById(node.id, inflight),
+      )
+      return
+    }
+    const lost = () => SessionPrompt.cancel(node.session_id)
+    release.signal.addEventListener("abort", lost, { once: true })
     inflight.add(node.session_id)
     try {
+      CollabMessage.retryProcessing(node.id)
       for (let i = 0; i < MAX_DRIVE_ITERATIONS; i++) {
         const fresh = CollabAgentNode.tryLoad(node.id)
         if (!fresh || !CollabAgentNode.isActive(fresh.status)) return
@@ -273,12 +319,17 @@ export namespace CollabAutoWake {
           return
         }
 
-        await driveTurn(fresh.id)
+        if (!(await driveTurn(fresh.id, release.signal))) {
+          CollabRuntime.schedule(node.id, 1000, () => void tryDriveById(node.id, inflight))
+          return
+        }
         // Loop: during driveTurn more child_done/failed may have arrived. Re-check.
       }
       log.warn("maybeWakeOrBlock hit MAX_DRIVE_ITERATIONS cap", { agentId: node.id })
     } finally {
       inflight.delete(node.session_id)
+      release.signal.removeEventListener("abort", lost)
+      release()
       // Signal anyone waiting on this root (e.g. Collab.waitForRootSettled)
       // that the drive cycle ended — the AgentStatus / Idle events fired
       // during the cycle were filtered out by their isDriving() guard, so
@@ -290,10 +341,15 @@ export namespace CollabAutoWake {
     }
   }
 
-  async function driveTurn(agentId: string) {
+  async function driveTurn(agentId: string, abort: AbortSignal) {
     if (driveTurnOverride) {
       await driveTurnOverride(agentId)
-      return
+      if (abort.aborted) {
+        CollabMessage.retryProcessing(agentId)
+        return false
+      }
+      CollabMessage.ackProcessing(agentId)
+      return true
     }
     const node = CollabAgentNode.load(agentId)
     const msgs = CollabMessage.drain(agentId)
@@ -302,9 +358,12 @@ export namespace CollabAutoWake {
     const returnParts: PromptPartDraft[] = []
     const progressMsgs: ChildProgressPayload[] = []
     let failFastTrigger: ChildFailedPayload | undefined
+    let messageID: string | undefined
 
     for (const m of msgs) {
       const payload = m.payload_json as unknown
+      const delivery = (payload as { deliveryMessageId?: unknown })?.deliveryMessageId
+      if (!messageID && typeof delivery === "string") messageID = delivery
       switch (m.kind) {
         case "cancel":
           gotCancel = true
@@ -332,7 +391,9 @@ export namespace CollabAutoWake {
           returnParts.push(buildRemoteTaskTerminalPart(payload as RemoteTaskTerminalPayload))
           break
         case "user_input": {
-          returnParts.push({ type: "text", text: (payload as UserInputPayload).text })
+          const input = payload as UserInputPayload
+          messageID = input.messageId ?? messageID
+          returnParts.push({ type: "text", text: input.text })
           break
         }
         case "system":
@@ -342,10 +403,14 @@ export namespace CollabAutoWake {
 
     if (gotCancel) {
       await CollabSupervisor.cancelDescendants(agentId, { reason: "root canceled", initiator: "user" })
+      if (abort.aborted) {
+        CollabMessage.retry(msgs, false)
+        return false
+      }
       const errorInfo: AgentError = { code: "CANCELED", message: "cancel message received" }
       CollabAgentNode.transition(node.id, "canceled", { phase: "main_loop", error: errorInfo, timeEnded: Date.now() })
       CollabMessage.closeInbox(node.id)
-      return
+      return true
     }
 
     if (failFastTrigger) {
@@ -353,6 +418,10 @@ export namespace CollabAutoWake {
         reason: "sibling failed (fail_fast)",
         initiator: "sibling",
       })
+      if (abort.aborted) {
+        CollabMessage.retry(msgs, false)
+        return false
+      }
       const errorInfo: AgentError = {
         code: "CHILD_FAILED_FAIL_FAST",
         message: `Child ${failFastTrigger.childAgentId} failed: ${failFastTrigger.message}`,
@@ -360,35 +429,64 @@ export namespace CollabAutoWake {
       }
       CollabAgentNode.transition(node.id, "failed", { phase: "main_loop", error: errorInfo, timeEnded: Date.now() })
       CollabMessage.closeInbox(node.id)
-      return
+      return true
     }
 
     const collapsed = CollabLoop.collapseProgress(progressMsgs, node.spec.policy?.progress_injection ?? "latest")
     for (const p of collapsed) returnParts.push(buildChildProgressPart(p))
+    const parts = finalizeParts(returnParts)
 
-    if (returnParts.length === 0) return
+    if (returnParts.length === 0) {
+      CollabMessage.ack(msgs)
+      return true
+    }
 
     if (node.status === "blocked_on_children") {
       CollabAgentNode.transition(agentId, "running", { phase: "main_loop" })
     }
 
     try {
-      await SessionPrompt.prompt({
-        sessionID: node.session_id,
-        // Pin the root's own subagent_type so the resumed turn runs as the same
-        // primary agent the user started the session with (not the global default).
-        // Model is resolved by SessionPrompt via lastModel(sessionID), which reads
-        // the previous user message's model — i.e., it stays on the parent's model.
-        agent: node.subagent_type,
-        model: node.spec.model,
-        parts: finalizeParts(returnParts),
-      })
+      const durable = messageID
+        ? await MessageV2.get({ sessionID: node.session_id, messageID }).catch(() => undefined)
+        : undefined
+      if (abort.aborted) {
+        CollabMessage.retry(msgs, false)
+        return false
+      }
+      if (durable?.info.role === "user" && matchParts(durable.parts, parts)) {
+        await SessionPrompt.loop({ sessionID: node.session_id })
+      } else {
+        if (durable) await Session.removeMessage({ sessionID: node.session_id, messageID: durable.info.id })
+        await SessionPrompt.prompt({
+          sessionID: node.session_id,
+          messageID,
+          // Pin the root's own subagent_type so the resumed turn runs as the same
+          // primary agent the user started the session with (not the global default).
+          // Model is resolved by SessionPrompt via lastModel(sessionID), which reads
+          // the previous user message's model — i.e., it stays on the parent's model.
+          agent: node.subagent_type,
+          model: node.spec.model,
+          parts,
+        })
+      }
+      if (abort.aborted) {
+        CollabMessage.retry(msgs, false)
+        return false
+      }
+      CollabMessage.ack(msgs)
+      return true
     } catch (err) {
       log.error("SessionPrompt.prompt failed in auto-wake", {
         agentId,
         error: err instanceof Error ? err.message : String(err),
       })
+      const fresh = CollabAgentNode.tryLoad(agentId)
+      if (fresh && CollabAgentNode.isActive(fresh.status)) {
+        CollabMessage.retry(msgs, false)
+      } else {
+        CollabMessage.closeInbox(agentId)
+      }
+      return false
     }
   }
-
 }

@@ -150,3 +150,21 @@ export function finalizeParts(parts: PromptPartDraft[]): PromptPartDraft[] {
     ...(p.type === "collab_return" ? { body: truncate(p.body) } : {}),
   }))
 }
+
+export function matchParts(stored: { type: string; [key: string]: unknown }[], drafts: PromptPartDraft[]) {
+  if (stored.length !== drafts.length) return false
+  return drafts.every((draft, index) => {
+    const part = stored[index]
+    if (part.type !== draft.type) return false
+    if (draft.type === "text") return part.text === draft.text
+    return (
+      part.kind === draft.kind &&
+      part.childAgentId === draft.childAgentId &&
+      part.childName === draft.childName &&
+      part.childSessionId === draft.childSessionId &&
+      part.headline === draft.headline &&
+      part.body === draft.body &&
+      JSON.stringify(part.payload) === JSON.stringify(draft.payload)
+    )
+  })
+}

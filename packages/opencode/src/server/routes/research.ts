@@ -50,6 +50,8 @@ import { parseSshConfig } from "@/research/ssh-config"
 import { isArticleDirectory } from "@/research/article-source"
 import { readRemoteTaskLog } from "@/research/remote-task-runner"
 import { defaultRemoteCodePath, syncCodeToRemote } from "@/research/remote-code-sync"
+import { AtomAgent } from "@/research/atom-agent"
+import { ResearchDeletionTable } from "@/research/research-deletion.sql"
 
 const createSchema = z.object({
   name: z.string().min(1, "name required"),
@@ -811,9 +813,40 @@ export const ResearchRoutes = new Hono()
       const researchProjectId = c.req.param("researchProjectId")
       const atomId = c.req.param("atomId")
 
-      const atom = Database.use((db) => db.select().from(AtomTable).where(eq(AtomTable.atom_id, atomId)).get())
-      if (!atom || atom.research_project_id !== researchProjectId) {
+      const target = Database.transaction((tx) => {
+        const atom = tx.select().from(AtomTable).where(eq(AtomTable.atom_id, atomId)).get()
+        if (!atom || atom.research_project_id !== researchProjectId) return
+        const research = tx
+          .select({ project: ResearchProjectTable.project_id })
+          .from(ResearchProjectTable)
+          .where(eq(ResearchProjectTable.research_project_id, atom.research_project_id))
+          .get()
+        if (research?.project !== Instance.project.id) return
+        const experiments = tx.select().from(ExperimentTable).where(eq(ExperimentTable.atom_id, atomId)).all()
+        const now = Date.now()
+        tx.insert(ResearchDeletionTable)
+          .values([
+            { kind: "atom", entity_id: atomId, time_created: now, time_updated: now },
+            ...experiments.map((exp) => ({
+              kind: "experiment" as const,
+              entity_id: exp.exp_id,
+              time_created: now,
+              time_updated: now,
+            })),
+          ])
+          .onConflictDoNothing()
+          .run()
+        return { atom, experiments }
+      })
+      if (!target) {
         return c.json({ success: false, message: `atom not found: ${atomId}` }, 404)
+      }
+      const atom = target.atom
+      const discard = async (sessionID: string) => {
+        await Session.remove(sessionID)
+        if (await Session.get(sessionID).catch(() => undefined)) {
+          throw new Error(`Failed to remove session ${sessionID}`)
+        }
       }
 
       const dir = path.join(Instance.directory, "atom_list", atomId)
@@ -824,21 +857,13 @@ export const ResearchRoutes = new Hono()
       }
 
       if (atom.session_id) {
-        await Session.remove(atom.session_id)
+        await discard(atom.session_id)
       }
 
-      // Delete associated experiments
-      const experiments = Database.use((db) =>
-        db.select().from(ExperimentTable).where(eq(ExperimentTable.atom_id, atomId)).all(),
-      )
-      for (const exp of experiments) {
-        // Delete experiment watchers
-        Database.use((db) => db.delete(ExperimentWatchTable).where(eq(ExperimentWatchTable.exp_id, exp.exp_id)).run())
-        // Delete experiment record
-        Database.use((db) => db.delete(ExperimentTable).where(eq(ExperimentTable.exp_id, exp.exp_id)).run())
+      for (const exp of target.experiments) {
         // Clean up experiment session
         if (exp.exp_session_id) {
-          await Session.remove(exp.exp_session_id).catch(() => {})
+          await discard(exp.exp_session_id)
         }
         // Delete experiment results directory
         const expDir = path.join(Instance.directory, "exp_results", exp.exp_id)
@@ -851,10 +876,18 @@ export const ResearchRoutes = new Hono()
         }
       }
 
-      Database.transaction(() => {
-        Database.use((db) => db.delete(AtomRelationTable).where(eq(AtomRelationTable.atom_id_source, atomId)).run())
-        Database.use((db) => db.delete(AtomRelationTable).where(eq(AtomRelationTable.atom_id_target, atomId)).run())
-        Database.use((db) => db.delete(AtomTable).where(eq(AtomTable.atom_id, atomId)).run())
+      Database.transaction((tx) => {
+        for (const exp of target.experiments) {
+          tx.delete(ExperimentWatchTable).where(eq(ExperimentWatchTable.exp_id, exp.exp_id)).run()
+          tx.delete(ExperimentTable).where(eq(ExperimentTable.exp_id, exp.exp_id)).run()
+          tx.delete(ResearchDeletionTable)
+            .where(and(eq(ResearchDeletionTable.kind, "experiment"), eq(ResearchDeletionTable.entity_id, exp.exp_id)))
+            .run()
+        }
+        tx.delete(AtomTable).where(eq(AtomTable.atom_id, atomId)).run()
+        tx.delete(ResearchDeletionTable)
+          .where(and(eq(ResearchDeletionTable.kind, "atom"), eq(ResearchDeletionTable.entity_id, atomId)))
+          .run()
       })
 
       await Bus.publish(Research.Event.AtomsUpdated, { researchProjectId })
@@ -1375,27 +1408,8 @@ export const ResearchRoutes = new Hono()
         return c.json({ success: false, message: `atom not found: ${atomId}` }, 404)
       }
 
-      if (atom.session_id) {
-        const existing = await Session.get(atom.session_id).catch(() => undefined)
-        if (existing && !existing.time.archived) {
-          await import("@/research/experiment-agent").then((mod) => mod.ExperimentAgent.atom(atomId))
-          return c.json({ session_id: atom.session_id, created: false })
-        }
-      }
-
-      const session = await Session.create({ title: `Atom: ${atom.atom_name}` })
-
-      Database.use((db) =>
-        db
-          .update(AtomTable)
-          .set({ session_id: session.id, time_updated: Date.now() })
-          .where(eq(AtomTable.atom_id, atomId))
-          .run(),
-      )
-
-      await import("@/research/experiment-agent").then((mod) => mod.ExperimentAgent.atom(atomId))
-
-      return c.json({ session_id: session.id, created: true })
+      const result = await AtomAgent.ensure(atomId)
+      return c.json({ session_id: result.session.id, created: result.created })
     },
   )
   .get(
@@ -1976,7 +1990,16 @@ export const ResearchRoutes = new Hono()
       const experiment = Database.use((db) =>
         db.select().from(ExperimentTable).where(eq(ExperimentTable.exp_id, expId)).get(),
       )
-      if (!experiment) {
+      const research = experiment
+        ? Database.use((db) =>
+            db
+              .select({ project: ResearchProjectTable.project_id })
+              .from(ResearchProjectTable)
+              .where(eq(ResearchProjectTable.research_project_id, experiment.research_project_id))
+              .get(),
+          )
+        : undefined
+      if (!experiment || research?.project !== Instance.project.id) {
         return c.json({ success: false, message: `experiment not found: ${expId}` }, 404)
       }
       const project = Database.use((db) =>
@@ -2007,9 +2030,15 @@ export const ResearchRoutes = new Hono()
       }
       const ready = await Session.get(updated.exp_session_id).catch(() => undefined)
       if (!ready || ready.time.archived) {
-        return c.json({ success: false, message: attached.reason ?? `experiment session is unavailable: ${expId}` }, 400)
+        return c.json(
+          { success: false, message: attached.reason ?? `experiment session is unavailable: ${expId}` },
+          400,
+        )
       }
-      return c.json({ session_id: updated.exp_session_id, created: updated.exp_session_id !== experiment.exp_session_id })
+      return c.json({
+        session_id: updated.exp_session_id,
+        created: updated.exp_session_id !== experiment.exp_session_id,
+      })
     },
   )
   .post(
@@ -2093,11 +2122,13 @@ export const ResearchRoutes = new Hono()
         db.select().from(ExperimentTable).where(eq(ExperimentTable.exp_id, expId)).get(),
       )
       if (!experiment) return c.json({ success: false, message: `experiment not found: ${expId}` }, 404)
-      if (!experiment.remote_server_id) return c.json({ success: false, message: `experiment has no remote server: ${expId}` }, 500)
+      if (!experiment.remote_server_id)
+        return c.json({ success: false, message: `experiment has no remote server: ${expId}` }, 500)
       const row = Database.use((db) =>
         db.select().from(RemoteServerTable).where(eq(RemoteServerTable.id, experiment.remote_server_id!)).get(),
       )
-      if (!row) return c.json({ success: false, message: `remote server not found: ${experiment.remote_server_id}` }, 404)
+      if (!row)
+        return c.json({ success: false, message: `remote server not found: ${experiment.remote_server_id}` }, 404)
 
       const remoteCodePath = (body.remoteCodePath ?? experiment.remote_code_path ?? defaultRemoteCodePath(expId)).trim()
       try {
@@ -3058,21 +3089,30 @@ export const ResearchRoutes = new Hono()
     }),
     async (c) => {
       const expId = c.req.param("expId")
-      const experiment = Database.use((db) =>
-        db.select().from(ExperimentTable).where(eq(ExperimentTable.exp_id, expId)).get(),
-      )
+      const experiment = Database.transaction((tx) => {
+        const row = tx.select().from(ExperimentTable).where(eq(ExperimentTable.exp_id, expId)).get()
+        if (!row) return
+        const research = tx
+          .select({ project: ResearchProjectTable.project_id })
+          .from(ResearchProjectTable)
+          .where(eq(ResearchProjectTable.research_project_id, row.research_project_id))
+          .get()
+        if (research?.project !== Instance.project.id) return
+        const now = Date.now()
+        tx.insert(ResearchDeletionTable)
+          .values({ kind: "experiment", entity_id: expId, time_created: now, time_updated: now })
+          .onConflictDoNothing()
+          .run()
+        return row
+      })
       if (!experiment) {
         return c.json({ success: false, message: `experiment not found: ${expId}` }, 404)
       }
-      // Delete experiment watchers
-      Database.use((db) => db.delete(ExperimentWatchTable).where(eq(ExperimentWatchTable.exp_id, expId)).run())
-      Database.use((db) => db.delete(RemoteTaskTable).where(eq(RemoteTaskTable.exp_id, expId)).run())
-      Database.use((db) =>
-        db.delete(ExperimentExecutionWatchTable).where(eq(ExperimentExecutionWatchTable.exp_id, expId)).run(),
-      )
-      Database.use((db) => db.delete(ExperimentTable).where(eq(ExperimentTable.exp_id, expId)).run())
       if (experiment.exp_session_id) {
-        await Session.remove(experiment.exp_session_id).catch(() => {})
+        await Session.remove(experiment.exp_session_id)
+        if (await Session.get(experiment.exp_session_id).catch(() => undefined)) {
+          throw new Error(`Failed to remove session ${experiment.exp_session_id}`)
+        }
       }
       // Delete experiment results directory
       const expDir = path.join(Instance.directory, "exp_results", expId)
@@ -3083,6 +3123,15 @@ export const ResearchRoutes = new Hono()
         await git(["worktree", "remove", experiment.code_path, "--force"], { cwd: baseRepo }).catch(() => {})
         await git(["branch", "-D", experiment.exp_branch_name], { cwd: baseRepo }).catch(() => {})
       }
+      Database.transaction((tx) => {
+        tx.delete(ExperimentWatchTable).where(eq(ExperimentWatchTable.exp_id, expId)).run()
+        tx.delete(RemoteTaskTable).where(eq(RemoteTaskTable.exp_id, expId)).run()
+        tx.delete(ExperimentExecutionWatchTable).where(eq(ExperimentExecutionWatchTable.exp_id, expId)).run()
+        tx.delete(ExperimentTable).where(eq(ExperimentTable.exp_id, expId)).run()
+        tx.delete(ResearchDeletionTable)
+          .where(and(eq(ResearchDeletionTable.kind, "experiment"), eq(ResearchDeletionTable.entity_id, expId)))
+          .run()
+      })
       return c.json({ success: true })
     },
   )

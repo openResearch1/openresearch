@@ -6,7 +6,7 @@ import type { CancelPayload } from "./types"
 export namespace CollabSupervisor {
   const log = Log.create({ service: "collab.supervisor" })
 
-  export async function cancelDescendants(
+  export function cancelDescendants(
     agentId: string,
     cancel: { reason: string; initiator: CancelPayload["initiator"] },
   ) {
@@ -20,9 +20,12 @@ export namespace CollabSupervisor {
     })
     log.info("cancelDescendants", { agentId, count: toCancel.length })
     for (const n of toCancel) {
-      await CollabMessage.post({
+      CollabMessage.post({
         recipientAgentId: n.id,
         senderAgentId: agentId,
+        runId: n.run_id,
+        expectedParentAgentId: n.parent_agent_id,
+        expectedRunId: n.run_id,
         kind: "cancel",
         payload: { reason: cancel.reason, initiator: cancel.initiator } satisfies CancelPayload,
       })

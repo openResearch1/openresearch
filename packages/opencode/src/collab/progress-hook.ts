@@ -62,6 +62,7 @@ export namespace CollabProgressHook {
     const tools = extractToolSummary(info)
 
     const payload: ChildProgressPayload = {
+      runId: node.run_id ?? undefined,
       childAgentId: node.id,
       childName: node.name,
       turn,
@@ -72,6 +73,7 @@ export namespace CollabProgressHook {
     await CollabMessage.post({
       recipientAgentId: node.parent_agent_id,
       senderAgentId: node.id,
+      runId: node.run_id,
       kind: "child_progress",
       payload,
     })

@@ -1,4 +1,4 @@
-import { createResource, createSignal, Show } from "solid-js"
+import { createEffect, createResource, createSignal, onCleanup, Show } from "solid-js"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { CollabAgentTree } from "./collab-agent-tree"
 import { CollabAgentDetail } from "./collab-agent-detail"
@@ -12,7 +12,7 @@ type Props = {
 export function CollabPanel(props: Props) {
   const sdk = useGlobalSDK()
 
-  const [binding] = createResource(
+  const [binding, { refetch }] = createResource(
     () => props.sessionID,
     async (sessionID) => {
       const res = await sdk.client.collab.session.agent.get({
@@ -22,6 +22,26 @@ export function CollabPanel(props: Props) {
       return res.data?.agent ?? null
     },
   )
+
+  createEffect(() => {
+    const off = sdk.event.on(props.directory, (event) => {
+      if (event.type !== "collab.agent.reparented") return
+      const current = binding()
+      if (!current) {
+        void refetch()
+        return
+      }
+      if (
+        event.properties.info.session_id !== props.sessionID &&
+        current.root_agent_id !== event.properties.oldRootAgentId &&
+        current.root_agent_id !== event.properties.newRootAgentId
+      )
+        return
+      setSelected(undefined)
+      void refetch()
+    })
+    onCleanup(off)
+  })
 
   const [selected, setSelected] = createSignal<string | undefined>(undefined)
 
@@ -54,6 +74,7 @@ export function CollabPanel(props: Props) {
               <CollabAgentTree
                 directory={props.directory}
                 rootAgentId={info().root_agent_id}
+                anchorAgentId={info().id}
                 onSelect={setSelected}
                 selectedAgentId={activeAgent()}
               />

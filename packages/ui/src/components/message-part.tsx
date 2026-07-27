@@ -2429,19 +2429,19 @@ ToolRegistry.register({
   },
 })
 
-ToolRegistry.register({
+const ResumeAgentTool = ToolRegistry.register({
   name: "resume_agent",
   render(props) {
     const data = useData()
     const i18n = useI18n()
     const metadata = () =>
-      (props.metadata ?? {}) as { agent_id?: string; session_id?: string }
+      (props.metadata ?? {}) as { agent_id?: string; session_id?: string; agentId?: string; sessionId?: string }
     const targetAgentId = () => {
       const fromInput = props.input.agent_id
       if (typeof fromInput === "string" && fromInput) return fromInput
-      return metadata().agent_id
+      return metadata().agent_id ?? metadata().agentId ?? props.input.atom_id
     }
-    const targetSessionId = () => metadata().session_id
+    const targetSessionId = () => metadata().session_id ?? metadata().sessionId
     const prompt = createMemo(() => {
       const value = props.input.prompt
       return typeof value === "string" && value.length > 0 ? value : undefined
@@ -2528,6 +2528,11 @@ ToolRegistry.register({
       </div>
     )
   },
+})
+
+ToolRegistry.register({
+  name: "delegate_atom",
+  render: ResumeAgentTool.render,
 })
 
 function ShellToolRenderer(props: any) {

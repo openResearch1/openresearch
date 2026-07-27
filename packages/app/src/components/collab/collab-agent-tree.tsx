@@ -5,6 +5,7 @@ import type { CollabAgent } from "@opencode-ai/sdk/v2/client"
 type Props = {
   directory: string
   rootAgentId: string
+  anchorAgentId?: string
   onSelect?: (agentId: string) => void
   selectedAgentId?: string
 }
@@ -39,6 +40,7 @@ export function CollabAgentTree(props: Props) {
         e.type === "collab.agent.status" ||
         e.type === "collab.agent.completed" ||
         e.type === "collab.agent.failed" ||
+        e.type === "collab.agent.reparented" ||
         e.type === "collab.agent.created"
       ) {
         void refetch()
@@ -55,7 +57,7 @@ export function CollabAgentTree(props: Props) {
       <Show when={tree()} fallback={<div>Loading tree…</div>}>
         {(t) => (
           <TreeNode
-            node={t().root}
+            node={t().nodes.find((node) => node.id === props.anchorAgentId) ?? t().root}
             nodes={t().nodes}
             childrenOf={childrenOf}
             depth={0}

@@ -72,4 +72,83 @@ describe("CollabRecovery.scan synthesizes missing child reports", () => {
       },
     })
   })
+
+  test("requeues stranded processing messages before restart", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const session = await Session.create({ title: "recovery-processing" })
+        const id = Identifier.ascending("collab_agent")
+        CollabAgentNode.create({
+          id,
+          sessionId: session.id,
+          parentAgentId: null,
+          name: "root",
+          projectId: Instance.project.id,
+          rootAgentId: id,
+          subagentType: "general",
+          spec: { initialPrompt: "x" },
+        })
+        CollabMessage.post({ recipientAgentId: id, kind: "user_input", payload: { text: "retry" } })
+        expect(CollabMessage.drain(id)[0].status).toBe("processing")
+
+        await CollabRecovery.scan()
+
+        expect(CollabMessage.list(id, { kind: "user_input" })[0].status).toBe("pending")
+      },
+    })
+  })
+
+  test("legacy terminal reports before the current start do not suppress recovery", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const parentSession = await Session.create({ title: "legacy-parent" })
+        const parentId = Identifier.ascending("collab_agent")
+        CollabAgentNode.create({
+          id: parentId,
+          sessionId: parentSession.id,
+          parentAgentId: null,
+          name: "parent",
+          projectId: Instance.project.id,
+          rootAgentId: parentId,
+          subagentType: "general",
+          spec: { initialPrompt: "x" },
+        })
+        const childSession = await Session.create({ title: "legacy-child" })
+        const childId = Identifier.ascending("collab_agent")
+        CollabAgentNode.create({
+          id: childId,
+          sessionId: childSession.id,
+          parentAgentId: parentId,
+          name: "child",
+          projectId: Instance.project.id,
+          rootAgentId: parentId,
+          subagentType: "general",
+          spec: { initialPrompt: "x" },
+          status: "idle",
+        })
+        CollabAgentNode.transition(childId, "completed", { result: { summary: "old" }, timeEnded: Date.now() })
+        CollabMessage.post({
+          recipientAgentId: parentId,
+          senderAgentId: childId,
+          runId: null,
+          kind: "child_done",
+          payload: { childAgentId: childId, childName: "child", summary: "old" },
+        })
+        const old = CollabMessage.list(parentId, { kind: "child_done" })[0]
+        CollabAgentNode.transition(childId, "completed", {
+          result: { summary: "current" },
+          timeStarted: old.time_created + 1,
+          timeEnded: Date.now(),
+        })
+        CollabAgentNode.bumpActiveChildren(parentId, 5)
+
+        await CollabRecovery.scan()
+
+        expect(CollabMessage.list(parentId, { kind: "child_done" })).toHaveLength(2)
+        expect(CollabAgentNode.load(parentId).active_children).toBe(0)
+      },
+    })
+  })
 })

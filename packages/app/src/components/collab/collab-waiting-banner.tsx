@@ -1,6 +1,7 @@
 import { createResource, createMemo, For, Show, createEffect, onCleanup } from "solid-js"
 import { useGlobalSDK } from "@/context/global-sdk"
 import type { CollabAgent } from "@opencode-ai/sdk/v2/client"
+import { descendants } from "@/pages/session/composer/session-collab-scope"
 
 type Props = {
   directory: string
@@ -45,6 +46,7 @@ export function CollabWaitingBanner(props: Props) {
         e.type === "collab.agent.status" ||
         e.type === "collab.agent.completed" ||
         e.type === "collab.agent.failed" ||
+        e.type === "collab.agent.reparented" ||
         e.type === "collab.agent.created"
       ) {
         void refetchRoot()
@@ -58,9 +60,12 @@ export function CollabWaitingBanner(props: Props) {
     const t = tree()
     const root = rootAgent()
     if (!t || !root) return []
-    return t.nodes.filter(
+    return descendants(t.nodes, root.id).filter(
       (n) =>
-        n.id !== root.id && (n.status === "pending" || n.status === "running" || n.status === "blocked_on_children"),
+        n.status === "pending" ||
+        n.status === "running" ||
+        n.status === "blocked_on_children" ||
+        n.status === "waiting_interaction",
     )
   })
 

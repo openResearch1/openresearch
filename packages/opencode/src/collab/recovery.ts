@@ -1,8 +1,9 @@
-import { and, eq, inArray } from "drizzle-orm"
+import { and, eq, gte, inArray, isNull } from "drizzle-orm"
 import { Database } from "@/storage/db"
 import { Instance } from "@/project/instance"
 import { Log } from "@/util/log"
-import { CollabAgentTable, CollabMessageTable } from "./collab.sql"
+import { SessionOwnership } from "@/session/ownership"
+import { CollabMessageTable } from "./collab.sql"
 import { CollabAgentNode } from "./agent-node"
 import { CollabMessage } from "./message"
 import { CollabRuntime } from "./runtime"
@@ -21,18 +22,33 @@ export namespace CollabRecovery {
     CollabAutoWake.ensure()
 
     const project = Instance.project
+    const initial = CollabAgentNode.loadByProject(project.id)
+    for (const node of initial) {
+      if (node.parent_agent_id && !node.run_id) CollabAgentNode.ensureRun(node.id)
+      if (CollabRuntime.has(node.id) || CollabAutoWake.isDriving(node.session_id)) continue
+      const release = SessionOwnership.claim(node.session_id, "collab")
+      if (!release) continue
+      CollabMessage.retryProcessing(node.id)
+      release()
+    }
+
+    for (const node of initial) await synthesizeMissingChildReports(node.id)
+    for (const node of CollabAgentNode.loadByProject(project.id)) {
+      if (node.status !== "completed" && node.status !== "failed" && node.status !== "canceled") continue
+      CollabMessage.closeInbox(node.id)
+      if (!node.parent_agent_id || !node.spec.policy?.detach_on_terminal) continue
+      CollabAgentNode.release(node.id)
+    }
+
+    for (const node of CollabAgentNode.loadActiveByProject(project.id)) {
+      CollabAgentNode.recomputeActiveChildren(node.id)
+    }
     const active = CollabAgentNode.loadActiveByProject(project.id)
     log.info("scan.start", { project: project.id, activeCount: active.length })
 
     for (const node of active) {
       // Skip agents whose sessions are already being driven by an existing loop.
       if (CollabRuntime.has(node.id)) continue
-
-      // 1) Reconcile active_children count.
-      CollabAgentNode.recomputeActiveChildren(node.id)
-
-      // 2) Patch missing done/failed messages from terminated children.
-      await synthesizeMissingChildReports(node.id)
 
       if (!node.parent_agent_id) {
         // Root agents (primary sessions that have spawned Collab peers) are
@@ -47,12 +63,12 @@ export namespace CollabRecovery {
         continue
       }
 
-      if (node.status === "waiting_interaction" && !CollabMessage.hasPendingWakeMsg(node.id)) {
+      if (node.status === "waiting_interaction" && !CollabMessage.hasOutstandingWakeMsg(node.id)) {
         log.info("scan.skip.waiting", { agentId: node.id })
         continue
       }
 
-      // 3) Restart the loop for non-root peers.
+      // Restart the loop for non-root peers.
       log.info("scan.resume", { agentId: node.id, status: node.status })
       void CollabLoop.start(node.id)
     }
@@ -73,6 +89,8 @@ export namespace CollabRecovery {
               eq(CollabMessageTable.recipient_agent_id, parentId),
               eq(CollabMessageTable.sender_agent_id, child.id),
               inArray(CollabMessageTable.kind, ["child_done", "child_failed"]),
+              child.run_id ? eq(CollabMessageTable.run_id, child.run_id) : isNull(CollabMessageTable.run_id),
+              child.run_id ? undefined : gte(CollabMessageTable.time_created, child.time_started ?? child.time_created),
             ),
           )
           .limit(1)
@@ -82,6 +100,7 @@ export namespace CollabRecovery {
 
       if (child.status === "completed") {
         const payload: ChildDonePayload = {
+          runId: child.run_id ?? undefined,
           childAgentId: child.id,
           childName: child.name,
           summary: child.result?.summary ?? "",
@@ -91,11 +110,13 @@ export namespace CollabRecovery {
         await CollabMessage.post({
           recipientAgentId: parentId,
           senderAgentId: child.id,
+          runId: child.run_id,
           kind: "child_done",
           payload,
         })
       } else {
         const payload: ChildFailedPayload = {
+          runId: child.run_id ?? undefined,
           childAgentId: child.id,
           childName: child.name,
           reason: child.status === "canceled" ? "canceled" : "error",
@@ -106,6 +127,7 @@ export namespace CollabRecovery {
         await CollabMessage.post({
           recipientAgentId: parentId,
           senderAgentId: child.id,
+          runId: child.run_id,
           kind: "child_failed",
           payload,
         })
@@ -115,6 +137,3 @@ export namespace CollabRecovery {
 
   export const ACTIVE_STATUS_LIST: readonly string[] = ACTIVE_STATUSES
 }
-
-// Keep unused import errors quiet if CollabAgentTable tree-shakes.
-void CollabAgentTable

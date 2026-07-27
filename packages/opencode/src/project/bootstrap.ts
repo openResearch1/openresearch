@@ -35,9 +35,13 @@ export async function InstanceBootstrap() {
   // kicks off each zombie's loop in the background — run it detached so a slow
   // per-agent restart doesn't stall project bootstrap.
   const { ExperimentAgent } = await import("../research/experiment-agent")
+  const { AtomAgent } = await import("../research/atom-agent")
   ExperimentAgent.ensure()
   void CollabRecovery.scan()
-    .then(() => ExperimentAgent.scan())
+    .then(async () => {
+      await AtomAgent.scan()
+      await ExperimentAgent.scan()
+    })
     .catch((err) => {
       Log.Default.error("collab recovery failed", { error: err })
     })

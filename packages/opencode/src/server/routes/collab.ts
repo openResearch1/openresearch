@@ -59,6 +59,7 @@ function toMessageInfo(row: ReturnType<typeof Collab.listMessages>[number]) {
     id: row.id,
     recipient_agent_id: row.recipient_agent_id,
     sender_agent_id: row.sender_agent_id,
+    run_id: row.run_id,
     kind: row.kind,
     payload: row.payload_json,
     status: row.status,
@@ -66,6 +67,11 @@ function toMessageInfo(row: ReturnType<typeof Collab.listMessages>[number]) {
     time_updated: row.time_updated,
     time_consumed: row.time_consumed,
   }
+}
+
+function scoped(agentId: string) {
+  const info = Collab.tryGet(agentId)
+  if (info?.project_id === Instance.project.id) return info
 }
 
 export const CollabRoutes = new Hono()
@@ -123,6 +129,9 @@ export const CollabRoutes = new Hono()
     }),
     async (c) => {
       const rootAgentId = c.req.param("rootAgentId")
+      if (!scoped(rootAgentId)) {
+        return c.json({ success: false, message: `No agent ${rootAgentId}` }, 404)
+      }
       const nodes = Collab.tree(rootAgentId)
       const root = nodes.find((n) => n.id === rootAgentId)
       if (!root) {
@@ -147,7 +156,7 @@ export const CollabRoutes = new Hono()
     }),
     async (c) => {
       const agentId = c.req.param("agentId")
-      const info = Collab.tryGet(agentId)
+      const info = scoped(agentId)
       if (!info) return c.json({ success: false, message: `No agent ${agentId}` }, 404)
       return c.json(info)
     },
@@ -169,7 +178,7 @@ export const CollabRoutes = new Hono()
     validator("query", messagesQuerySchema),
     async (c) => {
       const agentId = c.req.param("agentId")
-      const target = Collab.tryGet(agentId)
+      const target = scoped(agentId)
       if (!target) return c.json({ success: false, message: `No agent ${agentId}` }, 404)
       const { kind, limit } = c.req.valid("query")
       const rows = Collab.listMessages(agentId, { kind, limit })
@@ -194,7 +203,8 @@ export const CollabRoutes = new Hono()
     }),
     async (c) => {
       const sessionId = c.req.param("sessionId")
-      const info = Collab.getBySession(sessionId) ?? null
+      const target = Collab.getBySession(sessionId)
+      const info = target?.project_id === Instance.project.id ? target : null
       return c.json({ agent: info })
     },
   )
@@ -215,10 +225,13 @@ export const CollabRoutes = new Hono()
     validator("json", cancelBodySchema),
     async (c) => {
       const agentId = c.req.param("agentId")
-      const target = Collab.tryGet(agentId)
+      const target = scoped(agentId)
       if (!target) return c.json({ success: false, message: `No agent ${agentId}` }, 404)
       const body = c.req.valid("json")
-      await Collab.cancel(agentId, body.reason)
+      await Collab.cancel(agentId, body.reason, {
+        parentAgentId: target.parent_agent_id,
+        runId: target.run_id,
+      })
       return c.json({ agent_id: agentId, canceled: true })
     },
   )

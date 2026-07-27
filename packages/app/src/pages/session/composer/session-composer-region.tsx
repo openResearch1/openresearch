@@ -260,22 +260,47 @@ export function SessionComposerRegion(props: {
                 </div>
               </div>
             </Show>
-            <div
-              classList={{
-                "relative z-10": true,
-              }}
-              style={{
-                "margin-top": `${-36 * value()}px`,
-              }}
-            >
-              <PromptInput
-                compact={props.compact}
-                ref={props.inputRef}
-                newSessionWorktree={props.newSessionWorktree}
-                onNewSessionWorktreeReset={props.onNewSessionWorktreeReset}
-                onSubmit={props.onSubmit}
-              />
-            </div>
+            <Show when={props.collabActivity.ready()}>
+              <Show
+                when={!props.collabActivity.controlled()}
+                fallback={
+                  <div class="relative z-10 rounded-md border border-border-base bg-background-base px-3 py-2.5 text-13-regular text-text-weak">
+                    <span class="text-text-strong">
+                      Controlled by {props.collabActivity.controller()?.name ?? "parent agent"}.
+                    </span>{" "}
+                    Direct input is disabled until this task finishes.
+                    <Show when={props.collabActivity.controller()} keyed>
+                      {(controller) => (
+                        <button
+                          type="button"
+                          class="ml-2 text-text-base underline underline-offset-2"
+                          onClick={() => navigate(`/${params.dir}/session/${controller.session_id}`)}
+                        >
+                          Open controller
+                        </button>
+                      )}
+                    </Show>
+                  </div>
+                }
+              >
+                <div
+                  classList={{
+                    "relative z-10": true,
+                  }}
+                  style={{
+                    "margin-top": `${-36 * value()}px`,
+                  }}
+                >
+                  <PromptInput
+                    compact={props.compact}
+                    ref={props.inputRef}
+                    newSessionWorktree={props.newSessionWorktree}
+                    onNewSessionWorktreeReset={props.onNewSessionWorktreeReset}
+                    onSubmit={props.onSubmit}
+                  />
+                </div>
+              </Show>
+            </Show>
           </Show>
         </Show>
       </div>

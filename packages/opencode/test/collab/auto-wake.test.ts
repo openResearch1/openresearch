@@ -1,9 +1,10 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, spyOn, test } from "bun:test"
 import path from "path"
 import { Bus } from "../../src/bus"
 import { Instance } from "../../src/project/instance"
 import { Session } from "../../src/session"
 import { SessionStatus } from "../../src/session/status"
+import { SessionPrompt } from "../../src/session/prompt"
 import { Log } from "../../src/util/log"
 import { Identifier } from "../../src/id/id"
 import { CollabAgentNode } from "../../src/collab/agent-node"
@@ -124,6 +125,9 @@ describe("CollabAutoWake blocks root on active children", () => {
           if (e.properties.recipientAgentId !== childId || e.properties.kind !== "user_input") return
           done()
         })
+        const prompt = spyOn(SessionPrompt, "prompt").mockResolvedValue(
+          {} as Awaited<ReturnType<typeof SessionPrompt.prompt>>,
+        )
 
         try {
           await Collab.resume({ agentId: childId, prompt: "new instruction" })
@@ -139,6 +143,7 @@ describe("CollabAutoWake blocks root on active children", () => {
           expect(CollabMessage.hasPendingWakeMsg(childId)).toBe(false)
         } finally {
           off()
+          prompt.mockRestore()
           CollabAutoWake.setDriveTurnOverrideForTesting(undefined)
           Collab.runtime().abort(childId)
         }
@@ -195,7 +200,8 @@ describe("CollabAutoWake blocks root on active children", () => {
         expect(CollabAgentNode.load(rootId).active_children).toBe(0)
         expect(Collab.hasOutstandingAsyncWork(rootSession.id)).toBe(true)
 
-        CollabMessage.drain(rootId)
+        const claimed = CollabMessage.drain(rootId)
+        CollabMessage.ack(claimed)
         expect(Collab.hasOutstandingAsyncWork(rootSession.id)).toBe(false)
       },
     })
@@ -406,8 +412,9 @@ describe("CollabAutoWake delegates non-root agents to CollabLoop", () => {
         })
 
         let direct = 0
-        CollabAutoWake.setDriveTurnOverrideForTesting(async () => {
-          direct++
+        CollabAutoWake.setDriveTurnOverrideForTesting(async (id) => {
+          if (id === parentId) direct++
+          CollabMessage.drain(id)
         })
 
         // Count consumed events; non-root agents should drain through CollabLoop,
@@ -416,6 +423,9 @@ describe("CollabAutoWake delegates non-root agents to CollabLoop", () => {
         const unsub = Bus.subscribe(CollabEvent.MessageConsumed, (e) => {
           if (e.properties.recipientAgentId === parentId) mpCount++
         })
+        const prompt = spyOn(SessionPrompt, "prompt").mockResolvedValue(
+          {} as Awaited<ReturnType<typeof SessionPrompt.prompt>>,
+        )
 
         try {
           await CollabMessage.post({
@@ -428,6 +438,7 @@ describe("CollabAutoWake delegates non-root agents to CollabLoop", () => {
           await new Promise((r) => setTimeout(r, 80))
         } finally {
           unsub()
+          prompt.mockRestore()
           CollabAutoWake.setDriveTurnOverrideForTesting(undefined)
           Collab.runtime().abort(parentId)
         }

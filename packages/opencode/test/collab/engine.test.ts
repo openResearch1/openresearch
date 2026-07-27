@@ -353,7 +353,8 @@ describe("Collab.resume waiting child", () => {
         try {
           await Collab.resume({ agentId: childId, prompt: "parent approved continuation" })
 
-          const deadline = Date.now() + 2000
+          // Isolated runs can spend several seconds initializing the SessionPrompt plugin path.
+          const deadline = Date.now() + 20000
           while (Date.now() < deadline && CollabAgentNode.load(childId).status !== "completed") {
             await new Promise((r) => setTimeout(r, 20))
           }
@@ -368,7 +369,7 @@ describe("Collab.resume waiting child", () => {
         }
       },
     })
-  })
+  }, 25_000)
 })
 
 describe("nested workflow wait_interaction", () => {
@@ -437,14 +438,15 @@ describe("nested workflow wait_interaction", () => {
               fullStream: (async function* () {})(),
             } as unknown as Awaited<ReturnType<typeof LLM.stream>>
           }
-          const output = (Workflow.wait({
-            sessionID: cSession.id,
-            instanceID: meta.instance.id,
-            userMessageID: input.user.id,
-            reason: args.reason,
-            message: args.message,
-          }),
-          { output: "workflow is waiting", title: "", metadata: {} })
+          const output =
+            (Workflow.wait({
+              sessionID: cSession.id,
+              instanceID: meta.instance.id,
+              userMessageID: input.user.id,
+              reason: args.reason,
+              message: args.message,
+            }),
+            { output: "workflow is waiting", title: "", metadata: {} })
           return {
             fullStream: (async function* () {
               yield { type: "start" }
@@ -489,7 +491,7 @@ describe("nested workflow wait_interaction", () => {
         }
       },
     })
-  })
+  }, 25_000)
 })
 
 describe("progress_injection strategies", () => {

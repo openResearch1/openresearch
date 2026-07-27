@@ -21,6 +21,17 @@ export namespace CollabEvent {
     }),
   )
 
+  export const AgentReparented = BusEvent.define(
+    "collab.agent.reparented",
+    z.object({
+      info: AgentInfoSchema,
+      oldParentAgentId: z.string().nullable(),
+      newParentAgentId: z.string().nullable(),
+      oldRootAgentId: z.string(),
+      newRootAgentId: z.string(),
+    }),
+  )
+
   export const AgentCompleted = BusEvent.define(
     "collab.agent.completed",
     z.object({

@@ -329,6 +329,7 @@ export namespace Agent {
             list_children: "allow",
             cancel_agent: "allow",
             resume_agent: "allow",
+            delegate_atom: "allow",
             research_code_query: "allow",
             project_runtime_server_query: "allow",
             project_runtime_env_spec_inspect: "allow",

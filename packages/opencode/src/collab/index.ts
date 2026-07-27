@@ -127,6 +127,9 @@ export namespace Collab {
 
     await Session.get(sessionId)
 
+    const loaded = CollabAgentNode.loadBySessionId(sessionId)
+    if (loaded) return loaded
+
     const agentId = Identifier.ascending("collab_agent")
     const info = CollabAgentNode.create({
       id: agentId,
@@ -147,9 +150,11 @@ export namespace Collab {
   }
 
   export async function sendUserInput(agentId: string, payload: UserInputPayload) {
+    const node = CollabAgentNode.tryLoad(agentId)
     return CollabMessage.post({
       recipientAgentId: agentId,
       senderAgentId: null,
+      runId: node?.run_id,
       kind: "user_input",
       payload,
     })
@@ -166,6 +171,8 @@ export namespace Collab {
     agentId: string
     prompt: string
     model?: { providerID: string; modelID: string }
+    expectedParentAgentId?: string | null
+    expectedRunId?: string | null
   }): Promise<AgentInfo> {
     CollabProgressHook.ensure()
     CollabAutoWake.ensure()
@@ -174,88 +181,161 @@ export namespace Collab {
     if (!node) throw new NotFoundError({ message: `Agent not found: ${input.agentId}` })
     node =
       (await import("@/research/experiment-agent").then((mod) => mod.ExperimentAgent.recover(input.agentId))) ?? node
+    if (node.parent_agent_id && CollabAgentNode.isActive(node.status) && !node.run_id) {
+      node = CollabAgentNode.ensureRun(node.id)
+    }
     if (
       ExperimentRemoteTaskListener.has(node.id, "direct") ||
-      CollabMessage.hasPendingKind(node.id, "session_remote_task_terminal")
+      CollabMessage.hasOutstanding(node.id, "session_remote_task_terminal")
     ) {
       throw new Error(`Cannot resume agent ${node.id}: its human session is waiting for a remote task update.`)
     }
 
-    const waiting = node.status === "waiting_interaction"
-
-    if (!SessionOwnership.available(node.session_id, "collab")) throw new Session.BusyError(node.session_id)
-    if (!CollabAgentNode.isActive(node.status) && SessionStatus.get(node.session_id).type === "busy") {
-      throw new Session.BusyError(node.session_id)
+    const lease = SessionOwnership.claim(node.session_id, "collab")
+    if (!lease) throw new Session.BusyError(node.session_id)
+    let released = false
+    const unlock = () => {
+      if (released) return
+      released = true
+      lease()
     }
+    try {
+      if (!CollabAgentNode.isActive(node.status) && SessionStatus.get(node.session_id).type === "busy") {
+        throw new Session.BusyError(node.session_id)
+      }
 
-    // If the parent has also finalized, resuming would orphan the child —
-    // no one to receive `child_done`. Refuse.
-    if (node.parent_agent_id) {
-      const parent = CollabAgentNode.tryLoad(node.parent_agent_id)
-      if (!parent || !CollabAgentNode.isActive(parent.status)) {
-        throw new Error(
-          `Cannot resume agent ${node.id}: parent ${node.parent_agent_id} is not active (parent status=${parent?.status ?? "missing"}).`,
+      node = CollabAgentNode.load(node.id)
+      if (input.expectedParentAgentId !== undefined && node.parent_agent_id !== input.expectedParentAgentId) {
+        throw new Error(`Cannot resume agent ${node.id}: parent changed before resume.`)
+      }
+      if (input.expectedRunId !== undefined && node.run_id !== input.expectedRunId) {
+        throw new Error(`Cannot resume agent ${node.id}: run changed before resume.`)
+      }
+
+      const waiting = node.status === "waiting_interaction"
+      if (node.spec.policy?.detach_on_terminal && !waiting) {
+        throw new Error(`Cannot resume leased agent ${node.id} while status is ${node.status}.`)
+      }
+
+      if (node.parent_agent_id) {
+        const parent = CollabAgentNode.tryLoad(node.parent_agent_id)
+        if (!parent || !CollabAgentNode.isActive(parent.status)) {
+          throw new Error(
+            `Cannot resume agent ${node.id}: parent ${node.parent_agent_id} is not active (parent status=${parent?.status ?? "missing"}).`,
+          )
+        }
+      }
+
+      if (CollabAgentNode.isActive(node.status) && !waiting) {
+        const posted = CollabMessage.post({
+          recipientAgentId: node.id,
+          senderAgentId: null,
+          runId: node.run_id,
+          expectedParentAgentId: node.parent_agent_id,
+          expectedRunId: node.run_id,
+          kind: "user_input",
+          payload: { text: input.prompt, model: input.model },
+        })
+        if (!posted) throw new Error(`Cannot resume agent ${node.id}: ownership changed before resume.`)
+
+        if (SessionStatus.get(node.session_id).type !== "busy" && !CollabRuntime.has(node.id)) {
+          unlock()
+          void CollabLoop.start(node.id)
+        }
+
+        return CollabAgentNode.load(node.id)
+      }
+
+      // Avoid racing with any lingering loop registration.
+      if (CollabRuntime.has(node.id)) {
+        log.warn("resume: runtime still had an entry, aborting it first", { agentId: node.id })
+        const prior = CollabRuntime.get(node.id)!
+        CollabRuntime.abortAndUnregister(node.id)
+        await prior.promise.catch(() => {})
+      }
+
+      // 1) Transition child back to running; clear prior error but keep result
+      //    history. 2) Re-bump parent's active_children only for terminal
+      //    resumes. Waiting children never left the active count.
+      if (waiting) {
+        node = CollabAgentNode.transition(
+          node.id,
+          "running",
+          { phase: "main_loop" },
+          { runId: node.run_id, parentId: node.parent_agent_id, status: "waiting_interaction" },
         )
-      }
-    }
-
-    if (CollabAgentNode.isActive(node.status) && !waiting) {
-      await CollabMessage.post({
-        recipientAgentId: node.id,
-        senderAgentId: null,
-        kind: "user_input",
-        payload: { text: input.prompt, model: input.model },
-      })
-
-      if (SessionStatus.get(node.session_id).type !== "busy" && !CollabRuntime.has(node.id)) {
-        void CollabLoop.start(node.id)
+      } else {
+        node = CollabAgentNode.activate(node.id, { runId: node.run_id, parentId: node.parent_agent_id })
       }
 
+      const resumed = waiting && CollabMessage.resumeInput(node.id, node.run_id, input.prompt, input.model)
+      if (!resumed) {
+        // Post before starting the loop so its first drain consumes this input
+        // instead of replaying spec.initialPrompt.
+        const posted = CollabMessage.post({
+          recipientAgentId: node.id,
+          senderAgentId: null,
+          runId: node.run_id,
+          expectedParentAgentId: node.parent_agent_id,
+          expectedRunId: node.run_id,
+          kind: "user_input",
+          payload: { text: input.prompt, model: input.model },
+        })
+        if (!posted) throw new Error(`Cannot resume agent ${node.id}: ownership changed before resume.`)
+      }
+
+      unlock()
+      void CollabLoop.start(node.id)
+      log.info("resume", { agentId: node.id, parentAgentId: node.parent_agent_id })
       return CollabAgentNode.load(node.id)
+    } finally {
+      unlock()
     }
-
-    // Avoid racing with any lingering loop registration.
-    if (CollabRuntime.has(node.id)) {
-      log.warn("resume: runtime still had an entry, aborting it first", { agentId: node.id })
-      CollabRuntime.abortAndUnregister(node.id)
-    }
-
-    // 1) Transition child back to running; clear prior error but keep result
-    //    history. 2) Re-bump parent's active_children only for terminal
-    //    resumes. Waiting children never left the active count.
-    if (waiting) {
-      CollabAgentNode.transition(node.id, "running", { phase: "main_loop" })
-    } else {
-      CollabAgentNode.activate(node.id)
-    }
-
-    // Post the instruction into its inbox BEFORE starting the loop, so the
-    // loop's first drain picks it up and injects it instead of re-running
-    // spec.initialPrompt.
-    await CollabMessage.post({
-      recipientAgentId: node.id,
-      senderAgentId: null,
-      kind: "user_input",
-      payload: { text: input.prompt, model: input.model },
-    })
-
-    void CollabLoop.start(node.id)
-    log.info("resume", { agentId: node.id, parentAgentId: node.parent_agent_id })
-    return CollabAgentNode.load(node.id)
   }
 
-  export async function cancel(agentId: string, reason?: string): Promise<void> {
+  export async function leaseAndResume(input: {
+    agentId: string
+    parentAgentId: string
+    prompt: string
+    model?: { providerID: string; modelID: string }
+    runId?: string
+  }): Promise<AgentInfo> {
+    CollabProgressHook.ensure()
+    CollabAutoWake.ensure()
+
+    const info = CollabAgentNode.lease(input)
+    if (
+      info.parent_agent_id === input.parentAgentId &&
+      info.spec.policy?.detach_on_terminal &&
+      (!input.runId || info.run_id === input.runId) &&
+      !CollabRuntime.has(info.id)
+    ) {
+      void CollabLoop.start(info.id)
+    }
+    return info
+  }
+
+  export async function cancel(
+    agentId: string,
+    reason?: string,
+    expected?: { parentAgentId: string | null; runId: string | null },
+  ): Promise<void> {
+    const node = CollabAgentNode.tryLoad(agentId)
     const cancelPayload: CancelPayload = {
       reason: reason ?? "canceled by request",
       initiator: "user",
     }
-    await CollabMessage.post({
+    const posted = CollabMessage.post({
       recipientAgentId: agentId,
       senderAgentId: null,
+      runId: node?.run_id,
+      expectedParentAgentId: expected?.parentAgentId,
+      expectedRunId: expected?.runId,
       kind: "cancel",
       payload: cancelPayload,
     })
-    await CollabSupervisor.cancelDescendants(agentId, { reason: cancelPayload.reason, initiator: "user" })
+    if (!posted) throw new Error(`Cannot cancel agent ${agentId}: ownership changed before cancel.`)
+    CollabSupervisor.cancelDescendants(agentId, { reason: cancelPayload.reason, initiator: "user" })
   }
 
   export async function cancelDescendants(
@@ -309,7 +389,7 @@ export namespace Collab {
         (child) => CollabAgentNode.isActive(child.status) && child.status !== "waiting_interaction",
       ),
       hasWaitingChildren: children.some((child) => child.status === "waiting_interaction"),
-      hasPendingWakeMessages: CollabMessage.hasPendingWakeMsg(node.id),
+      hasPendingWakeMessages: CollabMessage.hasOutstandingWakeMsg(node.id),
       hasRemoteTaskListeners: !!ExperimentRemoteTaskListener.has(node.id, "collab"),
     }
   }
@@ -320,6 +400,14 @@ export namespace Collab {
 
   export function tree(rootAgentId: string): AgentInfo[] {
     return CollabAgentNode.loadTree(rootAgentId)
+  }
+
+  export function isAncestor(ancestorId: string, descendantId: string) {
+    return CollabAgentNode.isAncestor(ancestorId, descendantId)
+  }
+
+  export function branchSettled(agentId: string) {
+    return CollabAgentNode.isBranchSettled(agentId)
   }
 
   export function listLatestProgress(agentId: string): Record<string, unknown> {
@@ -382,18 +470,14 @@ export namespace Collab {
    * both cases without tying ourselves to a single "completion" event that
    * root agents (driven by AutoWake, not CollabLoop) never emit.
    */
-  export function waitForRootSettled(
-    sessionId: string,
-    rootAgentId: string,
-    abort?: AbortSignal,
-  ): Promise<void> {
+  export function waitForRootSettled(sessionId: string, rootAgentId: string, abort?: AbortSignal): Promise<void> {
     const isSettled = () => {
       const node = CollabAgentNode.tryLoad(rootAgentId)
       if (!node) return true
       if (!CollabAgentNode.isActive(node.status)) return true
       if (node.active_children > 0) return false
       if (ExperimentRemoteTaskListener.has(rootAgentId, "collab")) return false
-      if (CollabMessage.hasPendingWakeMsg(rootAgentId)) return false
+      if (CollabMessage.hasOutstandingWakeMsg(rootAgentId)) return false
       if (SessionStatus.get(sessionId).type !== "idle") return false
       // AutoWake's maybeWakeOrBlock claims the inflight lock before it
       // drain+transitions+awaits SessionPrompt. Between drain and the
