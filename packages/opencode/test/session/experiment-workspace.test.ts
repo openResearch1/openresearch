@@ -89,6 +89,7 @@ describe("session.experiment-workspace", () => {
               exp_name: "workspace test",
               exp_session_id: root,
               code_path: code,
+              remote_code_path: "/remote/experiments/workspace-test",
             })
             .run(),
         )
@@ -121,6 +122,10 @@ describe("session.experiment-workspace", () => {
         expect(ExperimentWorkspace.prompt(peer)).toBe(expected)
         expect(ExperimentWorkspace.prompt(nested)).toBe(expected)
         expect(expected.split("\n")).toHaveLength(1)
+        expect(ExperimentWorkspace.resolve(peer)).toMatchObject({
+          exp_id: exp,
+          remote_code_path: "/remote/experiments/workspace-test",
+        })
       },
     })
   })

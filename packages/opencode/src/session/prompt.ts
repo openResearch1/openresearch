@@ -405,7 +405,20 @@ export namespace SessionPrompt {
       }
 
       if (!lastUser) throw new Error("No user message found in stream. This should never happen.")
-      const activeWorkflow = Workflow.active(sessionID)
+      let activeWorkflow = Workflow.active(sessionID)
+      if (
+        lastUser.agent === "experiment" &&
+        activeWorkflow &&
+        ["experiment_execution_v1", "experiment_execution_v2"].includes(activeWorkflow.template_id)
+      ) {
+        Workflow.fail({
+          sessionID,
+          instanceID: activeWorkflow.id,
+          code: "EXPERIMENT_WORKFLOW_RETIRED",
+          message: "Experiment workflows were replaced by autonomous event-driven execution.",
+        })
+        activeWorkflow = undefined
+      }
       if (
         !activeWorkflow &&
         lastAssistant?.finish &&

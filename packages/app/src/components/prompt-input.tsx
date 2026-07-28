@@ -102,13 +102,9 @@ const NON_EMPTY_TEXT = /[^\s\u200B]/
 const AT_AGENT_LIST = [
   "research_project_init",
   "experiment_plan",
-  "experiment_deploy",
-  "experiment_local_download",
-  "project_runtime_resource_download",
+  "experiment_commit",
+  "project_runtime_env_setup",
   "experiment_resource_prepare",
-  "experiment_sync_resource",
-  "experiment_setup_env",
-  "experiment_run",
   "general",
   "explore",
 ] as const
