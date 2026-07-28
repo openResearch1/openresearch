@@ -47,6 +47,7 @@ import { ExperimentCreateTool } from "./experiment"
 import { ExperimentCodeSyncTool } from "./experiment-code-sync"
 import { ExperimentQueryTool } from "./experiment-query"
 import { ResearchCodeQueryTool } from "./research-code"
+import { ResearchCodeBranchQueryTool } from "./research-code-branch"
 import { ResearchBackgroundTool, ResearchGoalTool, ResearchMacroTool } from "./research-background"
 import { ResearchInfoTool } from "./research-info"
 import { SshTool } from "./ssh"
@@ -189,6 +190,7 @@ export namespace ToolRegistry {
       ExperimentCodeSyncTool,
       ExperimentQueryTool,
       ResearchCodeQueryTool,
+      ResearchCodeBranchQueryTool,
       ResearchBackgroundTool,
       ResearchGoalTool,
       ResearchMacroTool,

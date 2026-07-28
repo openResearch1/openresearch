@@ -129,6 +129,19 @@ test("resource preparation agent owns acquisition through verification", async (
   })
 })
 
+test("research agent locks experiment creation to a queried branch head", async () => {
+  await using tmp = await tmpdir()
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const research = await Agent.get("research")
+      expect(evalPerm(research, "research_code_branch_query")).toBe("allow")
+      expect(research?.prompt).toContain("latest commit subject")
+      expect(research?.prompt).toContain("expectedHeadSha")
+    },
+  })
+})
+
 test("experiment agent owns the autonomous remote lifecycle", async () => {
   await using tmp = await tmpdir()
   await Instance.provide({

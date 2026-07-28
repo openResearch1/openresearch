@@ -100,6 +100,15 @@
   box-shadow: var(--shadow-xs-border);
   z-index: 60;
 
+  &[data-inline] {
+    position: static !important;
+    inset: auto !important;
+    transform: none !important;
+    width: 100%;
+    max-width: none;
+    margin-top: 4px;
+  }
+
   &[data-expanded] {
     animation: select-open 0.15s ease-out;
   }

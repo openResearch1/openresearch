@@ -61,7 +61,12 @@ export function AtomSessionTab(props: {
     }
   }
 
-  const doCreateExperiment = async (expName: string, baselineBranch: string, codePath: string) => {
+  const doCreateExperiment = async (
+    expName: string,
+    baselineBranch: string,
+    expectedHeadSha: string,
+    codePath: string,
+  ) => {
     if (creating()) return
     setCreating(true)
     try {
@@ -69,13 +74,14 @@ export function AtomSessionTab(props: {
         atomId: props.atom.atom_id,
         expName,
         baselineBranch,
+        expectedHeadSha,
         codePath,
       })
       dialog.close()
       props.onRefresh?.()
-      const sessionId = res.data?.session_id
-      if (sessionId) {
-        navigateToExpSession(sessionId)
+      const expId = res.data?.exp_id
+      if (expId) {
+        navigateToExpSession(expId)
       }
     } catch (err) {
       console.error("[atom-session-tab] failed to create experiment", err)
@@ -88,7 +94,9 @@ export function AtomSessionTab(props: {
     dialog.show(() => (
       <DialogCreateExperiment
         creating={creating()}
-        onSubmit={(expName, baselineBranch, codePath) => doCreateExperiment(expName, baselineBranch, codePath)}
+        onSubmit={(expName, baselineBranch, expectedHeadSha, codePath) =>
+          doCreateExperiment(expName, baselineBranch, expectedHeadSha, codePath)
+        }
       />
     ))
   }
@@ -455,13 +463,21 @@ export function AtomSessionTab(props: {
 
 type BranchOption = {
   branch: string
+  ref: string
+  headSha: string
+  subject: string
+  committedAt: string
+  current: boolean
+  default: boolean
   displayName: string
   experimentId: string | null
+  experimentName: string | null
+  experimentStatus: string | null
 }
 
 function DialogCreateExperiment(props: {
   creating: boolean
-  onSubmit: (expName: string, baselineBranch: string, codePath: string) => void
+  onSubmit: (expName: string, baselineBranch: string, expectedHeadSha: string, codePath: string) => void
 }) {
   const sdk = useSDK()
   const [expName, setExpName] = createSignal("")
@@ -495,6 +511,7 @@ function DialogCreateExperiment(props: {
       .then((res) => {
         if (res.data) {
           setBranches(res.data)
+          setSelectedBranch(res.data.find((branch) => branch.default) ?? null)
         }
       })
       .catch((err) => {
@@ -508,7 +525,7 @@ function DialogCreateExperiment(props: {
     e.preventDefault()
     const branch = selectedBranch()
     if (!expName().trim() || !codePath().trim() || !branch) return
-    props.onSubmit(expName().trim(), branch.branch, codePath().trim())
+    props.onSubmit(expName().trim(), branch.branch, branch.headSha, codePath().trim())
   }
 
   const selectedOption = createMemo(() => codePaths().find((o) => o.path === codePath()) ?? null)
@@ -550,43 +567,58 @@ function DialogCreateExperiment(props: {
               placeholder="Search and select a branch..."
               triggerMode="focus"
               itemComponent={(itemProps) => (
-                <KobalteCombobox.Item item={itemProps.item} data-slot="select-select-item">
-                  <KobalteCombobox.ItemLabel data-slot="select-select-item-label">
-                    {itemProps.item.rawValue.displayName}
-                    <Show when={itemProps.item.rawValue.experimentId}>
-                      <span class="ml-1.5 text-text-weak text-xs">({itemProps.item.rawValue.branch.slice(0, 8)})</span>
-                    </Show>
+                <KobalteCombobox.Item item={itemProps.item} data-slot="select-select-item" class="w-full">
+                  <KobalteCombobox.ItemLabel
+                    data-slot="select-select-item-label"
+                    class="pointer-events-none min-w-0 flex-1"
+                  >
+                    <div class="flex min-w-0 flex-col">
+                      <span class="truncate">
+                        {itemProps.item.rawValue.displayName}
+                        <Show when={itemProps.item.rawValue.experimentId}>
+                          <span class="ml-1.5 text-text-weak text-xs">
+                            ({itemProps.item.rawValue.branch.slice(0, 8)})
+                          </span>
+                        </Show>
+                      </span>
+                      <span class="truncate text-xs text-text-weak">
+                        {itemProps.item.rawValue.subject || "No commit message"} -{" "}
+                        {itemProps.item.rawValue.headSha.slice(0, 8)}
+                      </span>
+                    </div>
                   </KobalteCombobox.ItemLabel>
-                  <KobalteCombobox.ItemIndicator data-slot="select-select-item-indicator">
+                  <KobalteCombobox.ItemIndicator
+                    data-slot="select-select-item-indicator"
+                    class="pointer-events-none shrink-0"
+                  >
                     <Icon name="check-small" size="small" />
                   </KobalteCombobox.ItemIndicator>
                 </KobalteCombobox.Item>
               )}
             >
-              <KobalteCombobox.Control data-component="combobox-control" class="flex items-center">
+              <KobalteCombobox.Control data-component="combobox-control" class="relative flex w-full items-center">
                 <KobalteCombobox.Input
                   data-component="combobox-input"
-                  class="flex-1 bg-transparent outline-none text-sm"
+                  class="h-8 w-full min-w-0 flex-1 bg-transparent px-2 pr-8 text-sm outline-none"
                   style={{
-                    height: "32px",
-                    padding: "0 8px",
                     "border-radius": "var(--radius-md)",
                     "background-color": "var(--input-base)",
                     "box-shadow": "var(--shadow-xs-border-base)",
                     color: "var(--text-strong)",
                   }}
                 />
-                <KobalteCombobox.Trigger data-component="combobox-trigger" class="absolute right-2">
+                <KobalteCombobox.Trigger
+                  data-component="combobox-trigger"
+                  class="absolute inset-y-0 right-2 flex items-center"
+                >
                   <KobalteCombobox.Icon>
                     <Icon name="chevron-down" size="small" />
                   </KobalteCombobox.Icon>
                 </KobalteCombobox.Trigger>
               </KobalteCombobox.Control>
-              <KobalteCombobox.Portal>
-                <KobalteCombobox.Content data-component="select-content">
-                  <KobalteCombobox.Listbox data-slot="select-select-content-list" />
-                </KobalteCombobox.Content>
-              </KobalteCombobox.Portal>
+              <KobalteCombobox.Content data-component="select-content" data-inline="">
+                <KobalteCombobox.Listbox data-slot="select-select-content-list" />
+              </KobalteCombobox.Content>
             </KobalteCombobox>
           </Show>
           <Show when={branches().length === 0 && codePath().trim() && !loadingBranches()}>

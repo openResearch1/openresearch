@@ -51,6 +51,7 @@ export const ExperimentTable = sqliteTable(
     exp_name: text().notNull(),
     exp_session_id: text().references(() => SessionTable.id, { onDelete: "set null" }),
     baseline_branch_name: text(),
+    baseline_commit_sha: text(),
     exp_branch_name: text(),
     exp_result_path: text(),
     atom_id: text().references(() => AtomTable.atom_id, { onDelete: "set null" }),

@@ -260,6 +260,7 @@ export namespace Agent {
             resume_agent: "allow",
             delegate_atom: "allow",
             research_code_query: "allow",
+            research_code_branch_query: "allow",
             project_runtime_server_query: "allow",
             project_runtime_env_spec_inspect: "allow",
             project_runtime_ensure: "allow",

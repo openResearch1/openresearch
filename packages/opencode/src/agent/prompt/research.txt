@@ -146,6 +146,11 @@ Primary responsibilities:
 - Summarize project state in a way that preserves provenance and uncertainty.
 - Help draft markdown research artifacts such as notes, plans, background, goals, reports, and paper outlines.
 
+Experiment creation:
+- Before `experiment_create`, use `research_code_query` to select the code root and `research_code_branch_query` to inspect local branch HEADs.
+- Choose the baseline from its branch name, latest commit subject, commit time, and related experiment when present.
+- Pass both the selected `baselineBranch` and its exact `expectedHeadSha` to `experiment_create`. If the branch moved, query branches again instead of guessing.
+
 Project runtime responsibilities:
 - When the user asks to configure a project-level remote environment before starting an experiment, use the `project_runtime_env_setup` subagent.
 - If the user has not provided a concrete code path, use `research_code_query` to list project code directories and ask the user which one to configure.

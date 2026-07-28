@@ -86,6 +86,7 @@ function formatExpResult(r: ExpResult): string {
     agent ? `agent_id: ${agent.id}` : `agent_id: (not attached)`,
     agent ? `agent_status: ${agent.status}` : null,
     e.baseline_branch_name ? `baseline_branch_name: ${e.baseline_branch_name}` : null,
+    e.baseline_commit_sha ? `baseline_commit_sha: ${e.baseline_commit_sha}` : null,
     e.exp_branch_name ? `exp_branch_name: ${e.exp_branch_name}` : null,
     e.exp_result_path ? `exp_result_path: ${e.exp_result_path}` : null,
     e.exp_result_summary_path ? `exp_result_summary_path: ${e.exp_result_summary_path}` : null,

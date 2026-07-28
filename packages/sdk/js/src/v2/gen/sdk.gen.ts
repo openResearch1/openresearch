@@ -3510,6 +3510,7 @@ export class Experiment extends HeyApiClient {
       atomId?: string
       expName?: string
       baselineBranch?: string
+      expectedHeadSha?: string
       remoteServerId?: string
       codePath?: string
     },
@@ -3525,6 +3526,7 @@ export class Experiment extends HeyApiClient {
             { in: "body", key: "atomId" },
             { in: "body", key: "expName" },
             { in: "body", key: "baselineBranch" },
+            { in: "body", key: "expectedHeadSha" },
             { in: "body", key: "remoteServerId" },
             { in: "body", key: "codePath" },
           ],
@@ -3665,7 +3667,7 @@ export class Experiment extends HeyApiClient {
   /**
    * Get experiment branch diff
    *
-   * Compare the experiment branch against its baseline branch and return file diffs grouped by commit.
+   * Compare the experiment branch against its fixed baseline commit and return file diffs grouped by commit.
    */
   public diff<ThrowOnError extends boolean = false>(
     parameters: {
@@ -3776,6 +3778,7 @@ export class Experiment extends HeyApiClient {
       workspace?: string
       expName?: string
       baselineBranch?: string
+      expectedHeadSha?: string
       remoteServerId?: string | null
       codePath?: string
       remoteCodePath?: string | null
@@ -3792,6 +3795,7 @@ export class Experiment extends HeyApiClient {
             { in: "query", key: "workspace" },
             { in: "body", key: "expName" },
             { in: "body", key: "baselineBranch" },
+            { in: "body", key: "expectedHeadSha" },
             { in: "body", key: "remoteServerId" },
             { in: "body", key: "codePath" },
             { in: "body", key: "remoteCodePath" },
@@ -4382,7 +4386,7 @@ export class Research extends HeyApiClient {
   /**
    * List git branches for a code path
    *
-   * List local git branches under the given code path. If a branch is associated with an experiment, returns the experiment name as displayName.
+   * List local git branches with HEAD commit metadata. If a branch is associated with an experiment, returns the experiment name as displayName.
    */
   public branches<ThrowOnError extends boolean = false>(
     parameters: {

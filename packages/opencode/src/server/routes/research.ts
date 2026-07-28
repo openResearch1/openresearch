@@ -51,6 +51,7 @@ import { isArticleDirectory } from "@/research/article-source"
 import { readRemoteTaskLog } from "@/research/remote-task-runner"
 import { defaultRemoteCodePath, syncCodeToRemote } from "@/research/remote-code-sync"
 import { AtomAgent } from "@/research/atom-agent"
+import { CodeBranch } from "@/research/code-branch"
 import { ResearchDeletionTable } from "@/research/research-deletion.sql"
 
 const createSchema = z.object({
@@ -67,6 +68,7 @@ async function copyFile(src: string, dest: string) {
 }
 
 const uniqueID = () => crypto.randomUUID()
+const commitShaSchema = z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/, "expectedHeadSha must be a full Git commit SHA")
 const REMOTE_TASK_VISIBLE_MS = 60 * 1000
 type RemoteTaskRow = typeof RemoteTaskTable.$inferSelect
 
@@ -131,6 +133,7 @@ const experimentSchema = z.object({
   exp_name: z.string(),
   exp_session_id: z.string().nullable(),
   baseline_branch_name: z.string().nullable(),
+  baseline_commit_sha: z.string().nullable(),
   exp_branch_name: z.string().nullable(),
   exp_result_path: z.string().nullable(),
   atom_id: z.string().nullable(),
@@ -1501,7 +1504,7 @@ export const ResearchRoutes = new Hono()
     describeRoute({
       summary: "List git branches for a code path",
       description:
-        "List local git branches under the given code path. If a branch is associated with an experiment, returns the experiment name as displayName.",
+        "List local git branches with HEAD commit metadata. If a branch is associated with an experiment, returns the experiment name as displayName.",
       operationId: "research.branches",
       responses: {
         200: {
@@ -1512,8 +1515,16 @@ export const ResearchRoutes = new Hono()
                 z.array(
                   z.object({
                     branch: z.string(),
+                    ref: z.string(),
+                    headSha: z.string(),
+                    subject: z.string(),
+                    committedAt: z.string(),
+                    current: z.boolean(),
+                    default: z.boolean(),
                     displayName: z.string(),
                     experimentId: z.string().nullable(),
+                    experimentName: z.string().nullable(),
+                    experimentStatus: z.string().nullable(),
                   }),
                 ),
               ),
@@ -1532,48 +1543,17 @@ export const ResearchRoutes = new Hono()
     async (c) => {
       const { codePath } = c.req.valid("query")
 
-      if (!fs.existsSync(codePath)) {
-        return c.json({ success: false, message: `codePath not found: ${codePath}` }, 400)
-      }
-
-      const result = await git(["branch", "--format=%(refname:short)"], { cwd: codePath })
-      if (result.exitCode !== 0) {
-        return c.json({ success: false, message: `git error: ${result.stderr.toString()}` }, 400)
-      }
-
-      const raw = result.text().trim()
-      if (!raw) {
-        return c.json([])
-      }
-
-      const branches: string[] = []
-      for (const line of raw.split("\n")) {
-        const name = line.trim()
-        if (!name) continue
-        branches.push(name)
-      }
-
-      // find experiments linked to these branches
-      const experiments = Database.use((db) =>
-        db.select().from(ExperimentTable).where(eq(ExperimentTable.kind, "experiment")).all(),
+      const project = Database.use((db) =>
+        db
+          .select({ id: ResearchProjectTable.research_project_id })
+          .from(ResearchProjectTable)
+          .where(eq(ResearchProjectTable.project_id, Instance.project.id))
+          .get(),
       )
-      const expByBranch = new Map<string, { expId: string; expName: string }>()
-      for (const exp of experiments) {
-        if (exp.exp_branch_name) {
-          expByBranch.set(exp.exp_branch_name, { expId: exp.exp_id, expName: exp.exp_name })
-        }
-      }
-
-      const items = branches.map((branch) => {
-        const exp = expByBranch.get(branch)
-        return {
-          branch,
-          displayName: exp ? exp.expName : branch,
-          experimentId: exp ? exp.expId : null,
-        }
-      })
-
-      return c.json(items)
+      return CodeBranch.list(codePath)
+        .then((info) => (project ? CodeBranch.experiments(info, project.id) : info))
+        .then((info) => c.json(info.branches))
+        .catch((err) => c.json({ success: false, message: err instanceof Error ? err.message : String(err) }, 400))
     },
   )
   // ── Code CRUD ──
@@ -1837,6 +1817,7 @@ export const ResearchRoutes = new Hono()
                   atom_name: z.string(),
                   session_id: z.string(),
                   baseline_branch: z.string(),
+                  baseline_commit: z.string(),
                   exp_branch: z.string(),
                   exp_result_path: z.string(),
                   exp_result_summary_path: z.string(),
@@ -1853,7 +1834,8 @@ export const ResearchRoutes = new Hono()
       z.object({
         atomId: z.string().min(1, "atomId required"),
         expName: z.string().min(1, "expName required"),
-        baselineBranch: z.string().optional().default("master"),
+        baselineBranch: z.string().min(1, "baselineBranch required"),
+        expectedHeadSha: commitShaSchema,
         remoteServerId: z.string().optional(),
         codePath: z.string().min(1, "codePath required"),
       }),
@@ -1875,17 +1857,6 @@ export const ResearchRoutes = new Hono()
       if (project?.id !== Instance.project.id) {
         return c.json({ success: false, message: `atom not found: ${body.atomId}` }, 404)
       }
-      const expId = uniqueID()
-      const session = await Session.create({ title: `Exp: ${body.expName}` })
-
-      const expDir = path.join(Instance.directory, "exp_results", expId)
-      const expResultPath = path.join(expDir, "result.wandb")
-      const expResultSummaryPath = path.join(expDir, "summary.md")
-      const expPlanPath = path.join(expDir, "plan.md")
-
-      await Filesystem.write(path.join(expDir, ".keep"), "")
-      await Filesystem.write(expPlanPath, "")
-
       // Ensure repo is initialised and create worktree for the experiment
       const initResult = await ensureRepoInitialized(body.codePath)
       if (!initResult.ok) {
@@ -1895,16 +1866,35 @@ export const ResearchRoutes = new Hono()
         )
       }
 
-      const baselineExists = await git(["rev-parse", "--verify", body.baselineBranch], { cwd: body.codePath })
-      if (baselineExists.exitCode !== 0) {
+      const baseline = await CodeBranch.resolve(body.codePath, body.baselineBranch).catch(() => undefined)
+      if (!baseline) {
         return c.json(
           { success: false, message: `baseline branch "${body.baselineBranch}" not found at ${body.codePath}` },
           400,
         )
       }
+      if (baseline !== body.expectedHeadSha) {
+        return c.json(
+          {
+            success: false,
+            message: `baseline branch "${body.baselineBranch}" moved from ${body.expectedHeadSha} to ${baseline}; refresh branches and try again`,
+          },
+          400,
+        )
+      }
+
+      const expId = uniqueID()
+      const session = await Session.create({ title: `Exp: ${body.expName}` })
+      const expDir = path.join(Instance.directory, "exp_results", expId)
+      const expResultPath = path.join(expDir, "result.wandb")
+      const expResultSummaryPath = path.join(expDir, "summary.md")
+      const expPlanPath = path.join(expDir, "plan.md")
+
+      await Filesystem.write(path.join(expDir, ".keep"), "")
+      await Filesystem.write(expPlanPath, "")
 
       const worktreePath = path.join(body.codePath, ".openresearch_worktrees", expId)
-      const createWorktree = await git(["worktree", "add", worktreePath, body.baselineBranch, "-b", expId], {
+      const createWorktree = await git(["worktree", "add", "-b", expId, worktreePath, baseline], {
         cwd: body.codePath,
         env: GIT_ENV,
       })
@@ -1929,6 +1919,7 @@ export const ResearchRoutes = new Hono()
             atom_id: body.atomId,
             exp_session_id: session.id,
             baseline_branch_name: body.baselineBranch,
+            baseline_commit_sha: baseline,
             exp_branch_name: expId,
             exp_result_path: expResultPath,
             exp_result_summary_path: expResultSummaryPath,
@@ -1953,6 +1944,7 @@ export const ResearchRoutes = new Hono()
         atom_name: atom.atom_name,
         session_id: session.id,
         baseline_branch: body.baselineBranch,
+        baseline_commit: baseline,
         exp_branch: expId,
         exp_result_path: expResultPath,
         exp_result_summary_path: expResultSummaryPath,
@@ -2233,7 +2225,7 @@ export const ResearchRoutes = new Hono()
     "/experiment/:expId/diff",
     describeRoute({
       summary: "Get experiment branch diff",
-      description: "Compare the experiment branch against its baseline branch and return file diffs grouped by commit.",
+      description: "Compare the experiment branch against its fixed baseline commit and return file diffs grouped by commit.",
       operationId: "research.experiment.diff",
       responses: {
         200: {
@@ -2269,13 +2261,14 @@ export const ResearchRoutes = new Hono()
       if (expExists.exitCode !== 0) {
         return c.json({ success: false, message: `experiment branch "${expBranch}" not found` }, 400)
       }
-      const baseExists = await git(["rev-parse", "--verify", baselineBranch], { cwd: codePath })
+      const baseline = experiment.baseline_commit_sha ?? baselineBranch
+      const baseExists = await git(["rev-parse", "--verify", `${baseline}^{commit}`], { cwd: codePath })
       if (baseExists.exitCode !== 0) {
-        return c.json({ success: false, message: `baseline branch "${baselineBranch}" not found` }, 400)
+        return c.json({ success: false, message: `baseline commit "${baseline}" not found` }, 400)
       }
 
       // Get commit list: baseline..exp (newest first)
-      const logResult = await git(["log", "--format=%H%n%s%n%an%n%aI", `${baselineBranch}..${expBranch}`], {
+      const logResult = await git(["log", "--format=%H%n%s%n%an%n%aI", `${baseline}..${expBranch}`], {
         cwd: codePath,
       })
       if (logResult.exitCode !== 0) {
@@ -3149,7 +3142,7 @@ export const ResearchRoutes = new Hono()
             },
           },
         },
-        ...errors(404),
+        ...errors(400, 404),
       },
     }),
     validator(
@@ -3157,6 +3150,7 @@ export const ResearchRoutes = new Hono()
       z.object({
         expName: z.string().optional(),
         baselineBranch: z.string().optional(),
+        expectedHeadSha: commitShaSchema.optional(),
         remoteServerId: z.string().nullable().optional(),
         codePath: z.string().optional(),
         remoteCodePath: z.string().nullable().optional(),
@@ -3174,8 +3168,20 @@ export const ResearchRoutes = new Hono()
       }
 
       const updates: Record<string, unknown> = { time_updated: Date.now() }
+      const baseline = body.baselineBranch
+        ? await CodeBranch.resolve(body.codePath ?? experiment.code_path, body.baselineBranch).catch(() => undefined)
+        : undefined
+      if (body.baselineBranch && !baseline) {
+        return c.json({ success: false, message: `baseline branch "${body.baselineBranch}" not found` }, 400)
+      }
+      if (baseline && body.expectedHeadSha && baseline !== body.expectedHeadSha) {
+        return c.json({ success: false, message: `baseline branch "${body.baselineBranch}" moved` }, 400)
+      }
       if (body.expName !== undefined) updates.exp_name = body.expName
-      if (body.baselineBranch !== undefined) updates.baseline_branch_name = body.baselineBranch
+      if (body.baselineBranch !== undefined) {
+        updates.baseline_branch_name = body.baselineBranch
+        updates.baseline_commit_sha = baseline
+      }
       if (body.remoteServerId !== undefined) updates.remote_server_id = body.remoteServerId
       if (body.codePath !== undefined) updates.code_path = body.codePath
       if (body.remoteCodePath !== undefined) updates.remote_code_path = body.remoteCodePath
@@ -3756,6 +3762,7 @@ export const ResearchRoutes = new Hono()
                   exp_name: exp.exp_name,
                   exp_session_id: null, // Sessions are not imported
                   baseline_branch_name: exp.baseline_branch_name,
+                  baseline_commit_sha: exp.baseline_commit_sha ?? null,
                   exp_branch_name: exp.exp_branch_name,
                   exp_result_path: expDir,
                   atom_id: exp.atom_id ? (oldToNewAtomId.get(exp.atom_id) ?? null) : null,

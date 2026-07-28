@@ -4918,6 +4918,7 @@ export type ResearchSessionAtomGetResponses = {
         exp_name: string
         exp_session_id: string | null
         baseline_branch_name: string | null
+        baseline_commit_sha: string | null
         exp_branch_name: string | null
         exp_result_path: string | null
         atom_id: string | null
@@ -5037,8 +5038,16 @@ export type ResearchBranchesResponses = {
    */
   200: Array<{
     branch: string
+    ref: string
+    headSha: string
+    subject: string
+    committedAt: string
+    current: boolean
+    default: boolean
     displayName: string
     experimentId: string | null
+    experimentName: string | null
+    experimentStatus: string | null
   }>
 }
 
@@ -5199,7 +5208,8 @@ export type ResearchExperimentCreateData = {
   body?: {
     atomId: string
     expName: string
-    baselineBranch?: string
+    baselineBranch: string
+    expectedHeadSha: string
     remoteServerId?: string
     codePath: string
   }
@@ -5235,6 +5245,7 @@ export type ResearchExperimentCreateResponses = {
     atom_name: string
     session_id: string
     baseline_branch: string
+    baseline_commit: string
     exp_branch: string
     exp_result_path: string
     exp_result_summary_path: string
@@ -5398,6 +5409,7 @@ export type ResearchExperimentBySessionResponses = {
     exp_name: string
     exp_session_id: string | null
     baseline_branch_name: string | null
+    baseline_commit_sha: string | null
     exp_branch_name: string | null
     exp_result_path: string | null
     atom_id: string | null
@@ -6318,6 +6330,7 @@ export type ResearchExperimentUpdateData = {
   body?: {
     expName?: string
     baselineBranch?: string
+    expectedHeadSha?: string
     remoteServerId?: string | null
     codePath?: string
     remoteCodePath?: string | null
@@ -6333,6 +6346,10 @@ export type ResearchExperimentUpdateData = {
 }
 
 export type ResearchExperimentUpdateErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
   /**
    * Not found
    */
@@ -6353,6 +6370,7 @@ export type ResearchExperimentUpdateResponses = {
     exp_name: string
     exp_session_id: string | null
     baseline_branch_name: string | null
+    baseline_commit_sha: string | null
     exp_branch_name: string | null
     exp_result_path: string | null
     atom_id: string | null
