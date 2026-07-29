@@ -38,6 +38,8 @@ import { ServersTab } from "@/pages/session/servers-tab"
 import { WatchesTab } from "@/pages/session/watches-tab"
 import { CodesTab } from "@/pages/session/codes-tab"
 import { setSessionHandoff } from "@/pages/session/handoff"
+import type { CollabActivity } from "@/pages/session/composer/session-collab-activity"
+import { ControllerAgentsTab, ControllerPathsTab, ControllerResultsTab } from "@/pages/session/controller-tabs"
 
 function DialogArticleImport(props: { count: number; onSkip: () => void; onParse: () => void }) {
   const dialog = useDialog()
@@ -74,6 +76,7 @@ function DialogArticleImport(props: { count: number; onSkip: () => void; onParse
 }
 
 export function SessionSidePanel(props: {
+  collabActivity: CollabActivity
   reviewPanel: () => JSX.Element
   activeDiff?: string
   focusReviewDiff: (path: string) => void
@@ -126,6 +129,19 @@ export function SessionSidePanel(props: {
     }
   })
   const isResearchProject = createMemo(() => !!researchProject())
+  const isControllerSession = createMemo(() => props.collabActivity.controllerRoot())
+
+  let route: string | undefined
+  let opened = false
+  createEffect(() => {
+    if (route !== params.id) {
+      route = params.id
+      opened = false
+    }
+    if (opened || !isControllerSession()) return
+    opened = true
+    view().reviewPanel.open()
+  })
 
   // Check if current session is an atom session
   const [atomSession, { refetch: refetchAtomSession }] = createResource(
@@ -162,7 +178,7 @@ export function SessionSidePanel(props: {
   createEffect(() => {
     const rp = researchProject()
     const sessionId = params.id
-    if (rp && sessionId && !isAtomSession() && !isExpSession()) {
+    if (rp && sessionId && !isControllerSession() && !isAtomSession() && !isExpSession()) {
       sessionStorage.setItem(`research-project-main-session-${rp.research_project_id}`, sessionId)
     }
   })
@@ -286,7 +302,7 @@ export function SessionSidePanel(props: {
   // the stored active tab during session switches.
   let settledSessionId: string | undefined
   createEffect(() => {
-    if (!atomSession.loading && !experimentSession.loading) {
+    if (!atomSession.loading && !experimentSession.loading && props.collabActivity.ready()) {
       settledSessionId = params.id
     }
   })
@@ -297,7 +313,13 @@ export function SessionSidePanel(props: {
     if (normalizedSessionId === params.id) return
 
     const active = tabs().active()
-    const next = isAtomSession() ? "atom-content" : isResearchProject() && !isExpSession() ? "atoms" : undefined
+    const next = isControllerSession()
+      ? "controller-paths"
+      : isAtomSession()
+        ? "atom-content"
+        : isResearchProject() && !isExpSession()
+          ? "atoms"
+          : undefined
     if (!next) {
       normalizedSessionId = params.id
       return
@@ -322,6 +344,9 @@ export function SessionSidePanel(props: {
         return (
           tab !== "context" &&
           tab !== "review" &&
+          tab !== "controller-paths" &&
+          tab !== "controller-agents" &&
+          tab !== "controller-results" &&
           tab !== "atoms" &&
           tab !== "atom-content" &&
           tab !== "atom-evidence" &&
@@ -340,6 +365,17 @@ export function SessionSidePanel(props: {
 
   const activeTab = createMemo(() => {
     const active = tabs().active()
+    if (isControllerSession()) {
+      if (active === "controller-paths") return "controller-paths"
+      if (active === "controller-agents") return "controller-agents"
+      if (active === "controller-results") return "controller-results"
+      if (active === "atoms") return "atoms"
+      if (active === "servers") return "servers"
+      if (active === "watches") return "watches"
+      if (active === "codes") return "codes"
+      if (active && file.pathFromTab(active)) return normalizeTab(active)
+      return "controller-paths"
+    }
     if (active === "context") return "context"
     if (active === "review" && reviewTab() && !isExpSession()) return "review"
     if (active === "atoms" && isResearchProject() && !isAtomSession() && !isExpSession()) return "atoms"
@@ -481,6 +517,17 @@ export function SessionSidePanel(props: {
                         onCleanup(stop)
                       }}
                     >
+                      <Show when={isControllerSession()}>
+                        <Tabs.Trigger value="controller-paths">
+                          <div>{language.t("session.controller.paths")}</div>
+                        </Tabs.Trigger>
+                        <Tabs.Trigger value="controller-agents">
+                          <div>{language.t("session.controller.agents")}</div>
+                        </Tabs.Trigger>
+                        <Tabs.Trigger value="controller-results">
+                          <div>{language.t("session.controller.results")}</div>
+                        </Tabs.Trigger>
+                      </Show>
                       <Show when={isExpSession()}>
                         <Tabs.Trigger value="exp-info">
                           <div class="flex items-center gap-1.5">
@@ -561,7 +608,7 @@ export function SessionSidePanel(props: {
                           </div>
                         </Tabs.Trigger>
                       </Show>
-                      <Show when={!isExpSession() && reviewTab()}>
+                      <Show when={!isControllerSession() && !isExpSession() && reviewTab()}>
                         <Tabs.Trigger value="review">
                           <div class="flex items-center gap-1.5">
                             <div>{language.t("session.tab.review")}</div>
@@ -581,7 +628,7 @@ export function SessionSidePanel(props: {
                           </button>
                         </Show>
                       </Show>
-                      <Show when={contextOpen()}>
+                      <Show when={!isControllerSession() && contextOpen()}>
                         <Tabs.Trigger
                           value="context"
                           closeButton={
@@ -612,26 +659,63 @@ export function SessionSidePanel(props: {
                       <SortableProvider ids={openedTabs()}>
                         <For each={openedTabs()}>{(tab) => <SortableTab tab={tab} onTabClose={tabs().close} />}</For>
                       </SortableProvider>
-                      <StickyAddButton>
-                        <TooltipKeybind
-                          title={language.t("command.file.open")}
-                          keybind={command.keybind("file.open")}
-                          class="flex items-center"
-                        >
-                          <IconButton
-                            icon="plus-small"
-                            variant="ghost"
-                            iconSize="large"
-                            class="!rounded-md"
-                            onClick={() =>
-                              dialog.show(() => <DialogSelectFile mode="files" onOpenFile={showAllFiles} />)
-                            }
-                            aria-label={language.t("command.file.open")}
-                          />
-                        </TooltipKeybind>
-                      </StickyAddButton>
+                      <Show when={!isControllerSession()}>
+                        <StickyAddButton>
+                          <TooltipKeybind
+                            title={language.t("command.file.open")}
+                            keybind={command.keybind("file.open")}
+                            class="flex items-center"
+                          >
+                            <IconButton
+                              icon="plus-small"
+                              variant="ghost"
+                              iconSize="large"
+                              class="!rounded-md"
+                              onClick={() =>
+                                dialog.show(() => <DialogSelectFile mode="files" onOpenFile={showAllFiles} />)
+                              }
+                              aria-label={language.t("command.file.open")}
+                            />
+                          </TooltipKeybind>
+                        </StickyAddButton>
+                      </Show>
                     </Tabs.List>
                   </div>
+
+                  <Show when={isControllerSession()}>
+                    <Tabs.Content value="controller-paths" class="flex flex-col h-full overflow-hidden contain-strict">
+                      <Show when={activeTab() === "controller-paths"}>
+                        <Show when={researchProject()} keyed>
+                          {(project) => (
+                            <ControllerPathsTab
+                              researchProjectId={project.research_project_id}
+                              currentSessionId={params.id}
+                              title={language.t("session.controller.paths.empty.title")}
+                              description={language.t("session.controller.paths.empty.description")}
+                              onOpenSession={(sessionID) => navigate(`/${params.dir}/session/${sessionID}`)}
+                            />
+                          )}
+                        </Show>
+                      </Show>
+                    </Tabs.Content>
+                    <Tabs.Content value="controller-agents" class="flex flex-col h-full overflow-hidden contain-strict">
+                      <Show when={activeTab() === "controller-agents"}>
+                        <ControllerAgentsTab
+                          activity={props.collabActivity}
+                          empty={language.t("session.controller.agents.empty")}
+                          onOpen={(agent) => navigate(`/${params.dir}/session/${agent.session_id}`)}
+                        />
+                      </Show>
+                    </Tabs.Content>
+                    <Tabs.Content value="controller-results" class="flex flex-col h-full overflow-hidden contain-strict">
+                      <Show when={activeTab() === "controller-results"}>
+                        <ControllerResultsTab
+                          title={language.t("session.controller.results.empty.title")}
+                          description={language.t("session.controller.results.empty.description")}
+                        />
+                      </Show>
+                    </Tabs.Content>
+                  </Show>
 
                   <Show when={reviewTab()}>
                     <Tabs.Content value="review" class="flex flex-col h-full overflow-hidden contain-strict">
@@ -639,7 +723,10 @@ export function SessionSidePanel(props: {
                     </Tabs.Content>
                   </Show>
 
-                  <Show when={isResearchProject() && !isAtomSession() ? researchProject() : null} keyed>
+                  <Show
+                    when={isResearchProject() && !isAtomSession() ? researchProject() : null}
+                    keyed
+                  >
                     {(project) => (
                       <>
                         <Tabs.Content value="atoms" class="flex flex-col h-full overflow-hidden contain-strict">

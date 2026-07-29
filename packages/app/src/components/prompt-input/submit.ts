@@ -34,6 +34,7 @@ type PromptSubmitInput = {
   mode: Accessor<"normal" | "shell" | "ssh" | "remote-task">
   remoteServerId?: Accessor<string | undefined>
   remoteTaskAvailable?: Accessor<boolean>
+  agent?: Accessor<string | undefined>
   working: Accessor<boolean>
   editor: () => HTMLDivElement | undefined
   queueScroll: () => void
@@ -239,7 +240,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       modelID: currentModel.id,
       providerID: currentModel.provider.id,
     }
-    const agent = currentAgent.name
+    const agent = input.agent?.() ?? currentAgent.name
     const variant = local.model.variant.current()
 
     const clearInput = () => {

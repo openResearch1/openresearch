@@ -53,6 +53,8 @@ import { defaultRemoteCodePath, syncCodeToRemote } from "@/research/remote-code-
 import { AtomAgent } from "@/research/atom-agent"
 import { CodeBranch } from "@/research/code-branch"
 import { ResearchDeletionTable } from "@/research/research-deletion.sql"
+import { ControllerAgent } from "@/research/controller-agent"
+import { ResearchPath } from "@/research/research-path"
 
 const createSchema = z.object({
   name: z.string().min(1, "name required"),
@@ -407,6 +409,67 @@ export const ResearchRoutes = new Hono()
         return c.json({ success: false, message: "no research project for this project" }, 404)
       }
       return c.json(row)
+    },
+  )
+  .post(
+    "/project/:researchProjectId/controller/session",
+    describeRoute({
+      summary: "Create a Controller session",
+      description: "Create a project-scoped human-facing Controller session and its durable Collab root.",
+      operationId: "research.controller.session.create",
+      responses: {
+        200: {
+          description: "Created Controller session",
+          content: {
+            "application/json": {
+              schema: resolver(z.object({ session_id: z.string(), agent_id: z.string() })),
+            },
+          },
+        },
+        ...errors(404),
+      },
+    }),
+    async (c) => {
+      const researchProjectId = c.req.param("researchProjectId")
+      const project = Database.use((db) =>
+        db
+          .select()
+          .from(ResearchProjectTable)
+          .where(eq(ResearchProjectTable.research_project_id, researchProjectId))
+          .get(),
+      )
+      if (!project || project.project_id !== Instance.project.id) {
+        return c.json({ success: false, message: `research project not found: ${researchProjectId}` }, 404)
+      }
+      const result = await ControllerAgent.create(researchProjectId)
+      return c.json({ session_id: result.session.id, agent_id: result.agent.id })
+    },
+  )
+  .get(
+    "/project/:researchProjectId/paths",
+    describeRoute({
+      summary: "List Research Paths",
+      description: "List every active, completed, and cancelled Research Path in a project.",
+      operationId: "research.paths.list",
+      responses: {
+        200: {
+          description: "Research Paths",
+          content: {
+            "application/json": {
+              schema: resolver(ResearchPath.Info.array()),
+            },
+          },
+        },
+        ...errors(404),
+      },
+    }),
+    async (c) => {
+      const researchProjectId = c.req.param("researchProjectId")
+      const project = Research.getResearchProject(researchProjectId)
+      if (!project || project.project_id !== Instance.project.id) {
+        return c.json({ success: false, message: `research project not found: ${researchProjectId}` }, 404)
+      }
+      return c.json(ResearchPath.list(researchProjectId))
     },
   )
   .get(
@@ -2381,6 +2444,7 @@ export const ResearchRoutes = new Hono()
             "application/json": {
               schema: resolver(
                 z.object({
+                  controllerSessionIds: z.array(z.string()),
                   atomSessionIds: z.array(z.string()),
                   expSessionIds: z.array(z.string()),
                   atoms: z.array(
@@ -2418,7 +2482,7 @@ export const ResearchRoutes = new Hono()
           .where(eq(ResearchProjectTable.research_project_id, researchProjectId))
           .get(),
       )
-      if (!project) {
+      if (!project || project.project_id !== Instance.project.id) {
         return c.json({ success: false, message: "research project not found" }, 404)
       }
 
@@ -2432,6 +2496,7 @@ export const ResearchRoutes = new Hono()
 
       const atomSessionIds: string[] = []
       const expSessionIds: string[] = []
+      const controllerSessionIds = ControllerAgent.list().map((agent) => agent.session_id)
 
       for (const atom of atoms) {
         if (atom.session_id) atomSessionIds.push(atom.session_id)
@@ -2464,6 +2529,7 @@ export const ResearchRoutes = new Hono()
       }))
 
       return c.json({
+        controllerSessionIds,
         atomSessionIds,
         expSessionIds,
         atoms: atomTree,

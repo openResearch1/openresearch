@@ -161,6 +161,8 @@ import type {
   ResearchCodeListResponses,
   ResearchCodePathsErrors,
   ResearchCodePathsResponses,
+  ResearchControllerSessionCreateErrors,
+  ResearchControllerSessionCreateResponses,
   ResearchExperimentBySessionErrors,
   ResearchExperimentBySessionResponses,
   ResearchExperimentCreateErrors,
@@ -190,6 +192,8 @@ import type {
   ResearchExperimentWatchRefreshResponses,
   ResearchExperimentWatchRefreshWandbErrors,
   ResearchExperimentWatchRefreshWandbResponses,
+  ResearchPathsListErrors,
+  ResearchPathsListResponses,
   ResearchProjectCreateErrors,
   ResearchProjectCreateResponses,
   ResearchProjectExportErrors,
@@ -2848,6 +2852,85 @@ export class Project2 extends HeyApiClient {
   }
 }
 
+export class Session3 extends HeyApiClient {
+  /**
+   * Create a Controller session
+   *
+   * Create a project-scoped human-facing Controller session and its durable Collab root.
+   */
+  public create<ThrowOnError extends boolean = false>(
+    parameters: {
+      researchProjectId: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "researchProjectId" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      ResearchControllerSessionCreateResponses,
+      ResearchControllerSessionCreateErrors,
+      ThrowOnError
+    >({
+      url: "/research/project/{researchProjectId}/controller/session",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Controller extends HeyApiClient {
+  private _session?: Session3
+  get session(): Session3 {
+    return (this._session ??= new Session3({ client: this.client }))
+  }
+}
+
+export class Paths extends HeyApiClient {
+  /**
+   * List Research Paths
+   *
+   * List every active, completed, and cancelled Research Path in a project.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters: {
+      researchProjectId: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "researchProjectId" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ResearchPathsListResponses, ResearchPathsListErrors, ThrowOnError>({
+      url: "/research/project/{researchProjectId}/paths",
+      ...options,
+      ...params,
+    })
+  }
+}
+
 export class Atoms extends HeyApiClient {
   /**
    * List atoms and relations
@@ -2882,7 +2965,7 @@ export class Atoms extends HeyApiClient {
   }
 }
 
-export class Session3 extends HeyApiClient {
+export class Session4 extends HeyApiClient {
   /**
    * Create or get session for an atom
    *
@@ -3080,9 +3163,9 @@ export class Atom extends HeyApiClient {
     })
   }
 
-  private _session?: Session3
-  get session(): Session3 {
-    return (this._session ??= new Session3({ client: this.client }))
+  private _session?: Session4
+  get session(): Session4 {
+    return (this._session ??= new Session4({ client: this.client }))
   }
 }
 
@@ -3352,7 +3435,7 @@ export class Atom2 extends HeyApiClient {
   }
 }
 
-export class Session4 extends HeyApiClient {
+export class Session5 extends HeyApiClient {
   private _atom?: Atom2
   get atom(): Atom2 {
     return (this._atom ??= new Atom2({ client: this.client }))
@@ -3502,7 +3585,7 @@ export class Code extends HeyApiClient {
   }
 }
 
-export class Session5 extends HeyApiClient {
+export class Session6 extends HeyApiClient {
   /**
    * Create or get session for an experiment
    *
@@ -3862,9 +3945,9 @@ export class Experiment extends HeyApiClient {
     })
   }
 
-  private _session?: Session5
-  get session(): Session5 {
-    return (this._session ??= new Session5({ client: this.client }))
+  private _session?: Session6
+  get session(): Session6 {
+    return (this._session ??= new Session6({ client: this.client }))
   }
 }
 
@@ -4463,6 +4546,16 @@ export class Research extends HeyApiClient {
     return (this._project ??= new Project2({ client: this.client }))
   }
 
+  private _controller?: Controller
+  get controller(): Controller {
+    return (this._controller ??= new Controller({ client: this.client }))
+  }
+
+  private _paths?: Paths
+  get paths(): Paths {
+    return (this._paths ??= new Paths({ client: this.client }))
+  }
+
   private _atoms?: Atoms
   get atoms(): Atoms {
     return (this._atoms ??= new Atoms({ client: this.client }))
@@ -4483,9 +4576,9 @@ export class Research extends HeyApiClient {
     return (this._article ??= new Article({ client: this.client }))
   }
 
-  private _session?: Session4
-  get session(): Session4 {
-    return (this._session ??= new Session4({ client: this.client }))
+  private _session?: Session5
+  get session(): Session5 {
+    return (this._session ??= new Session5({ client: this.client }))
   }
 
   private _code?: Code
@@ -4759,7 +4852,7 @@ export class Agent2 extends HeyApiClient {
   }
 }
 
-export class Session6 extends HeyApiClient {
+export class Session7 extends HeyApiClient {
   private _agent?: Agent2
   get agent(): Agent2 {
     return (this._agent ??= new Agent2({ client: this.client }))
@@ -4787,9 +4880,9 @@ export class Collab extends HeyApiClient {
     return (this._agent ??= new Agent({ client: this.client }))
   }
 
-  private _session?: Session6
-  get session(): Session6 {
-    return (this._session ??= new Session6({ client: this.client }))
+  private _session?: Session7
+  get session(): Session7 {
+    return (this._session ??= new Session7({ client: this.client }))
   }
 }
 
@@ -5115,7 +5208,7 @@ export class Tunnel extends HeyApiClient {
   }
 }
 
-export class Session7 extends HeyApiClient {
+export class Session8 extends HeyApiClient {
   /**
    * List remote session messages
    *
@@ -5352,9 +5445,9 @@ export class Remote extends HeyApiClient {
     return (this._tunnel ??= new Tunnel({ client: this.client }))
   }
 
-  private _session?: Session7
-  get session2(): Session7 {
-    return (this._session ??= new Session7({ client: this.client }))
+  private _session?: Session8
+  get session2(): Session8 {
+    return (this._session ??= new Session8({ client: this.client }))
   }
 }
 

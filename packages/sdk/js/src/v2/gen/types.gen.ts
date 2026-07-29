@@ -985,6 +985,14 @@ export type EventResearchAtomsUpdated = {
   }
 }
 
+export type EventResearchPathsUpdated = {
+  type: "research.paths.updated"
+  properties: {
+    researchProjectId: string
+    researchPathId: string
+  }
+}
+
 export type Pty = {
   id: string
   title: string
@@ -1266,6 +1274,7 @@ export type Event =
   | EventWorkflowUpdated
   | EventTodoUpdated
   | EventResearchAtomsUpdated
+  | EventResearchPathsUpdated
   | EventPtyCreated
   | EventPtyUpdated
   | EventPtyExited
@@ -4363,6 +4372,104 @@ export type ResearchProjectGetResponses = {
 
 export type ResearchProjectGetResponse = ResearchProjectGetResponses[keyof ResearchProjectGetResponses]
 
+export type ResearchControllerSessionCreateData = {
+  body?: never
+  path: {
+    researchProjectId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/research/project/{researchProjectId}/controller/session"
+}
+
+export type ResearchControllerSessionCreateErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ResearchControllerSessionCreateError =
+  ResearchControllerSessionCreateErrors[keyof ResearchControllerSessionCreateErrors]
+
+export type ResearchControllerSessionCreateResponses = {
+  /**
+   * Created Controller session
+   */
+  200: {
+    session_id: string
+    agent_id: string
+  }
+}
+
+export type ResearchControllerSessionCreateResponse =
+  ResearchControllerSessionCreateResponses[keyof ResearchControllerSessionCreateResponses]
+
+export type ResearchPathsListData = {
+  body?: never
+  path: {
+    researchProjectId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/research/project/{researchProjectId}/paths"
+}
+
+export type ResearchPathsListErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ResearchPathsListError = ResearchPathsListErrors[keyof ResearchPathsListErrors]
+
+export type ResearchPathsListResponses = {
+  /**
+   * Research Paths
+   */
+  200: Array<{
+    research_path_id: string
+    research_project_id: string
+    creator_session_id: string
+    title: string
+    brief: string
+    summary: string | null
+    status: "active" | "completed" | "cancelled"
+    time_created: number
+    time_updated: number
+    atoms: Array<{
+      role: "seed" | "member"
+      atom_id: string
+      atom_name: string
+      atom_type: "fact" | "method" | "theorem" | "verification"
+      atom_evidence_type: "math" | "experiment"
+      atom_evidence_status: "pending" | "in_progress" | "proven" | "disproven"
+      locked: boolean
+      session_id: string | null
+    }>
+    relations: Array<{
+      atom_id_source: string
+      atom_id_target: string
+      relation_type: "motivates" | "formalizes" | "derives" | "analyzes" | "validates" | "contradicts" | "other"
+      note: string | null
+    }>
+    stages: Array<{
+      index: number
+      groups: Array<{
+        atom_ids: Array<string>
+        cyclic: boolean
+      }>
+    }>
+  }>
+}
+
+export type ResearchPathsListResponse = ResearchPathsListResponses[keyof ResearchPathsListResponses]
+
 export type ResearchAtomsListData = {
   body?: never
   path: {
@@ -5621,6 +5728,7 @@ export type ResearchProjectSessionTreeResponses = {
    * Session tree
    */
   200: {
+    controllerSessionIds: Array<string>
     atomSessionIds: Array<string>
     expSessionIds: Array<string>
     atoms: Array<{

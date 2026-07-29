@@ -64,6 +64,7 @@ import { showToast } from "@opencode-ai/ui/toast"
 interface PromptInputProps {
   class?: string
   compact?: boolean
+  agent?: string
   ref?: (el: HTMLDivElement) => void
   newSessionWorktree?: string
   onNewSessionWorktreeReset?: () => void
@@ -108,6 +109,11 @@ const AT_AGENT_LIST = [
   "general",
   "explore",
 ] as const
+const SESSION_AGENTS = {
+  experiment: ["experiment", "plan", "build"],
+  atom: ["plan", "build", "research"],
+  main: ["research", "deep_research", "plan", "build"],
+} as const
 
 type Mode = "normal" | "shell" | "ssh" | "remote-task"
 
@@ -377,6 +383,53 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       return (res.data ?? null) as ExperimentSession | null
     },
   )
+  const [atom] = createResource(
+    () => params.id,
+    async (id) => {
+      if (!id) return null
+      const res = await sdk.client.research.session.atom.get({ sessionId: id })
+      return res.data?.atom ?? null
+    },
+  )
+  const [research] = createResource(
+    () => sync.project?.id,
+    async (projectId) => {
+      return sdk.client.research.project
+        .get({ projectId })
+        .then((res) => res.data ?? null)
+        .catch(() => null)
+    },
+  )
+  const policy = createMemo(() => {
+    if (props.agent) return { names: [props.agent], default: props.agent }
+    if (experiment()) return { names: [...SESSION_AGENTS.experiment], default: "experiment" }
+    if (atom()) return { names: [...SESSION_AGENTS.atom], default: "research" }
+    if (research()) return { names: [...SESSION_AGENTS.main], default: "research" }
+  })
+  const agents = createMemo(() => {
+    const value = policy()
+    if (!value) return local.agent.list()
+    return value.names.flatMap((name) => local.agent.list().find((agent) => agent.name === name) ?? [])
+  })
+  const selectedAgent = createMemo(() => {
+    const available = agents()
+    const current = local.agent.current()
+    if (current && available.some((agent) => agent.name === current.name)) return current
+    const fallback = policy()?.default
+    return available.find((agent) => agent.name === fallback) ?? available[0]
+  })
+  const selectAgent = (name: string | undefined) => {
+    if (!name || !agents().some((agent) => agent.name === name)) return
+    local.agent.set(name)
+  }
+  const moveAgent = (direction: 1 | -1) => {
+    const available = agents()
+    if (available.length === 0) return
+    const current = selectedAgent()?.name
+    const index = Math.max(0, available.findIndex((agent) => agent.name === current))
+    const next = (index + direction + available.length) % available.length
+    selectAgent(available[next]?.name)
+  }
   const remoteTaskAvailable = createMemo(() => !!experiment())
 
   createEffect(() => {
@@ -525,6 +578,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const pick = () => fileInputRef?.click()
 
   const setMode = (mode: Mode) => {
+    if (props.agent && mode !== "normal") return
     setStore("mode", mode)
     setStore("popover", null)
     if (mode === "ssh") void serversActions.refetch()
@@ -549,7 +603,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       title: language.t("command.prompt.mode.shell"),
       category: language.t("command.category.session"),
       keybind: shellModeKey,
-      disabled: store.mode === "shell",
+      disabled: !!props.agent || store.mode === "shell",
       onSelect: () => setMode("shell"),
     },
     {
@@ -557,14 +611,14 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       title: language.t("command.prompt.mode.ssh"),
       category: language.t("command.category.session"),
       keybind: sshModeKey,
-      disabled: store.mode === "ssh",
+      disabled: !!props.agent || store.mode === "ssh",
       onSelect: () => setMode("ssh"),
     },
     {
       id: "prompt.mode.remoteTask",
       title: language.t("command.prompt.mode.remoteTask"),
       category: language.t("command.category.session"),
-      disabled: store.mode === "remote-task" || !remoteTaskAvailable(),
+      disabled: !!props.agent || store.mode === "remote-task" || !remoteTaskAvailable(),
       onSelect: () => setMode("remote-task"),
     },
     {
@@ -574,6 +628,25 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       keybind: normalModeKey,
       disabled: store.mode === "normal",
       onSelect: () => setMode("normal"),
+    },
+    {
+      id: "agent.cycle",
+      title: language.t("command.agent.cycle"),
+      description: language.t("command.agent.cycle.description"),
+      category: language.t("command.category.agent"),
+      keybind: "mod+.",
+      slash: "agent",
+      disabled: !!props.agent || agents().length < 2,
+      onSelect: () => moveAgent(1),
+    },
+    {
+      id: "agent.cycle.reverse",
+      title: language.t("command.agent.cycle.reverse"),
+      description: language.t("command.agent.cycle.reverse.description"),
+      category: language.t("command.category.agent"),
+      keybind: "shift+mod+.",
+      disabled: !!props.agent || agents().length < 2,
+      onSelect: () => moveAgent(-1),
     },
   ])
 
@@ -647,7 +720,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       )
       .map((agent): AtOption => ({ type: "agent", name: agent.name, display: agent.name })),
   ])
-  const agentNames = createMemo(() => local.agent.list().map((agent) => agent.name))
+  const agentNames = createMemo(() => agents().map((agent) => agent.name))
 
   const startIdeaWorkflow = async (idea: string) => {
     const sessionID = params.id
@@ -1245,6 +1318,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     mode: () => store.mode,
     remoteServerId: () => store.sshServerId,
     remoteTaskAvailable,
+    agent: () => props.agent ?? selectedAgent()?.name,
     working,
     editor: () => editorRef,
     queueScroll,
@@ -1289,7 +1363,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     if (event.key === "!" && store.mode === "normal") {
       const cursorPosition = getCursorPosition(editorRef)
       if (cursorPosition === 0) {
-        setStore("mode", "shell")
+        setMode("shell")
         setStore("popover", null)
         event.preventDefault()
         return
@@ -1713,22 +1787,33 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                   title={language.t("command.agent.cycle")}
                   keybind={command.keybind("agent.cycle")}
                 >
-                  <Select
-                    size="normal"
-                    options={agentNames()}
-                    current={local.agent.current()?.name ?? ""}
-                    onSelect={local.agent.set}
-                    class={props.compact ? "capitalize max-w-[96px]" : "capitalize max-w-[160px]"}
-                    valueClass="truncate text-13-regular"
-                    triggerStyle={{
-                      height: "28px",
-                      opacity: buttonsSpring(),
-                      transform: `scale(${0.95 + buttonsSpring() * 0.05})`,
-                      filter: `blur(${(1 - buttonsSpring()) * 2}px)`,
-                      "pointer-events": buttonsSpring() > 0.5 ? "auto" : "none",
-                    }}
-                    variant="ghost"
-                  />
+                  <Show
+                    when={props.agent}
+                    fallback={
+                      <Select
+                        size="normal"
+                        options={agentNames()}
+                        current={selectedAgent()?.name ?? ""}
+                        onSelect={selectAgent}
+                        class={props.compact ? "capitalize max-w-[96px]" : "capitalize max-w-[160px]"}
+                        valueClass="truncate text-13-regular"
+                        triggerStyle={{
+                          height: "28px",
+                          opacity: buttonsSpring(),
+                          transform: `scale(${0.95 + buttonsSpring() * 0.05})`,
+                          filter: `blur(${(1 - buttonsSpring()) * 2}px)`,
+                          "pointer-events": buttonsSpring() > 0.5 ? "auto" : "none",
+                        }}
+                        variant="ghost"
+                      />
+                    }
+                  >
+                    {(agent) => (
+                      <div class="h-7 px-2 flex items-center text-13-regular text-text-strong capitalize">
+                        {agent()}
+                      </div>
+                    )}
+                  </Show>
                 </TooltipKeybind>
                 <Show
                   when={providers.paid().length > 0}

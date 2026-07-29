@@ -13,6 +13,7 @@ export type CollabActivity = {
   controller: Accessor<CollabAgent | null>
   children: Accessor<CollabAgent[]>
   activeChildren: Accessor<CollabAgent[]>
+  controllerRoot: Accessor<boolean>
   controlled: Accessor<boolean>
   active: Accessor<boolean>
   done: Accessor<boolean>
@@ -139,6 +140,11 @@ export function useCollabActivity(sessionID: Accessor<string | undefined>): Coll
         }
         case "collab.agent.created": {
           const info = (e.properties as { info: CollabAgent }).info
+          if (info.session_id === sessionID()) {
+            setState({ rootAgentId: info.root_agent_id, anchorAgentId: info.id })
+            upsert(info)
+            return
+          }
           const relevant = !state.rootAgentId || info.root_agent_id === state.rootAgentId || !info.parent_agent_id
           if (!relevant) return
           upsert(info)
@@ -216,6 +222,10 @@ export function useCollabActivity(sessionID: Accessor<string | undefined>): Coll
   })
 
   const active = createMemo(() => activeChildren().length > 0)
+  const controllerRoot = createMemo(() => {
+    const root = rootAgent()
+    return !!root && root.subagent_type === "controller" && !root.parent_agent_id && root.root_agent_id === root.id
+  })
   const controlled = createMemo(() => {
     const root = rootAgent()
     const metadata = root?.spec.metadata
@@ -231,6 +241,7 @@ export function useCollabActivity(sessionID: Accessor<string | undefined>): Coll
     controller,
     children,
     activeChildren,
+    controllerRoot,
     controlled,
     active,
     done,

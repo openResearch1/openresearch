@@ -12,6 +12,7 @@ import PROMPT_GENERATE from "./generate.txt"
 import PROMPT_COMPACTION from "./prompt/compaction.txt"
 import PROMPT_EXPLORE from "./prompt/explore.txt"
 import PROMPT_RESEARCH from "./prompt/research.txt"
+import PROMPT_CONTROLLER from "./prompt/controller.txt"
 import PROMPT_SUMMARY from "./prompt/summary.txt"
 import PROMPT_TITLE from "./prompt/title.txt"
 import PROMPT_RESEARCH_PROJECT_INIT from "./prompt/research_project_init.txt"
@@ -259,6 +260,7 @@ export namespace Agent {
             cancel_agent: "allow",
             resume_agent: "allow",
             delegate_atom: "allow",
+            research_path: "allow",
             research_code_query: "allow",
             research_code_branch_query: "allow",
             project_runtime_server_query: "allow",
@@ -278,6 +280,32 @@ export namespace Agent {
           user,
         ),
         prompt: PROMPT_RESEARCH,
+        mode: "primary",
+        native: true,
+      },
+      controller: {
+        name: "controller",
+        description: "Coordinates research agents for a human-defined OpenResearch objective without doing research itself.",
+        options: {},
+        hidden: true,
+        permission: PermissionNext.merge(
+          defaults,
+          PermissionNext.fromConfig({
+            "*": "deny",
+            question: "allow",
+            spawn_agent: {
+              "*": "deny",
+              research: "allow",
+            },
+            list_children: "allow",
+            cancel_agent: "allow",
+            resume_agent: "allow",
+            read_agent_output: "allow",
+            research_path: "allow",
+          }),
+          user,
+        ),
+        prompt: PROMPT_CONTROLLER,
         mode: "primary",
         native: true,
       },

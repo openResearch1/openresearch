@@ -14,6 +14,7 @@ export namespace Identifier {
     workspace: "wrk",
     collab_agent: "cag",
     collab_msg: "cmg",
+    research_path: "rpa",
   } as const
 
   export function schema(prefix: keyof typeof prefixes) {

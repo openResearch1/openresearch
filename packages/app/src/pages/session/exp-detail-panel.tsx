@@ -2,7 +2,6 @@ import { createEffect, createResource, createSignal, onCleanup, Show } from "sol
 import { useNavigate } from "@solidjs/router"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { useSDK } from "@/context/sdk"
-import { useLocal } from "@/context/local"
 import { ExpProgressTab, ExpPlanTab, ExpHistoryChangeTab, ExpResultTab } from "./experiment-tab"
 import type { CommitDiff } from "./experiment-tab"
 
@@ -29,7 +28,6 @@ export function ExpDetailPanel(props: {
 }) {
   const sdk = useSDK()
   const navigate = useNavigate()
-  const local = useLocal()
   const [panelWidth, setPanelWidth] = createSignal(PANEL_DEFAULT_WIDTH)
   const [dragging, setDragging] = createSignal(false)
   const [rightTab, setRightTab] = createSignal<"plan" | "changes">("plan")
@@ -37,13 +35,6 @@ export function ExpDetailPanel(props: {
   const [confirmDelete, setConfirmDelete] = createSignal(false)
   const [deleting, setDeleting] = createSignal(false)
   const [changesDetailOpen, setChangesDetailOpen] = createSignal(false)
-
-  // Switch to experiment agent on mount, restore on unmount
-  const prevAgent = local.agent.current()?.name
-  local.agent.set("experiment")
-  onCleanup(() => {
-    if (prevAgent) local.agent.set(prevAgent)
-  })
 
   const handleResizeStart = (e: MouseEvent) => {
     e.preventDefault()

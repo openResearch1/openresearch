@@ -2,6 +2,7 @@ import {
   batch,
   createEffect,
   createMemo,
+  createResource,
   createSignal,
   For,
   on,
@@ -2240,6 +2241,41 @@ export default function Layout(props: ParentProps) {
       return project.name || getFilename(project.worktree)
     })
     const projectId = createMemo(() => panelProps.project?.id ?? "")
+    const [researchProject] = createResource(
+      () => {
+        const project = panelProps.project
+        if (!project?.id) return
+        return { id: project.id, directory: project.worktree }
+      },
+      async (project) => {
+        const response = await globalSDK
+          .createClient({ directory: project.directory, throwOnError: false })
+          .research.project.get({ projectId: project.id })
+        return response.data ?? undefined
+      },
+    )
+    const [creatingController, setCreatingController] = createSignal(false)
+    const createController = async () => {
+      const project = panelProps.project
+      const research = researchProject()
+      if (!project || !research || creatingController()) return
+      setCreatingController(true)
+      const result = await globalSDK
+        .createClient({ directory: project.worktree, throwOnError: false })
+        .research.controller.session.create({ researchProjectId: research.research_project_id })
+        .then((response) => response.data)
+        .catch(() => undefined)
+      setCreatingController(false)
+      if (!result?.session_id) {
+        showToast({
+          title: language.t("sidebar.research.controllerCreateFailed"),
+          description: language.t("common.requestFailed"),
+          variant: "error",
+        })
+        return
+      }
+      navigateWithSidebarReset(`/${base64Encode(project.worktree)}/session/${result.session_id}`)
+    }
     const workspaces = createMemo(() => workspaceIds(panelProps.project))
     const unseenCount = createMemo(() =>
       workspaces().reduce((total, directory) => total + notification.project.unseenCount(directory), 0),
@@ -2370,7 +2406,7 @@ export default function Layout(props: ParentProps) {
                   when={workspacesEnabled()}
                   fallback={
                     <>
-                      <div class="shrink-0 py-4 px-3">
+                      <div class="shrink-0 py-4 px-3 flex flex-col gap-2">
                         <Button
                           size="large"
                           icon="plus-small"
@@ -2379,6 +2415,17 @@ export default function Layout(props: ParentProps) {
                         >
                           {language.t("command.session.new")}
                         </Button>
+                        <Show when={researchProject()}>
+                          <Button
+                            size="large"
+                            icon="plus-small"
+                            class="w-full"
+                            disabled={creatingController()}
+                            onClick={createController}
+                          >
+                            {language.t("sidebar.research.newController")}
+                          </Button>
+                        </Show>
                       </div>
                       <div class="flex-1 min-h-0">
                         <LocalWorkspace

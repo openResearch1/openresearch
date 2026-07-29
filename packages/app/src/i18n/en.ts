@@ -593,6 +593,7 @@ export const dict = {
   "session.collab.empty": "No subagents.",
 
   "session.new.title": "Build anything",
+  "session.new.researchTitle": "Research anything",
   "session.new.worktree.main": "Main branch",
   "session.new.worktree.mainWithBranch": "Main branch ({{branch}})",
   "session.new.worktree.create": "Create new worktree",
@@ -891,7 +892,26 @@ export const dict = {
   "session.delete.button": "Delete session",
 
   "sidebar.research.conversations": "Conversations",
+  "sidebar.research.controllers": "Controllers",
+  "sidebar.research.newController": "New controller",
+  "sidebar.research.controllerCreateFailed": "Failed to create controller",
   "sidebar.research.atoms": "Atoms",
+
+  "session.controller.paths": "Paths",
+  "session.controller.agents": "Agents",
+  "session.controller.results": "Results",
+  "session.controller.paths.empty.title": "No research paths",
+  "session.controller.paths.empty.description": "Paths registered by this Controller's research agents will appear here.",
+  "session.controller.agents.empty": "No agents",
+  "session.controller.results.empty.title": "No accepted results",
+  "session.controller.results.empty.description": "Results will appear here after Reviewer acceptance.",
+  "session.controller.welcome.title": "Coordinate research",
+  "session.controller.welcome.description":
+    "Set the goal. Controller delegates work to Research agents and keeps you updated.",
+  "session.atom.welcome.title": "Develop this atom",
+  "session.atom.welcome.description": "Investigate the claim, gather evidence, and design experiments for this atom.",
+  "session.experiment.welcome.title": "Run the experiment",
+  "session.experiment.welcome.description": "Prepare the run, monitor execution, and record the outcome.",
 
   "workspace.new": "New workspace",
   "workspace.type.local": "local",

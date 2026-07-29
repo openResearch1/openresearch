@@ -293,6 +293,7 @@ export function SessionComposerRegion(props: {
                 >
                   <PromptInput
                     compact={props.compact}
+                    agent={props.collabActivity.controllerRoot() ? "controller" : undefined}
                     ref={props.inputRef}
                     newSessionWorktree={props.newSessionWorktree}
                     onNewSessionWorktreeReset={props.onNewSessionWorktreeReset}

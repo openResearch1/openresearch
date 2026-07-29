@@ -62,6 +62,7 @@ import { Database } from "@/storage/db"
 import { ExperimentTable, RemoteServerTable } from "@/research/research.sql"
 import { normalizeRemoteServerConfig } from "@/research/remote-server"
 import { Research } from "@/research/research"
+import { ResearchSessionAgent } from "@/research/session-agent"
 import { eq } from "drizzle-orm"
 import { ExperimentWorkspace } from "./experiment-workspace"
 
@@ -192,6 +193,7 @@ export namespace SessionPrompt {
 
   export const prompt = fn(PromptInput, async (input) => {
     const session = await Session.get(input.sessionID)
+    input = { ...input, agent: await ResearchSessionAgent.resolve(input) }
     await SessionRevert.cleanup(session)
 
     // assert experiment ready
@@ -1709,6 +1711,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
   export type RemoteTaskInput = z.infer<typeof RemoteTaskInput>
 
   export async function remoteTask(input: RemoteTaskInput) {
+    input = { ...input, agent: (await ResearchSessionAgent.resolve(input)) ?? input.agent }
     const abort = start(input.sessionID)
     if (!abort) {
       throw new Session.BusyError(input.sessionID)
@@ -1877,6 +1880,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
   }
 
   export async function shell(input: ShellInput) {
+    input = { ...input, agent: (await ResearchSessionAgent.resolve(input)) ?? input.agent }
     const abort = start(input.sessionID)
     if (!abort) {
       throw new Session.BusyError(input.sessionID)
