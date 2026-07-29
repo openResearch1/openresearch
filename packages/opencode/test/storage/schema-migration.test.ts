@@ -58,6 +58,9 @@ test("upgrades a database that already applied project Atom delegation", async (
     expect(sqlite.query("PRAGMA table_info('experiment')").all()).toContainEqual(
       expect.objectContaining({ name: "baseline_commit_sha" }),
     )
+    expect(sqlite.query("PRAGMA table_info('atom')").all()).toContainEqual(
+      expect.objectContaining({ name: "locked", notnull: 1, dflt_value: "false" }),
+    )
     expect(
       sqlite
         .query(

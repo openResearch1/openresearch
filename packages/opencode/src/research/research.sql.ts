@@ -154,6 +154,7 @@ export const AtomTable = sqliteTable(
     atom_evidence_status: text().$type<(typeof evidenceSteps)[number]>().notNull().default("pending"),
     atom_evidence_path: text(),
     atom_evidence_assessment_path: text(),
+    locked: integer({ mode: "boolean" }).notNull().default(false),
     article_id: text().references(() => ArticleTable.article_id, { onDelete: "set null" }),
     session_id: text().references(() => SessionTable.id, { onDelete: "set null" }),
     ...Timestamps,

@@ -12,6 +12,7 @@ import { Filesystem } from "../util/filesystem"
 import { Instance } from "../project/instance"
 import { trimDiff } from "./edit"
 import { assertExternalDirectory } from "./external-directory"
+import { AtomLock } from "../research/atom-lock"
 
 const MAX_DIAGNOSTICS_PER_FILE = 20
 const MAX_PROJECT_DIAGNOSTICS_FILES = 5
@@ -25,6 +26,7 @@ export const WriteTool = Tool.define("write", {
   async execute(params, ctx) {
     const filepath = path.isAbsolute(params.filePath) ? params.filePath : path.join(Instance.directory, params.filePath)
     await assertExternalDirectory(ctx, filepath)
+    AtomLock.assertPath(filepath)
 
     const exists = await Filesystem.exists(filepath)
     const contentOld = exists ? await Filesystem.readText(filepath) : ""

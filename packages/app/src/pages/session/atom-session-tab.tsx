@@ -9,6 +9,7 @@ import { Button } from "@opencode-ai/ui/button"
 import { Select } from "@opencode-ai/ui/select"
 import { Combobox as KobalteCombobox } from "@kobalte/core/combobox"
 import { Icon } from "@opencode-ai/ui/icon"
+import { Switch } from "@opencode-ai/ui/switch"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { Markdown } from "@opencode-ai/ui/markdown"
 import type { ResearchSessionAtomGetResponse } from "@opencode-ai/sdk/v2"
@@ -102,9 +103,27 @@ export function AtomSessionTab(props: {
   }
 
   const [updatingStatus, setUpdatingStatus] = createSignal(false)
+  const [updatingLock, setUpdatingLock] = createSignal(false)
+
+  const handleUpdateLock = async (locked: boolean) => {
+    if (updatingLock()) return
+    setUpdatingLock(true)
+    try {
+      await sdk.client.research.atom.lock({
+        researchProjectId: props.atom.research_project_id,
+        atomId: props.atom.atom_id,
+        locked,
+      })
+      props.onRefresh?.()
+    } catch (err) {
+      console.error("[atom-session-tab] failed to update atom lock", err)
+    } finally {
+      setUpdatingLock(false)
+    }
+  }
 
   const handleUpdateEvidenceStatus = async (status: "in_progress" | "proven" | "disproven") => {
-    if (updatingStatus()) return
+    if (props.atom.locked || updatingStatus()) return
     setUpdatingStatus(true)
     try {
       await sdk.client.research.atom.update({
@@ -305,6 +324,16 @@ export function AtomSessionTab(props: {
                 </span>
               </div>
             </div>
+            <div class="mt-3 pt-3 border-t border-border-weak-base">
+              <Switch
+                checked={props.atom.locked}
+                disabled={updatingLock()}
+                onChange={handleUpdateLock}
+                description="Locked atoms cannot be edited, deleted, or have their evidence status changed."
+              >
+                {updatingLock() ? "Updating lock..." : "Locked"}
+              </Switch>
+            </div>
           </div>
         </Show>
 
@@ -397,7 +426,7 @@ export function AtomSessionTab(props: {
             <div class="text-12-semibold text-text-strong mb-2">Update Evidence Status</div>
             <div class="flex gap-2">
               <button
-                disabled={updatingStatus() || props.atom.atom_evidence_status === "in_progress"}
+                disabled={props.atom.locked || updatingStatus() || props.atom.atom_evidence_status === "in_progress"}
                 onClick={() => handleUpdateEvidenceStatus("in_progress")}
                 class="px-2 py-1 rounded text-11-regular transition-colors disabled:opacity-50 bg-background-stronger hover:text-text-strong"
                 classList={{
@@ -408,7 +437,7 @@ export function AtomSessionTab(props: {
                 In Progress
               </button>
               <button
-                disabled={updatingStatus() || props.atom.atom_evidence_status === "proven"}
+                disabled={props.atom.locked || updatingStatus() || props.atom.atom_evidence_status === "proven"}
                 onClick={() => handleUpdateEvidenceStatus("proven")}
                 class="px-2 py-1 rounded text-11-regular transition-colors disabled:opacity-50 bg-background-stronger hover:text-text-strong"
                 classList={{
@@ -419,7 +448,7 @@ export function AtomSessionTab(props: {
                 Proven
               </button>
               <button
-                disabled={updatingStatus() || props.atom.atom_evidence_status === "disproven"}
+                disabled={props.atom.locked || updatingStatus() || props.atom.atom_evidence_status === "disproven"}
                 onClick={() => handleUpdateEvidenceStatus("disproven")}
                 class="px-2 py-1 rounded text-11-regular transition-colors disabled:opacity-50 bg-background-stronger hover:text-text-strong"
                 classList={{

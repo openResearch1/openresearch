@@ -141,6 +141,8 @@ import type {
   ResearchAtomCreateResponses,
   ResearchAtomDeleteErrors,
   ResearchAtomDeleteResponses,
+  ResearchAtomLockErrors,
+  ResearchAtomLockResponses,
   ResearchAtomSessionCreateErrors,
   ResearchAtomSessionCreateResponses,
   ResearchAtomsListErrors,
@@ -2994,6 +2996,47 @@ export class Atom extends HeyApiClient {
         ...params,
       },
     )
+  }
+
+  /**
+   * Lock or unlock an atom
+   *
+   * Set the human-controlled lock state for an atom.
+   */
+  public lock<ThrowOnError extends boolean = false>(
+    parameters: {
+      researchProjectId: string
+      atomId: string
+      directory?: string
+      workspace?: string
+      locked?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "researchProjectId" },
+            { in: "path", key: "atomId" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "locked" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).patch<ResearchAtomLockResponses, ResearchAtomLockErrors, ThrowOnError>({
+      url: "/research/project/{researchProjectId}/atom/{atomId}/lock",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
   }
 
   /**

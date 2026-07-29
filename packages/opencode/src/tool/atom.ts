@@ -17,6 +17,7 @@ import { Filesystem } from "../util/filesystem"
 import { rm } from "fs/promises"
 import { Session } from "../session"
 import { git } from "../util/git"
+import { AtomLock } from "../research/atom-lock"
 
 type AtomRow = typeof AtomTable.$inferSelect
 
@@ -152,6 +153,7 @@ function formatAtom(row: AtomRow): string {
     row.atom_claim_path ? `claim_path: ${row.atom_claim_path}` : null,
     row.atom_evidence_path ? `evidence_path: ${row.atom_evidence_path}` : null,
     row.atom_evidence_assessment_path ? `evidence_assessment_path: ${row.atom_evidence_assessment_path}` : null,
+    `locked: ${row.locked}`,
     row.article_id ? `article_id: ${row.article_id}` : null,
     row.session_id ? `session_id: ${row.session_id}` : null,
     `time_created: ${row.time_created}`,
@@ -290,6 +292,15 @@ export const AtomStatusUpdateTool = Tool.define("atom_status_update", {
     evidenceType: z.enum(["math", "experiment"]).optional().describe("New evidence type: math or experiment"),
   }),
   async execute(params, ctx) {
+    const researchProjectId = await Research.getResearchProjectId(ctx.sessionID)
+    if (!researchProjectId) {
+      return {
+        title: "Failed",
+        output: "Current session is not associated with any research project.",
+        metadata: { updated: false },
+      }
+    }
+
     let atomId = params.atomId
 
     if (!atomId) {
@@ -310,7 +321,13 @@ export const AtomStatusUpdateTool = Tool.define("atom_status_update", {
       atomId = bound.atom_id
     }
 
-    const atom = Database.use((db) => db.select().from(AtomTable).where(eq(AtomTable.atom_id, atomId!)).get())
+    const atom = Database.use((db) =>
+      db
+        .select()
+        .from(AtomTable)
+        .where(and(eq(AtomTable.atom_id, atomId!), eq(AtomTable.research_project_id, researchProjectId)))
+        .get(),
+    )
     if (!atom) {
       return {
         title: "Failed",
@@ -318,6 +335,7 @@ export const AtomStatusUpdateTool = Tool.define("atom_status_update", {
         metadata: { updated: false },
       }
     }
+    AtomLock.assert(atom)
 
     const updates: Record<string, unknown> = { time_updated: Date.now() }
     if (params.evidenceStatus) updates.atom_evidence_status = params.evidenceStatus
@@ -333,7 +351,7 @@ export const AtomStatusUpdateTool = Tool.define("atom_status_update", {
 
     Database.use((db) => db.update(AtomTable).set(updates).where(eq(AtomTable.atom_id, atomId!)).run())
 
-    await Bus.publish(Research.Event.AtomsUpdated, { researchProjectId: atom.research_project_id })
+    await Bus.publish(Research.Event.AtomsUpdated, { researchProjectId })
 
     const changed = Object.entries(updates)
       .filter(([k]) => k !== "time_updated")
@@ -551,6 +569,8 @@ export const AtomDeleteTool = Tool.define("atom_delete", {
         metadata: { deleted: false, deletedCount: 0 },
       }
     }
+
+    for (const atomId of validAtomIds) AtomLock.assert(atomMap.get(atomId)!)
 
     // Delete atom directories and files
     const deletePromises = validAtomIds.map(async (atomId) => {

@@ -11,6 +11,7 @@ import { Select } from "@opencode-ai/ui/select"
 import { Combobox as KobalteCombobox } from "@kobalte/core/combobox"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Markdown } from "@opencode-ai/ui/markdown"
+import { Switch } from "@opencode-ai/ui/switch"
 import type { ResearchAtomsListResponse } from "@opencode-ai/sdk/v2"
 
 type Atom = ResearchAtomsListResponse["atoms"][number]
@@ -69,6 +70,7 @@ export function AtomDetailPanel(props: {
   const [creatingExp, setCreatingExp] = createSignal(false)
   const [deletingExpId, setDeletingExpId] = createSignal<string | null>(null)
   const [updatingStatus, setUpdatingStatus] = createSignal(false)
+  const [updatingLock, setUpdatingLock] = createSignal(false)
   const [panelWidth, setPanelWidth] = createSignal(PANEL_DEFAULT_WIDTH)
   const [dragging, setDragging] = createSignal(false)
 
@@ -217,7 +219,7 @@ export function AtomDetailPanel(props: {
   }
 
   const handleDelete = async () => {
-    if (!props.onDelete || deleting()) return
+    if (!props.onDelete || props.atom.locked || deleting()) return
     setDeleting(true)
     try {
       await props.onDelete(props.atom.atom_id)
@@ -292,7 +294,7 @@ export function AtomDetailPanel(props: {
   }
 
   const handleUpdateStatus = async (status: string) => {
-    if (updatingStatus()) return
+    if (props.atom.locked || updatingStatus()) return
     setUpdatingStatus(true)
     try {
       await sdk.client.research.atom.update({
@@ -304,6 +306,22 @@ export function AtomDetailPanel(props: {
       console.error("[atom-detail-panel] failed to update status", e)
     } finally {
       setUpdatingStatus(false)
+    }
+  }
+
+  const handleUpdateLock = async (locked: boolean) => {
+    if (updatingLock()) return
+    setUpdatingLock(true)
+    try {
+      await sdk.client.research.atom.lock({
+        researchProjectId: props.atom.research_project_id,
+        atomId: props.atom.atom_id,
+        locked,
+      })
+    } catch (e) {
+      console.error("[atom-detail-panel] failed to update atom lock", e)
+    } finally {
+      setUpdatingLock(false)
     }
   }
 
@@ -401,11 +419,11 @@ export function AtomDetailPanel(props: {
                   <div class="flex items-center gap-1 shrink-0">
                     <button
                       onClick={handleDelete}
-                      disabled={deleting()}
+                      disabled={props.atom.locked || deleting()}
                       class="flex items-center gap-1 px-2 py-0.5 rounded border border-red-600 bg-red-600 text-white text-[11px] whitespace-nowrap"
                       style={{
-                        cursor: deleting() ? "not-allowed" : "pointer",
-                        opacity: deleting() ? "0.6" : "1",
+                        cursor: props.atom.locked || deleting() ? "not-allowed" : "pointer",
+                        opacity: props.atom.locked || deleting() ? "0.6" : "1",
                       }}
                     >
                       {deleting() ? "Deleting..." : "Confirm"}
@@ -421,8 +439,10 @@ export function AtomDetailPanel(props: {
               >
                 <button
                   onClick={() => setConfirmDelete(true)}
-                  title="Delete atom"
+                  disabled={props.atom.locked}
+                  title={props.atom.locked ? "Unlock the atom before deleting it" : "Delete atom"}
                   class="flex items-center gap-1 px-2 py-0.5 rounded border border-border-base bg-transparent text-red-400 text-[11px] cursor-pointer shrink-0 whitespace-nowrap hover:border-red-400 transition-colors"
+                  classList={{ "opacity-50 !cursor-not-allowed": props.atom.locked }}
                 >
                   <svg
                     width="12"
@@ -453,12 +473,15 @@ export function AtomDetailPanel(props: {
             </span>
             <StatusSelector
               current={props.atom.atom_evidence_status}
-              updating={updatingStatus()}
+              updating={updatingStatus() || props.atom.locked}
               onSelect={handleUpdateStatus}
             />
             <span class="text-[11px] px-2 py-0.5 rounded bg-background-stronger text-text-weak">
               {props.atom.atom_evidence_type}
             </span>
+            <Switch checked={props.atom.locked} disabled={updatingLock()} onChange={handleUpdateLock}>
+              {updatingLock() ? "Updating..." : "Locked"}
+            </Switch>
           </div>
         </div>
         <button

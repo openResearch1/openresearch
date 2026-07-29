@@ -51,6 +51,10 @@ function AtomCard(props: { atom: Atom; relations: Relation[]; atomMap: Map<strin
       </div>
       <div class="flex items-center gap-2 text-11-regular text-text-weak">
         <span>{EVIDENCE_STATUS_LABELS[props.atom.atom_evidence_status] ?? props.atom.atom_evidence_status}</span>
+        <Show when={props.atom.locked}>
+          <span class="text-border-base">·</span>
+          <span>Locked</span>
+        </Show>
         <Show when={relCount() > 0 ? relCount() : null} keyed>
           {(count) => (
             <>

@@ -608,6 +608,9 @@ export namespace File {
       throw new Error(`Access denied: path escapes project directory`)
     }
 
+    const { AtomLock } = await import("@/research/atom-lock")
+    AtomLock.assertPath(full)
+
     await Filesystem.write(full, content)
     return read(file)
   }

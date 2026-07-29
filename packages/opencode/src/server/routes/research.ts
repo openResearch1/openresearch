@@ -119,6 +119,7 @@ const atomSchema = z.object({
   atom_evidence_status: z.string(),
   atom_evidence_path: z.string().nullable(),
   atom_evidence_assessment_path: z.string().nullable(),
+  locked: z.boolean(),
   article_id: z.string().nullable(),
   session_id: z.string().nullable(),
   time_created: z.number(),
@@ -809,12 +810,17 @@ export const ResearchRoutes = new Hono()
             },
           },
         },
-        ...errors(404),
+        ...errors(400, 404),
       },
     }),
     async (c) => {
       const researchProjectId = c.req.param("researchProjectId")
       const atomId = c.req.param("atomId")
+
+      const existing = Database.use((db) => db.select().from(AtomTable).where(eq(AtomTable.atom_id, atomId)).get())
+      if (existing?.research_project_id === researchProjectId && existing.locked) {
+        return c.json({ success: false, message: `atom is locked: ${atomId}` }, 400)
+      }
 
       const target = Database.transaction((tx) => {
         const atom = tx.select().from(AtomTable).where(eq(AtomTable.atom_id, atomId)).get()
@@ -901,6 +907,54 @@ export const ResearchRoutes = new Hono()
       })
     },
   )
+  .patch(
+    "/project/:researchProjectId/atom/:atomId/lock",
+    describeRoute({
+      summary: "Lock or unlock an atom",
+      description: "Set the human-controlled lock state for an atom.",
+      operationId: "research.atom.lock",
+      responses: {
+        200: {
+          description: "Updated atom lock state",
+          content: {
+            "application/json": {
+              schema: resolver(atomSchema),
+            },
+          },
+        },
+        ...errors(404),
+      },
+    }),
+    validator("json", z.object({ locked: z.boolean() })),
+    async (c) => {
+      const researchProjectId = c.req.param("researchProjectId")
+      const atomId = c.req.param("atomId")
+      const body = c.req.valid("json")
+      const atom = Database.use((db) => db.select().from(AtomTable).where(eq(AtomTable.atom_id, atomId)).get())
+      const research = atom
+        ? Database.use((db) =>
+            db
+              .select({ project: ResearchProjectTable.project_id })
+              .from(ResearchProjectTable)
+              .where(eq(ResearchProjectTable.research_project_id, atom.research_project_id))
+              .get(),
+          )
+        : undefined
+      if (!atom || atom.research_project_id !== researchProjectId || research?.project !== Instance.project.id) {
+        return c.json({ success: false, message: `atom not found: ${atomId}` }, 404)
+      }
+
+      Database.use((db) =>
+        db
+          .update(AtomTable)
+          .set({ locked: body.locked, time_updated: Date.now() })
+          .where(eq(AtomTable.atom_id, atomId))
+          .run(),
+      )
+      await Bus.publish(Research.Event.AtomsUpdated, { researchProjectId })
+      return c.json(Database.use((db) => db.select().from(AtomTable).where(eq(AtomTable.atom_id, atomId)).get())!)
+    },
+  )
   // ── Atom update ──
   .patch(
     "/research/:researchProjectId/atom/:atomId",
@@ -934,6 +988,9 @@ export const ResearchRoutes = new Hono()
       const atom = Database.use((db) => db.select().from(AtomTable).where(eq(AtomTable.atom_id, atomId)).get())
       if (!atom || atom.research_project_id !== researchProjectId) {
         return c.json({ success: false, message: `atom not found: ${atomId}` }, 404)
+      }
+      if (atom.locked) {
+        return c.json({ success: false, message: `atom is locked: ${atomId}` }, 400)
       }
 
       const updates: Record<string, unknown> = { time_updated: Date.now() }
@@ -3658,6 +3715,7 @@ export const ResearchRoutes = new Hono()
                   atom_evidence_status: atom.atom_evidence_status,
                   atom_evidence_path: path.join(atomDir, "evidence.md"),
                   atom_evidence_assessment_path: path.join(atomDir, "evidence_assessment.md"),
+                  locked: atom.locked ?? false,
                   article_id: null, // Will be updated later
                   session_id: null, // Sessions are not imported
                   time_created: now,

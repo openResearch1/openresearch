@@ -17,6 +17,7 @@ import { Filesystem } from "../util/filesystem"
 import { Instance } from "../project/instance"
 import { Snapshot } from "@/snapshot"
 import { assertExternalDirectory } from "./external-directory"
+import { AtomLock } from "../research/atom-lock"
 
 const MAX_DIAGNOSTICS_PER_FILE = 20
 
@@ -52,6 +53,7 @@ export const EditTool = Tool.define("edit", {
 
     const filePath = path.isAbsolute(params.filePath) ? params.filePath : path.join(Instance.directory, params.filePath)
     await assertExternalDirectory(ctx, filePath)
+    AtomLock.assertPath(filePath)
 
     let diff = ""
     let contentOld = ""

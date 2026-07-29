@@ -4399,6 +4399,7 @@ export type ResearchAtomsListResponses = {
       atom_evidence_status: string
       atom_evidence_path: string | null
       atom_evidence_assessment_path: string | null
+      locked: boolean
       article_id: string | null
       session_id: string | null
       time_created: number
@@ -4459,6 +4460,7 @@ export type ResearchAtomCreateResponses = {
     atom_evidence_status: string
     atom_evidence_path: string | null
     atom_evidence_assessment_path: string | null
+    locked: boolean
     article_id: string | null
     session_id: string | null
     time_created: number
@@ -4614,6 +4616,10 @@ export type ResearchAtomDeleteData = {
 
 export type ResearchAtomDeleteErrors = {
   /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
    * Not found
    */
   404: NotFoundError
@@ -4632,6 +4638,54 @@ export type ResearchAtomDeleteResponses = {
 }
 
 export type ResearchAtomDeleteResponse = ResearchAtomDeleteResponses[keyof ResearchAtomDeleteResponses]
+
+export type ResearchAtomLockData = {
+  body?: {
+    locked: boolean
+  }
+  path: {
+    researchProjectId: string
+    atomId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/research/project/{researchProjectId}/atom/{atomId}/lock"
+}
+
+export type ResearchAtomLockErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ResearchAtomLockError = ResearchAtomLockErrors[keyof ResearchAtomLockErrors]
+
+export type ResearchAtomLockResponses = {
+  /**
+   * Updated atom lock state
+   */
+  200: {
+    atom_id: string
+    research_project_id: string
+    atom_name: string
+    atom_type: string
+    atom_claim_path: string | null
+    atom_evidence_type: string
+    atom_evidence_status: string
+    atom_evidence_path: string | null
+    atom_evidence_assessment_path: string | null
+    locked: boolean
+    article_id: string | null
+    session_id: string | null
+    time_created: number
+    time_updated: number
+  }
+}
+
+export type ResearchAtomLockResponse = ResearchAtomLockResponses[keyof ResearchAtomLockResponses]
 
 export type ResearchAtomUpdateData = {
   body?: {
@@ -4676,6 +4730,7 @@ export type ResearchAtomUpdateResponses = {
     atom_evidence_status: string
     atom_evidence_path: string | null
     atom_evidence_assessment_path: string | null
+    locked: boolean
     article_id: string | null
     session_id: string | null
     time_created: number
@@ -4906,6 +4961,7 @@ export type ResearchSessionAtomGetResponses = {
       atom_evidence_status: string
       atom_evidence_path: string | null
       atom_evidence_assessment_path: string | null
+      locked: boolean
       article_id: string | null
       session_id: string | null
       time_created: number
@@ -5475,6 +5531,7 @@ export type ResearchExperimentBySessionResponses = {
       atom_evidence_status: string
       atom_evidence_path: string | null
       atom_evidence_assessment_path: string | null
+      locked: boolean
       article_id: string | null
       session_id: string | null
       time_created: number
