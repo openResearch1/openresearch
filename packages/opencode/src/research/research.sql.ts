@@ -10,13 +10,35 @@ const experimentKinds = ["experiment", "project_runtime"] as const
 const runtimeStatuses = ["pending", "preparing", "downloading", "ready", "stale", "failed"] as const
 export const linkKinds = [
   "motivates",
-  "formalizes",
+  "grounds",
+  "formalized_by",
   "derives",
-  "analyzes",
-  "validates",
+  "analyzed_by",
+  "evaluated_by",
   "contradicts",
   "other",
 ] as const
+export const legacyLinkKinds = ["formalizes", "analyzes", "validates"] as const
+export const linkInputs = [...linkKinds, ...legacyLinkKinds] as const
+export type LinkKind = (typeof linkKinds)[number]
+
+const aliases: Record<string, LinkKind> = {
+  formalizes: "formalized_by",
+  analyzes: "analyzed_by",
+  validates: "evaluated_by",
+}
+
+export function linkKind(input: string) {
+  if ((linkKinds as readonly string[]).includes(input)) return input as LinkKind
+  return aliases[input]
+}
+
+export function normalizeLinks<T extends { relation_type: string }>(input: T[]) {
+  return input.flatMap((item) => {
+    const relation_type = linkKind(item.relation_type)
+    return relation_type ? [{ ...item, relation_type }] : []
+  })
+}
 
 export const RemoteServerTable = sqliteTable("remote_server", {
   id: text().primaryKey(),

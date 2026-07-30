@@ -51,6 +51,7 @@ import { ResearchCodeBranchQueryTool } from "./research-code-branch"
 import { ResearchBackgroundTool, ResearchGoalTool, ResearchMacroTool } from "./research-background"
 import { ResearchInfoTool } from "./research-info"
 import { ResearchPathTool } from "./research-path"
+import { ResearchResultQueryTool, ResearchResultSubmitTool } from "./research-result"
 import { SshTool } from "./ssh"
 import { ExperimentWatchTool } from "./experiment-watch"
 import { ExperimentExecutionWatchInitTool, ExperimentExecutionWatchUpdateTool } from "./experiment-execution-watch"
@@ -197,6 +198,8 @@ export namespace ToolRegistry {
       ResearchMacroTool,
       ResearchInfoTool,
       ResearchPathTool,
+      ResearchResultQueryTool,
+      ResearchResultSubmitTool,
       SshTool,
       ExperimentWatchTool,
       ExperimentExecutionWatchInitTool,

@@ -94,12 +94,12 @@ test("detectCommunities - basic detection", async () => {
             {
               atom_id_source: atom1Id,
               atom_id_target: atom2Id,
-              relation_type: "analyzes",
+              relation_type: "analyzed_by",
             },
             {
               atom_id_source: atom2Id,
               atom_id_target: atom3Id,
-              relation_type: "validates",
+              relation_type: "evaluated_by",
             },
           ])
           .run()
@@ -158,7 +158,7 @@ test("queryCommunities - filter by size", async () => {
         db.insert(AtomRelationTable)
           .values([
             { atom_id_source: atomIds[0], atom_id_target: atomIds[1], relation_type: "derives" },
-            { atom_id_source: atomIds[2], atom_id_target: atomIds[3], relation_type: "validates" },
+            { atom_id_source: atomIds[2], atom_id_target: atomIds[3], relation_type: "evaluated_by" },
           ])
           .run()
       })
@@ -219,7 +219,7 @@ test("getCommunityStats - returns correct statistics", async () => {
         db.insert(AtomRelationTable)
           .values([
             { atom_id_source: atomIds[0], atom_id_target: atomIds[1], relation_type: "derives" },
-            { atom_id_source: atomIds[1], atom_id_target: atomIds[2], relation_type: "validates" },
+            { atom_id_source: atomIds[1], atom_id_target: atomIds[2], relation_type: "evaluated_by" },
           ])
           .run()
       })

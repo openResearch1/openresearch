@@ -21,7 +21,7 @@ import {
 } from "@/research/research.sql"
 import { and, desc, eq } from "drizzle-orm"
 import { Session } from "@/session"
-import { linkKinds } from "@/research/research.sql"
+import { linkInputs, linkKind, linkKinds, normalizeLinks } from "@/research/research.sql"
 import { Bus } from "@/bus"
 import { errors } from "../error"
 import fs from "fs"
@@ -55,6 +55,7 @@ import { CodeBranch } from "@/research/code-branch"
 import { ResearchDeletionTable } from "@/research/research-deletion.sql"
 import { ControllerAgent } from "@/research/controller-agent"
 import { ResearchPath } from "@/research/research-path"
+import { ResearchResult } from "@/research/research-result"
 
 const createSchema = z.object({
   name: z.string().min(1, "name required"),
@@ -70,7 +71,9 @@ async function copyFile(src: string, dest: string) {
 }
 
 const uniqueID = () => crypto.randomUUID()
-const commitShaSchema = z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/, "expectedHeadSha must be a full Git commit SHA")
+const commitShaSchema = z
+  .string()
+  .regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/, "expectedHeadSha must be a full Git commit SHA")
 const REMOTE_TASK_VISIBLE_MS = 60 * 1000
 type RemoteTaskRow = typeof RemoteTaskTable.$inferSelect
 
@@ -272,7 +275,7 @@ const experimentSessionResponseSchema = experimentSchema
 const atomRelationSchema = z.object({
   atom_id_source: z.string(),
   atom_id_target: z.string(),
-  relation_type: z.string(),
+  relation_type: z.enum(linkKinds),
   note: z.string().nullable(),
   time_created: z.number(),
   time_updated: z.number(),
@@ -293,7 +296,7 @@ const experimentDiffResponseSchema = z.object({
 const atomRelationCreateSchema = z.object({
   source_atom_id: z.string().min(1, "source atom required"),
   target_atom_id: z.string().min(1, "target atom required"),
-  relation_type: z.enum(linkKinds),
+  relation_type: z.enum(linkInputs),
   note: z.string().optional(),
 })
 
@@ -305,11 +308,11 @@ const atomCreateSchema = z.object({
 const atomRelationDeleteSchema = z.object({
   source_atom_id: z.string().min(1, "source atom required"),
   target_atom_id: z.string().min(1, "target atom required"),
-  relation_type: z.enum(linkKinds),
+  relation_type: z.enum(linkInputs),
 })
 
 const atomRelationUpdateSchema = atomRelationDeleteSchema.extend({
-  next_relation_type: z.enum(linkKinds),
+  next_relation_type: z.enum(linkInputs),
 })
 
 const atomRelationDeleteResponseSchema = z.object({
@@ -473,6 +476,60 @@ export const ResearchRoutes = new Hono()
     },
   )
   .get(
+    "/project/:researchProjectId/results",
+    describeRoute({
+      summary: "List accepted Research Results",
+      description: "List every Reviewer-accepted Atom subset in a Research Project.",
+      operationId: "research.results.list",
+      responses: {
+        200: {
+          description: "Accepted Research Results",
+          content: {
+            "application/json": {
+              schema: resolver(ResearchResult.Info.array()),
+            },
+          },
+        },
+        ...errors(404),
+      },
+    }),
+    async (c) => {
+      const researchProjectId = c.req.param("researchProjectId")
+      const project = Research.getResearchProject(researchProjectId)
+      if (!project || project.project_id !== Instance.project.id) {
+        return c.json({ success: false, message: `research project not found: ${researchProjectId}` }, 404)
+      }
+      return c.json(ResearchResult.list(researchProjectId))
+    },
+  )
+  .get(
+    "/project/:researchProjectId/result/:researchResultId",
+    describeRoute({
+      summary: "Get an accepted Research Result",
+      operationId: "research.result.get",
+      responses: {
+        200: {
+          description: "Accepted Research Result",
+          content: {
+            "application/json": {
+              schema: resolver(ResearchResult.Info),
+            },
+          },
+        },
+        ...errors(404),
+      },
+    }),
+    async (c) => {
+      const researchProjectId = c.req.param("researchProjectId")
+      const project = Research.getResearchProject(researchProjectId)
+      const result = ResearchResult.get(researchProjectId, c.req.param("researchResultId"))
+      if (!project || project.project_id !== Instance.project.id || !result) {
+        return c.json({ success: false, message: "research result not found" }, 404)
+      }
+      return c.json(result)
+    },
+  )
+  .get(
     "/project/:researchProjectId/atoms",
     describeRoute({
       summary: "List atoms and relations",
@@ -506,8 +563,8 @@ export const ResearchRoutes = new Hono()
 
       let relations: (typeof AtomRelationTable.$inferSelect)[] = []
       if (atomIds.length > 0) {
-        const allRelations = Database.use((db) => db.select().from(AtomRelationTable).all())
-        relations = allRelations.filter((r) => atomIds.includes(r.atom_id_source) || atomIds.includes(r.atom_id_target))
+        const allRelations = normalizeLinks(Database.use((db) => db.select().from(AtomRelationTable).all()))
+        relations = allRelations.filter((r) => atomIds.includes(r.atom_id_source) && atomIds.includes(r.atom_id_target))
       }
 
       return c.json({ atoms, relations })
@@ -567,7 +624,7 @@ export const ResearchRoutes = new Hono()
             atom_name: body.name.trim(),
             atom_type: body.type,
             atom_claim_path: claimPath,
-            atom_evidence_type: "math",
+            atom_evidence_type: body.type === "verification" ? "experiment" : "math",
             atom_evidence_status: "pending",
             atom_evidence_path: evidencePath,
             atom_evidence_assessment_path: evidenceAssessmentPath,
@@ -611,6 +668,7 @@ export const ResearchRoutes = new Hono()
     async (c) => {
       const researchProjectId = c.req.param("researchProjectId")
       const body = c.req.valid("json")
+      const kind = linkKind(body.relation_type)!
 
       if (body.source_atom_id === body.target_atom_id) {
         return c.json({ success: false, message: "source and target atoms must be different" }, 400)
@@ -639,7 +697,7 @@ export const ResearchRoutes = new Hono()
             .values({
               atom_id_source: body.source_atom_id,
               atom_id_target: body.target_atom_id,
-              relation_type: body.relation_type,
+              relation_type: kind,
               note: body.note ?? null,
               time_created: now,
               time_updated: now,
@@ -658,7 +716,7 @@ export const ResearchRoutes = new Hono()
       return c.json({
         atom_id_source: body.source_atom_id,
         atom_id_target: body.target_atom_id,
-        relation_type: body.relation_type,
+        relation_type: kind,
         note: body.note ?? null,
         time_created: now,
         time_updated: now,
@@ -687,6 +745,8 @@ export const ResearchRoutes = new Hono()
     async (c) => {
       const researchProjectId = c.req.param("researchProjectId")
       const body = c.req.valid("json")
+      const current = linkKind(body.relation_type)!
+      const next = linkKind(body.next_relation_type)!
 
       const source = Database.use((db) =>
         db.select().from(AtomTable).where(eq(AtomTable.atom_id, body.source_atom_id)).get(),
@@ -710,7 +770,7 @@ export const ResearchRoutes = new Hono()
             and(
               eq(AtomRelationTable.atom_id_source, body.source_atom_id),
               eq(AtomRelationTable.atom_id_target, body.target_atom_id),
-              eq(AtomRelationTable.relation_type, body.relation_type),
+              eq(AtomRelationTable.relation_type, current),
             ),
           )
           .get(),
@@ -719,7 +779,7 @@ export const ResearchRoutes = new Hono()
         return c.json({ success: false, message: "relation not found" }, 404)
       }
 
-      if (body.next_relation_type === body.relation_type) {
+      if (next === current) {
         return c.json(existing)
       }
 
@@ -731,7 +791,7 @@ export const ResearchRoutes = new Hono()
             and(
               eq(AtomRelationTable.atom_id_source, body.source_atom_id),
               eq(AtomRelationTable.atom_id_target, body.target_atom_id),
-              eq(AtomRelationTable.relation_type, body.next_relation_type),
+              eq(AtomRelationTable.relation_type, next),
             ),
           )
           .get(),
@@ -749,7 +809,7 @@ export const ResearchRoutes = new Hono()
               and(
                 eq(AtomRelationTable.atom_id_source, body.source_atom_id),
                 eq(AtomRelationTable.atom_id_target, body.target_atom_id),
-                eq(AtomRelationTable.relation_type, body.relation_type),
+                eq(AtomRelationTable.relation_type, current),
               ),
             )
             .run(),
@@ -760,7 +820,7 @@ export const ResearchRoutes = new Hono()
             .values({
               atom_id_source: body.source_atom_id,
               atom_id_target: body.target_atom_id,
-              relation_type: body.next_relation_type,
+              relation_type: next,
               note: existing.note,
               time_created: existing.time_created,
               time_updated: now,
@@ -774,7 +834,7 @@ export const ResearchRoutes = new Hono()
       return c.json({
         atom_id_source: body.source_atom_id,
         atom_id_target: body.target_atom_id,
-        relation_type: body.next_relation_type,
+        relation_type: next,
         note: existing.note,
         time_created: existing.time_created,
         time_updated: now,
@@ -803,6 +863,7 @@ export const ResearchRoutes = new Hono()
     async (c) => {
       const researchProjectId = c.req.param("researchProjectId")
       const body = c.req.valid("json")
+      const kind = linkKind(body.relation_type)!
 
       const source = Database.use((db) =>
         db.select().from(AtomTable).where(eq(AtomTable.atom_id, body.source_atom_id)).get(),
@@ -826,7 +887,7 @@ export const ResearchRoutes = new Hono()
             and(
               eq(AtomRelationTable.atom_id_source, body.source_atom_id),
               eq(AtomRelationTable.atom_id_target, body.target_atom_id),
-              eq(AtomRelationTable.relation_type, body.relation_type),
+              eq(AtomRelationTable.relation_type, kind),
             ),
           )
           .get(),
@@ -842,7 +903,7 @@ export const ResearchRoutes = new Hono()
             and(
               eq(AtomRelationTable.atom_id_source, body.source_atom_id),
               eq(AtomRelationTable.atom_id_target, body.target_atom_id),
-              eq(AtomRelationTable.relation_type, body.relation_type),
+              eq(AtomRelationTable.relation_type, kind),
             ),
           )
           .run(),
@@ -853,7 +914,7 @@ export const ResearchRoutes = new Hono()
       return c.json({
         source_atom_id: body.source_atom_id,
         target_atom_id: body.target_atom_id,
-        relation_type: body.relation_type,
+        relation_type: kind,
         deleted: true as const,
       })
     },
@@ -2345,7 +2406,8 @@ export const ResearchRoutes = new Hono()
     "/experiment/:expId/diff",
     describeRoute({
       summary: "Get experiment branch diff",
-      description: "Compare the experiment branch against its fixed baseline commit and return file diffs grouped by commit.",
+      description:
+        "Compare the experiment branch against its fixed baseline commit and return file diffs grouped by commit.",
       operationId: "research.experiment.diff",
       responses: {
         200: {
@@ -3371,9 +3433,9 @@ export const ResearchRoutes = new Hono()
 
         let relations: (typeof AtomRelationTable.$inferSelect)[] = []
         if (atomIds.length > 0) {
-          const allRelations = Database.use((db) => db.select().from(AtomRelationTable).all())
+          const allRelations = normalizeLinks(Database.use((db) => db.select().from(AtomRelationTable).all()))
           relations = allRelations.filter(
-            (r) => atomIds.includes(r.atom_id_source) || atomIds.includes(r.atom_id_target),
+            (r) => atomIds.includes(r.atom_id_source) && atomIds.includes(r.atom_id_target),
           )
         }
 
@@ -3422,7 +3484,7 @@ export const ResearchRoutes = new Hono()
 
         // Create metadata
         const metadata = {
-          version: "1.0",
+          version: "2.0",
           exported_at: Date.now(),
           source_worktree: project.worktree,
           research_project: researchProject,
@@ -3828,26 +3890,43 @@ export const ResearchRoutes = new Hono()
             }
           }
 
-          // Import atom relations
+          // Import atom relations, normalizing aliases from v1 archives.
+          const relations = new Map<
+            string,
+            {
+              atom_id_source: string
+              atom_id_target: string
+              relation_type: (typeof linkKinds)[number]
+              note: string | null
+              time_created: number
+              time_updated: number
+            }
+          >()
           for (const relation of metadata.atom_relations) {
             const newSourceId = oldToNewAtomId.get(relation.atom_id_source)
             const newTargetId = oldToNewAtomId.get(relation.atom_id_target)
             if (newSourceId && newTargetId) {
-              Database.use((db) =>
-                db
-                  .insert(AtomRelationTable)
-                  .values({
-                    atom_id_source: newSourceId,
-                    atom_id_target: newTargetId,
-                    relation_type: relation.relation_type,
-                    note: relation.note,
-                    time_created: now,
-                    time_updated: now,
-                  })
-                  .run(),
-              )
+              const kind = linkKind(relation.relation_type)
+              if (!kind) throw new Error(`Unknown atom relation type: ${relation.relation_type}`)
+              const key = `${newSourceId}\n${newTargetId}\n${kind}`
+              const current = relations.get(key)
+              relations.set(key, {
+                atom_id_source: newSourceId,
+                atom_id_target: newTargetId,
+                relation_type: kind,
+                note: current?.note ?? relation.note,
+                time_created: Math.min(current?.time_created ?? relation.time_created, relation.time_created),
+                time_updated: Math.max(current?.time_updated ?? relation.time_updated, relation.time_updated),
+              })
             }
           }
+          if (relations.size)
+            Database.use((db) =>
+              db
+                .insert(AtomRelationTable)
+                .values([...relations.values()])
+                .run(),
+            )
 
           // Import codes
           for (const code of metadata.codes) {

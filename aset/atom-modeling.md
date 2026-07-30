@@ -293,7 +293,16 @@ OpenResearch 建议**保守建边**：宁可少而准，不要多而弱。
 
 - “现有方法在长序列上不稳定” motivates “提出新的稳定训练机制”
 
-### 6.2 `formalizes`
+### 6.2 `grounds`
+
+表示前一个原子中的定义、假设或概念是后一个原子所依赖的形式或概念基础。
+
+常见方向：
+
+- `fact_claim → method_claim`
+- `fact_claim → theorem_claim`
+
+### 6.3 `formalized_by`
 
 表示后一个原子对前一个较直观的说法做了更严格、更形式化的表达。
 
@@ -303,9 +312,9 @@ OpenResearch 建议**保守建边**：宁可少而准，不要多而弱。
 
 例子：
 
-- “梯度冲突导致优化困难” formalizes 成某个带条件的理论命题
+- “梯度冲突导致优化困难” formalized_by 某个带条件的理论命题
 
-### 6.3 `derives`
+### 6.4 `derives`
 
 表示后一个原子从前一个原子中被推导、构造或设计出来。
 
@@ -317,7 +326,7 @@ OpenResearch 建议**保守建边**：宁可少而准，不要多而弱。
 
 - 某个理论约束导出具体算法设计
 
-### 6.4 `analyzes`
+### 6.5 `analyzed_by`
 
 表示后一个原子对前一个方法或声明提供理论分析。
 
@@ -329,9 +338,9 @@ OpenResearch 建议**保守建边**：宁可少而准，不要多而弱。
 
 - 对某个更新规则给出收敛性分析
 
-### 6.5 `validates`
+### 6.6 `evaluated_by`
 
-表示后一个原子通过经验实验去验证前一个方法或理论。
+表示后一个原子通过经验实验评估前一个方法或理论，不预设结果为正面、负面或不确定。
 
 常见方向：
 
@@ -340,9 +349,9 @@ OpenResearch 建议**保守建边**：宁可少而准，不要多而弱。
 
 例子：
 
-- 某个实验结果验证了新模块的有效性
+- 某个实验结果评估了新模块在明确条件下的表现
 
-### 6.6 `contradicts`
+### 6.7 `contradicts`
 
 表示两个原子在逻辑上或经验上相互冲突。
 
@@ -350,7 +359,7 @@ OpenResearch 建议**保守建边**：宁可少而准，不要多而弱。
 
 - 理论预期某设计更稳定，但实验发现该设计在关键场景下退化
 
-### 6.7 `other`
+### 6.8 `other`
 
 用于无法被以上关系准确覆盖、但确实具有清晰意义的关系。
 
@@ -459,9 +468,9 @@ OpenResearch 建议**保守建边**：宁可少而准，不要多而弱。
 ### 关系
 
 - Atom 1 `motivates` Atom 2
-- Atom 2 `analyzes` Atom 3
-- Atom 2 `validates` Atom 4
-- Atom 3 `validates` Atom 4
+- Atom 2 `analyzed_by` Atom 3
+- Atom 2 `evaluated_by` Atom 4
+- Atom 3 `evaluated_by` Atom 4
 
 ---
 

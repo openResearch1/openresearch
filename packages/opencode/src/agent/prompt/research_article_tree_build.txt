@@ -33,54 +33,23 @@ The task prompt is the source of truth for the target `article_id`.
 5. Create the local atom tree with `atom_batch_create`.
    - Every atom must belong to this target article.
    - Every atom must include:
-     - `name`
-     - `type`: one of `fact`, `method`, `theorem`, `verification`
-     - `claim`: claim only, with a `Claim` heading
-     - `evidence`: evidence only, with an `Evidence` heading
+      - `name`
+      - `type`: one of `fact`, `method`, `theorem`, `verification`
+      - `evidenceType`: `experiment` for empirical verification results, otherwise the actual evidence mode
+      - `claim`: claim only, beginning with exactly `### Claim`
+      - `evidence`: evidence only, beginning with exactly `### Evidence`
      - `articleId`: the target article id
    - Only include intra-article relations in this call.
 6. Call `article_status_update` to set the target article to `parsed`.
 7. Return a short summary.
 
-## Atom rules
+## Article-local rules
 
-- One atom = one main claim + its direct evidence.
-- Do not mix claim and evidence in the same field.
-- Do not put an `Evidence` section inside `claim`.
-- Do not put a `Claim` section inside `evidence`.
-- Prefer standard markdown math compatible with KaTeX: `$...$` and `$$...$$`.
 - For LaTeX articles, use the project macro table as the source of truth for custom notation.
 - If a macro cannot be normalized reliably, use a conservative readable reformulation.
-
-## Local-tree relation rules
-
-Only create relations when the connection is clear within the same article.
-Prefer fewer high-confidence edges over many weak edges.
-Allowed relation types:
-- `motivates`
-- `formalizes`
-- `derives`
-- `analyzes`
-- `validates`
-- `contradicts`
-- `other`
-
-Do not create any relation whose source and target belong to different articles.
-Follow the relation semantics from `research.txt` strictly:
-- `motivates`: background/problem fact -> downstream method or verification
-- `formalizes`: earlier claim -> theorem/formal characterization
-- `derives`: prior theorem or construction basis -> downstream method/result
-- `analyzes`: method -> theorem analysis
-- `validates`: method or theorem -> verification
-
-Direction principle:
-- source is conceptually prior or more foundational
-- target is downstream, derived, analyzed, or empirically evaluated
-
-Never reverse `validates`.
-- Do not create `verification -> method`
-- Do not create `verification -> theorem`
-- Do not make a verification atom the source of empirical validation edges
+- Method evidence must be constructive material that defines or instantiates the method, such as objectives, constraints, equations, pseudocode, steps, modules, or intermediate variables. Never use performance, benchmark, ablation, robustness, or effectiveness results as method evidence; create separate `verification` Atoms for them.
+- Create only sparse, high-confidence relations whose two endpoints belong to this article.
+- Use `grounds` for definitions or assumptions required downstream; use `formalized_by` only when the target is a formal expression of the source claim.
 
 ## Final response
 

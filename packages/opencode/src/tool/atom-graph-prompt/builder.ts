@@ -1,6 +1,6 @@
 import type { TraversedAtom, PromptBuilderOptions, Community } from "./types"
 import { Database, eq } from "../../storage/db"
-import { AtomRelationTable } from "../../research/research.sql"
+import { AtomRelationTable, normalizeLinks } from "../../research/research.sql"
 
 /**
  * 构建 GraphRAG 风格的 Prompt
@@ -67,8 +67,8 @@ function buildGraphRAGPrompt(atoms: TraversedAtom[], options: PromptBuilderOptio
   sections.push("")
   sections.push("Based on the above research context graph, please analyze the relationships")
   sections.push("between atoms and their types (fact/method/theorem/verification).")
-  sections.push("Consider how facts motivate methods, methods are analyzed by theorems,")
-  sections.push("and validated by verification results.")
+  sections.push("Consider how facts motivate or ground downstream work, methods are analyzed by theorems,")
+  sections.push("and methods or theorems are evaluated by verification results.")
   sections.push("")
 
   return sections.join("\n")
@@ -116,7 +116,7 @@ function extractRelationships(atoms: TraversedAtom[]): Array<{
   if (atomIds.length === 0) return []
 
   // 获取这些 atoms 之间的所有关系
-  const relations = Database.use((db) => db.select().from(AtomRelationTable).all())
+  const relations = normalizeLinks(Database.use((db) => db.select().from(AtomRelationTable).all()))
 
   // 过滤出只在当前 atoms 集合内的关系
   const filtered = relations.filter((r) => atomMap.has(r.atom_id_source) && atomMap.has(r.atom_id_target))

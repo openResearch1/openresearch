@@ -42,7 +42,7 @@ async function seedGraph(
   relations: Array<{
     source: string
     target: string
-    type: "motivates" | "formalizes" | "derives" | "analyzes" | "validates" | "contradicts" | "other"
+    type: "motivates" | "formalized_by" | "derives" | "analyzed_by" | "evaluated_by" | "contradicts" | "other"
   }>,
 ) {
   const now = Date.now()
@@ -105,11 +105,11 @@ test("should detect separate communities for disconnected subgraphs", async () =
         // Group A 内部连接
         { source: `${p}-a1`, target: `${p}-a2`, type: "derives" },
         { source: `${p}-a2`, target: `${p}-a3`, type: "derives" },
-        { source: `${p}-a3`, target: `${p}-a1`, type: "analyzes" },
+        { source: `${p}-a3`, target: `${p}-a1`, type: "analyzed_by" },
         // Group B 内部连接
-        { source: `${p}-b1`, target: `${p}-b2`, type: "validates" },
-        { source: `${p}-b2`, target: `${p}-b3`, type: "validates" },
-        { source: `${p}-b3`, target: `${p}-b1`, type: "formalizes" },
+        { source: `${p}-b1`, target: `${p}-b2`, type: "evaluated_by" },
+        { source: `${p}-b2`, target: `${p}-b3`, type: "evaluated_by" },
+        { source: `${p}-b3`, target: `${p}-b1`, type: "formalized_by" },
         // 没有跨组关系
       ])
 
@@ -158,7 +158,7 @@ test("should identify dominant type per community", async () => {
       await seedGraph(rpId, dir, atoms, [
         { source: `${p}-m1`, target: `${p}-m2`, type: "derives" },
         { source: `${p}-m2`, target: `${p}-m3`, type: "derives" },
-        { source: `${p}-m3`, target: `${p}-m1`, type: "analyzes" },
+        { source: `${p}-m3`, target: `${p}-m1`, type: "analyzed_by" },
       ])
 
       const cache = await detectCommunities({ minCommunitySize: 2, forceRefresh: true })
@@ -199,9 +199,9 @@ test("should calculate community density correctly", async () => {
         { source: `${p}-x1`, target: `${p}-x2`, type: "derives" },
         { source: `${p}-x2`, target: `${p}-x3`, type: "derives" },
         { source: `${p}-x3`, target: `${p}-x1`, type: "derives" },
-        { source: `${p}-x1`, target: `${p}-x3`, type: "analyzes" },
-        { source: `${p}-x2`, target: `${p}-x1`, type: "analyzes" },
-        { source: `${p}-x3`, target: `${p}-x2`, type: "analyzes" },
+        { source: `${p}-x1`, target: `${p}-x3`, type: "analyzed_by" },
+        { source: `${p}-x2`, target: `${p}-x1`, type: "analyzed_by" },
+        { source: `${p}-x3`, target: `${p}-x2`, type: "analyzed_by" },
       ])
 
       const cache = await detectCommunities({ minCommunitySize: 2, forceRefresh: true })
@@ -237,7 +237,7 @@ test("should generate meaningful summary and keywords", async () => {
 
       await seedGraph(rpId, dir, atoms, [
         { source: `${p}-s1`, target: `${p}-s2`, type: "derives" },
-        { source: `${p}-s2`, target: `${p}-s1`, type: "analyzes" },
+        { source: `${p}-s2`, target: `${p}-s1`, type: "analyzed_by" },
       ])
 
       const cache = await detectCommunities({ minCommunitySize: 2, forceRefresh: true })
@@ -297,9 +297,9 @@ test("should query communities by natural language", async () => {
         [...mlAtoms, ...bioAtoms],
         [
           { source: `${p}-ml1`, target: `${p}-ml2`, type: "derives" },
-          { source: `${p}-ml2`, target: `${p}-ml1`, type: "analyzes" },
-          { source: `${p}-bio1`, target: `${p}-bio2`, type: "analyzes" },
-          { source: `${p}-bio2`, target: `${p}-bio1`, type: "validates" },
+          { source: `${p}-ml2`, target: `${p}-ml1`, type: "analyzed_by" },
+          { source: `${p}-bio1`, target: `${p}-bio2`, type: "analyzed_by" },
+          { source: `${p}-bio2`, target: `${p}-bio1`, type: "evaluated_by" },
         ],
       )
 
@@ -333,8 +333,8 @@ test("should filter communities by dominant atom type", async () => {
       ]
 
       await seedGraph(rpId, dir, atoms, [
-        { source: `${p}-t1`, target: `${p}-t2`, type: "validates" },
-        { source: `${p}-t2`, target: `${p}-t1`, type: "formalizes" },
+        { source: `${p}-t1`, target: `${p}-t2`, type: "evaluated_by" },
+        { source: `${p}-t2`, target: `${p}-t1`, type: "formalized_by" },
       ])
 
       await detectCommunities({ minCommunitySize: 2, forceRefresh: true })
@@ -369,7 +369,7 @@ test("should return all atom IDs in a community", async () => {
       await seedGraph(rpId, dir, atoms, [
         { source: `${p}-g1`, target: `${p}-g2`, type: "derives" },
         { source: `${p}-g2`, target: `${p}-g3`, type: "derives" },
-        { source: `${p}-g3`, target: `${p}-g1`, type: "analyzes" },
+        { source: `${p}-g3`, target: `${p}-g1`, type: "analyzed_by" },
       ])
 
       const cache = await detectCommunities({ minCommunitySize: 2, forceRefresh: true })
@@ -427,7 +427,7 @@ test("should filter out communities smaller than minCommunitySize", async () => 
       await seedGraph(rpId, dir, atoms, [
         { source: `${p}-c1`, target: `${p}-c2`, type: "derives" },
         { source: `${p}-c2`, target: `${p}-c3`, type: "derives" },
-        { source: `${p}-c3`, target: `${p}-c1`, type: "analyzes" },
+        { source: `${p}-c3`, target: `${p}-c1`, type: "analyzed_by" },
         // lone 没有连接
       ])
 
@@ -472,11 +472,11 @@ test("should produce different community counts with different resolution", asyn
         // 组 1 内部
         { source: `${p}-r0`, target: `${p}-r1`, type: "derives" },
         { source: `${p}-r1`, target: `${p}-r2`, type: "derives" },
-        { source: `${p}-r2`, target: `${p}-r0`, type: "analyzes" },
+        { source: `${p}-r2`, target: `${p}-r0`, type: "analyzed_by" },
         // 组 2 内部
-        { source: `${p}-r3`, target: `${p}-r4`, type: "validates" },
-        { source: `${p}-r4`, target: `${p}-r5`, type: "validates" },
-        { source: `${p}-r5`, target: `${p}-r3`, type: "formalizes" },
+        { source: `${p}-r3`, target: `${p}-r4`, type: "evaluated_by" },
+        { source: `${p}-r4`, target: `${p}-r5`, type: "evaluated_by" },
+        { source: `${p}-r5`, target: `${p}-r3`, type: "formalized_by" },
         // 跨组弱连接
         { source: `${p}-r2`, target: `${p}-r3`, type: "other" },
       ])
@@ -514,7 +514,7 @@ test("should persist and load community cache correctly", async () => {
       ]
       await seedGraph(rpId, dir, atoms, [
         { source: `${p}-p1`, target: `${p}-p2`, type: "derives" },
-        { source: `${p}-p2`, target: `${p}-p1`, type: "analyzes" },
+        { source: `${p}-p2`, target: `${p}-p1`, type: "analyzed_by" },
       ])
 
       // 首次检测

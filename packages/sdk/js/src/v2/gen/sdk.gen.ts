@@ -210,6 +210,10 @@ import type {
   ResearchRelationDeleteResponses,
   ResearchRelationUpdateErrors,
   ResearchRelationUpdateResponses,
+  ResearchResultGetErrors,
+  ResearchResultGetResponses,
+  ResearchResultsListErrors,
+  ResearchResultsListResponses,
   ResearchServerCreateResponses,
   ResearchServerDeleteErrors,
   ResearchServerDeleteResponses,
@@ -2931,6 +2935,74 @@ export class Paths extends HeyApiClient {
   }
 }
 
+export class Results extends HeyApiClient {
+  /**
+   * List accepted Research Results
+   *
+   * List every Reviewer-accepted Atom subset in a Research Project.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters: {
+      researchProjectId: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "researchProjectId" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ResearchResultsListResponses, ResearchResultsListErrors, ThrowOnError>({
+      url: "/research/project/{researchProjectId}/results",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Result extends HeyApiClient {
+  /**
+   * Get an accepted Research Result
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters: {
+      researchProjectId: string
+      researchResultId: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "researchProjectId" },
+            { in: "path", key: "researchResultId" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ResearchResultGetResponses, ResearchResultGetErrors, ThrowOnError>({
+      url: "/research/project/{researchProjectId}/result/{researchResultId}",
+      ...options,
+      ...params,
+    })
+  }
+}
+
 export class Atoms extends HeyApiClient {
   /**
    * List atoms and relations
@@ -3182,7 +3254,18 @@ export class Relation extends HeyApiClient {
       workspace?: string
       source_atom_id?: string
       target_atom_id?: string
-      relation_type?: "motivates" | "formalizes" | "derives" | "analyzes" | "validates" | "contradicts" | "other"
+      relation_type?:
+        | "motivates"
+        | "grounds"
+        | "formalized_by"
+        | "derives"
+        | "analyzed_by"
+        | "evaluated_by"
+        | "contradicts"
+        | "other"
+        | "formalizes"
+        | "analyzes"
+        | "validates"
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -3229,8 +3312,30 @@ export class Relation extends HeyApiClient {
       workspace?: string
       source_atom_id?: string
       target_atom_id?: string
-      relation_type?: "motivates" | "formalizes" | "derives" | "analyzes" | "validates" | "contradicts" | "other"
-      next_relation_type?: "motivates" | "formalizes" | "derives" | "analyzes" | "validates" | "contradicts" | "other"
+      relation_type?:
+        | "motivates"
+        | "grounds"
+        | "formalized_by"
+        | "derives"
+        | "analyzed_by"
+        | "evaluated_by"
+        | "contradicts"
+        | "other"
+        | "formalizes"
+        | "analyzes"
+        | "validates"
+      next_relation_type?:
+        | "motivates"
+        | "grounds"
+        | "formalized_by"
+        | "derives"
+        | "analyzed_by"
+        | "evaluated_by"
+        | "contradicts"
+        | "other"
+        | "formalizes"
+        | "analyzes"
+        | "validates"
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -3278,7 +3383,18 @@ export class Relation extends HeyApiClient {
       workspace?: string
       source_atom_id?: string
       target_atom_id?: string
-      relation_type?: "motivates" | "formalizes" | "derives" | "analyzes" | "validates" | "contradicts" | "other"
+      relation_type?:
+        | "motivates"
+        | "grounds"
+        | "formalized_by"
+        | "derives"
+        | "analyzed_by"
+        | "evaluated_by"
+        | "contradicts"
+        | "other"
+        | "formalizes"
+        | "analyzes"
+        | "validates"
       note?: string
     },
     options?: Options<never, ThrowOnError>,
@@ -4554,6 +4670,16 @@ export class Research extends HeyApiClient {
   private _paths?: Paths
   get paths(): Paths {
     return (this._paths ??= new Paths({ client: this.client }))
+  }
+
+  private _results?: Results
+  get results(): Results {
+    return (this._results ??= new Results({ client: this.client }))
+  }
+
+  private _result?: Result
+  get result(): Result {
+    return (this._result ??= new Result({ client: this.client }))
   }
 
   private _atoms?: Atoms

@@ -1,0 +1,9 @@
+## Code editing
+
+- Before editing, inspect the relevant implementation, tests, configuration, and nearby conventions.
+- Make the smallest verifiable change that satisfies the task. Follow the project's existing naming, structure, typing, and framework patterns.
+- Default to ASCII. Introduce Unicode only when clearly justified and consistent with the file.
+- Add comments only when needed to explain non-obvious reasoning; do not narrate straightforward code.
+- Use the dedicated file tools exposed in the current session instead of shell commands for ordinary file operations. When `apply_patch` is available, use it for manual edits; use project commands for generated files, formatting, and large mechanical changes.
+- Run independent inspections in parallel and dependent operations sequentially.
+- After editing, run the most relevant static checks or tests available. State clearly when a check cannot be run. Formal experiment validation must still follow the Experiment Agent's remote execution rules.

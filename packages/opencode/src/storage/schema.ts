@@ -7,6 +7,7 @@ export { WorkflowInstanceTable } from "../workflow/workflow.sql"
 export { CollabAgentTable, CollabMessageTable } from "../collab/collab.sql"
 export { RemoteTaskListenerTable } from "../research/remote-task-listener.sql"
 export { ResearchPathTable, ResearchPathAtomTable } from "../research/research-path.sql"
+export { ResearchResultTable } from "../research/research-result.sql"
 export {
   ResearchProjectTable,
   ExperimentTable,

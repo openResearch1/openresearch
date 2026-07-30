@@ -1,10 +1,10 @@
-import type { AtomTable, AtomRelationTable } from "../../research/research.sql"
+import type { AtomTable, AtomRelationTable, LinkKind } from "../../research/research.sql"
 
 export type AtomRow = typeof AtomTable.$inferSelect
 export type AtomRelationRow = typeof AtomRelationTable.$inferSelect
 
 export type AtomType = "fact" | "method" | "theorem" | "verification"
-export type RelationType = "motivates" | "formalizes" | "derives" | "analyzes" | "validates" | "contradicts" | "other"
+export type RelationType = LinkKind
 
 export interface TraversalOptions {
   seedAtomIds: string[]

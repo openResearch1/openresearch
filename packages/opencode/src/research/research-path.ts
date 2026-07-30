@@ -3,7 +3,7 @@ import z from "zod"
 import { Bus } from "@/bus"
 import { Identifier } from "@/id/id"
 import { Database, and, desc, eq, inArray } from "@/storage/db"
-import { AtomRelationTable, AtomTable } from "./research.sql"
+import { AtomRelationTable, AtomTable, linkKinds, normalizeLinks } from "./research.sql"
 import {
   ResearchPathAtomTable,
   ResearchPathTable,
@@ -27,7 +27,7 @@ export namespace ResearchPath {
   export const Relation = z.object({
     atom_id_source: z.string(),
     atom_id_target: z.string(),
-    relation_type: z.enum(["motivates", "formalizes", "derives", "analyzes", "validates", "contradicts", "other"]),
+    relation_type: z.enum(linkKinds),
     note: z.string().nullable(),
   })
   export const Stage = z.object({
@@ -63,7 +63,7 @@ export namespace ResearchPath {
     role: Role.default("member"),
   })
 
-  const ordered = new Set(["motivates", "formalizes", "derives", "analyzes", "validates"])
+  const ordered = new Set(["motivates", "grounds", "formalized_by", "derives", "analyzed_by", "evaluated_by"])
 
   export function sequence(atoms: Member[], relations: Relation[]) {
     const data = new Map(atoms.map((atom) => [atom.atom_id, atom]))
@@ -183,7 +183,8 @@ export namespace ResearchPath {
     )
     const atomIDs = [...new Set(members.map((item) => item.atom_id))]
     const relations = atomIDs.length
-      ? Database.use((db) =>
+      ? normalizeLinks(
+          Database.use((db) =>
           db
             .select({
               atom_id_source: AtomRelationTable.atom_id_source,
@@ -199,6 +200,7 @@ export namespace ResearchPath {
               ),
             )
             .all(),
+          ),
         )
       : []
     return paths.map((path) => {

@@ -8,40 +8,82 @@ const atom = z.object({
   role: ResearchPath.Role.default("member").describe("Use seed for the Atom that initiated the direction"),
 })
 
+const parameters = z
+  .object({
+    action: z.enum(["read", "create", "update", "transition"]).describe("Research Path action to execute."),
+    researchPathId: z
+      .string()
+      .optional()
+      .describe("Research Path ID required by update and transition; optional for read to list every Path."),
+    title: z.string().trim().min(1).optional().describe("Short Path title required by create."),
+    brief: z
+      .string()
+      .trim()
+      .min(1)
+      .optional()
+      .describe("Objective, scope, constraints, and intended approach required by create."),
+    summary: z.string().trim().min(1).nullable().optional().describe("Progress or final outcome summary."),
+    atoms: z.array(atom).default([]).describe("Initial attention subgraph membership for create."),
+    addAtoms: z
+      .array(atom)
+      .default([])
+      .describe("Atoms to add during update, or existing members whose role should change."),
+    removeAtomIds: z.array(z.string()).default([]).describe("Atom IDs to remove during update."),
+    status: z.enum(["completed", "cancelled"]).optional().describe("Terminal status required by transition."),
+  })
+  .superRefine((value, ctx) => {
+    if (value.action === "create") {
+      if (!value.title) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["title"], message: "title is required for create" })
+      }
+      if (!value.brief) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["brief"], message: "brief is required for create" })
+      }
+      if (value.summary === null) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["summary"], message: "summary cannot be null for create" })
+      }
+      return
+    }
+
+    if (value.action === "update") {
+      if (!value.researchPathId) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["researchPathId"],
+          message: "researchPathId is required for update",
+        })
+      }
+      return
+    }
+
+    if (value.action === "transition") {
+      if (!value.researchPathId) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["researchPathId"],
+          message: "researchPathId is required for transition",
+        })
+      }
+      if (!value.status) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["status"], message: "status is required for transition" })
+      }
+      if (value.summary === null) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["summary"],
+          message: "summary cannot be null for transition",
+        })
+      }
+    }
+  })
+
 export const ResearchPathTool = Tool.define("research_path", {
   description:
     "Read or maintain persistent Research Paths. A Path is the current attention subgraph for one research direction. " +
     "All project sessions may read Paths. Only the research agent in the creating main Research session may create, update, complete, or cancel one. " +
     "Verification stages are derived from the Atom graph; cycles are returned as iterative groups. " +
     "Cancelled Paths are permanent research history; start a new Path rather than restoring one.",
-  parameters: z.discriminatedUnion("action", [
-    z.object({
-      action: z.literal("read"),
-      researchPathId: z.string().optional().describe("Omit to list every Path in the current Research Project"),
-    }),
-    z.object({
-      action: z.literal("create"),
-      title: z.string().trim().min(1).describe("Short name for the research direction"),
-      brief: z.string().trim().min(1).describe("Objective, scope, constraints, and intended research approach"),
-      summary: z.string().trim().min(1).optional().describe("Optional initial progress summary"),
-      atoms: z.array(atom).default([]).describe("Initial attention subgraph membership"),
-    }),
-    z.object({
-      action: z.literal("update"),
-      researchPathId: z.string(),
-      title: z.string().trim().min(1).optional(),
-      brief: z.string().trim().min(1).optional(),
-      summary: z.string().trim().min(1).nullable().optional(),
-      addAtoms: z.array(atom).default([]).describe("Atoms to add, or existing members whose role should change"),
-      removeAtomIds: z.array(z.string()).default([]),
-    }),
-    z.object({
-      action: z.literal("transition"),
-      researchPathId: z.string(),
-      status: z.enum(["completed", "cancelled"]),
-      summary: z.string().trim().min(1).optional().describe("Final conclusion, progress, or failure experience"),
-    }),
-  ]),
+  parameters,
   async execute(params, ctx) {
     if (params.action === "read") {
       const researchProjectID = await ResearchPath.project(ctx.sessionID)
@@ -62,16 +104,16 @@ export const ResearchPathTool = Tool.define("research_path", {
         ? await ResearchPath.create({
             sessionID: ctx.sessionID,
             agent: ctx.agent,
-            title: params.title,
-            brief: params.brief,
-            summary: params.summary,
+            title: params.title!,
+            brief: params.brief!,
+            summary: params.summary ?? undefined,
             atoms: params.atoms.map((item) => ({ atomID: item.atomId, role: item.role })),
           })
         : params.action === "update"
           ? await ResearchPath.update({
               sessionID: ctx.sessionID,
               agent: ctx.agent,
-              researchPathID: params.researchPathId,
+              researchPathID: params.researchPathId!,
               title: params.title,
               brief: params.brief,
               summary: params.summary,
@@ -81,9 +123,9 @@ export const ResearchPathTool = Tool.define("research_path", {
           : await ResearchPath.transition({
               sessionID: ctx.sessionID,
               agent: ctx.agent,
-              researchPathID: params.researchPathId,
-              status: params.status,
-              summary: params.summary,
+              researchPathID: params.researchPathId!,
+              status: params.status!,
+              summary: params.summary ?? undefined,
             })
 
     return {

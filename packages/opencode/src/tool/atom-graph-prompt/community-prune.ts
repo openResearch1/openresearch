@@ -1,5 +1,5 @@
 import { Database } from "../../storage/db"
-import { AtomRelationTable } from "../../research/research.sql"
+import { AtomRelationTable, normalizeLinks } from "../../research/research.sql"
 import { detectCommunities, loadCommunityCache } from "./community"
 import type {
   CommunityPruneMetrics,
@@ -19,7 +19,7 @@ export const DEFAULT_PRUNE_OPTIONS: Required<CommunityPruneOptions> = {
 }
 
 function metrics(cache: Awaited<ReturnType<typeof detectCommunities>>, atomIds: Set<string>) {
-  const rels = Database.use((db) => db.select().from(AtomRelationTable).all()).filter(
+  const rels = normalizeLinks(Database.use((db) => db.select().from(AtomRelationTable).all())).filter(
     (row) => atomIds.has(row.atom_id_source) && atomIds.has(row.atom_id_target),
   )
 

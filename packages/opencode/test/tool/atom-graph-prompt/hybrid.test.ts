@@ -39,7 +39,7 @@ async function seedTestGraph(
   relations: Array<{
     source: string
     target: string
-    type: "motivates" | "formalizes" | "derives" | "analyzes" | "validates" | "contradicts" | "other"
+    type: "motivates" | "formalized_by" | "derives" | "analyzed_by" | "evaluated_by" | "contradicts" | "other"
   }>,
 ) {
   const now = Date.now()
@@ -113,7 +113,7 @@ test("should traverse graph without query (Phase 1 compat)", async () => {
       ]
       await seedTestGraph(rpId, dir, atoms, [
         { source: atoms[0].id, target: atoms[1].id, type: "derives" },
-        { source: atoms[1].id, target: atoms[2].id, type: "validates" },
+        { source: atoms[1].id, target: atoms[2].id, type: "evaluated_by" },
       ])
 
       const result = await graphOnlySearch({
@@ -154,8 +154,8 @@ test("should perform BFS traversal correctly", async () => {
       ]
       await seedTestGraph(rpId, dir, atoms, [
         { source: atoms[0].id, target: atoms[1].id, type: "derives" },
-        { source: atoms[1].id, target: atoms[2].id, type: "analyzes" },
-        { source: atoms[2].id, target: atoms[3].id, type: "validates" },
+        { source: atoms[1].id, target: atoms[2].id, type: "analyzed_by" },
+        { source: atoms[2].id, target: atoms[3].id, type: "evaluated_by" },
       ])
 
       // maxDepth=1 should only get A and B
@@ -203,7 +203,7 @@ test("should filter by relation types", async () => {
       ]
       await seedTestGraph(rpId, dir, atoms, [
         { source: atoms[0].id, target: atoms[1].id, type: "derives" },
-        { source: atoms[0].id, target: atoms[2].id, type: "validates" },
+        { source: atoms[0].id, target: atoms[2].id, type: "evaluated_by" },
       ])
 
       // Only follow "derives" relations
@@ -240,7 +240,7 @@ test("should filter by atom types", async () => {
       ]
       await seedTestGraph(rpId, dir, atoms, [
         { source: atoms[0].id, target: atoms[1].id, type: "derives" },
-        { source: atoms[0].id, target: atoms[2].id, type: "analyzes" },
+        { source: atoms[0].id, target: atoms[2].id, type: "analyzed_by" },
       ])
 
       // Only include method and theorem

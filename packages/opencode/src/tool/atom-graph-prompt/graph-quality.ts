@@ -1,4 +1,4 @@
-import { AtomRelationTable, AtomTable, ResearchProjectTable } from "../../research/research.sql"
+import { AtomRelationTable, AtomTable, ResearchProjectTable, normalizeLinks } from "../../research/research.sql"
 import { Database, eq } from "../../storage/db"
 import { Instance } from "../../project/instance"
 import { Filesystem } from "../../util/filesystem"
@@ -99,7 +99,7 @@ export async function evaluateGraphQuality(options: GraphQualityOptions = {}): P
   }
 
   const ids = new Set(atoms.map((item) => item.atom_id))
-  const rels = Database.use((db) => db.select().from(AtomRelationTable).all()).filter(
+  const rels = normalizeLinks(Database.use((db) => db.select().from(AtomRelationTable).all())).filter(
     (row) => ids.has(row.atom_id_source) && ids.has(row.atom_id_target),
   )
 

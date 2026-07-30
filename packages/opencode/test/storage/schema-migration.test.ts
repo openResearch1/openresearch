@@ -61,6 +61,9 @@ test("upgrades a database that already applied project Atom delegation", async (
     expect(sqlite.query("PRAGMA table_info('atom')").all()).toContainEqual(
       expect.objectContaining({ name: "locked", notnull: 1, dflt_value: "false" }),
     )
+    expect(sqlite.query("PRAGMA table_info('research_result')").all()).toContainEqual(
+      expect.objectContaining({ name: "atoms_json", notnull: 1 }),
+    )
     expect(
       sqlite
         .query(
@@ -68,6 +71,41 @@ test("upgrades a database that already applied project Atom delegation", async (
         )
         .all(),
     ).toHaveLength(3)
+  } finally {
+    sqlite.close()
+  }
+})
+
+test("normalizes legacy Atom relation names", async () => {
+  const journal = await Promise.all(
+    entries().map(async (entry) => ({
+      ...entry,
+      sql: await entry.sql,
+    })),
+  )
+  const migration = journal.findIndex((entry) => entry.name === "20260729121725_normalize_atom_relations")
+  expect(migration).toBeGreaterThan(-1)
+
+  const sqlite = new Database(":memory:")
+  try {
+    const db = drizzle({ client: sqlite })
+    migrate(db, journal.slice(0, migration))
+    sqlite.run("PRAGMA foreign_keys = OFF")
+    const insert = sqlite.prepare(
+      "INSERT INTO atom_relation (atom_id_source, atom_id_target, relation_type, time_created, time_updated) VALUES (?, ?, ?, 1, 1)",
+    )
+    insert.run("a", "b", "formalizes")
+    insert.run("c", "d", "analyzes")
+    insert.run("e", "f", "validates")
+    insert.run("a", "b", "formalized_by")
+
+    migrate(db, journal)
+
+    expect(sqlite.query("SELECT relation_type FROM atom_relation ORDER BY relation_type").all()).toEqual([
+      { relation_type: "analyzed_by" },
+      { relation_type: "evaluated_by" },
+      { relation_type: "formalized_by" },
+    ])
   } finally {
     sqlite.close()
   }

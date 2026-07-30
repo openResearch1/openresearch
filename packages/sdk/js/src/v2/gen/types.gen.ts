@@ -993,6 +993,14 @@ export type EventResearchPathsUpdated = {
   }
 }
 
+export type EventResearchResultsUpdated = {
+  type: "research.results.updated"
+  properties: {
+    researchProjectId: string
+    researchResultId: string
+  }
+}
+
 export type Pty = {
   id: string
   title: string
@@ -1275,6 +1283,7 @@ export type Event =
   | EventTodoUpdated
   | EventResearchAtomsUpdated
   | EventResearchPathsUpdated
+  | EventResearchResultsUpdated
   | EventPtyCreated
   | EventPtyUpdated
   | EventPtyExited
@@ -4455,7 +4464,15 @@ export type ResearchPathsListResponses = {
     relations: Array<{
       atom_id_source: string
       atom_id_target: string
-      relation_type: "motivates" | "formalizes" | "derives" | "analyzes" | "validates" | "contradicts" | "other"
+      relation_type:
+        | "motivates"
+        | "grounds"
+        | "formalized_by"
+        | "derives"
+        | "analyzed_by"
+        | "evaluated_by"
+        | "contradicts"
+        | "other"
       note: string | null
     }>
     stages: Array<{
@@ -4469,6 +4486,135 @@ export type ResearchPathsListResponses = {
 }
 
 export type ResearchPathsListResponse = ResearchPathsListResponses[keyof ResearchPathsListResponses]
+
+export type ResearchResultsListData = {
+  body?: never
+  path: {
+    researchProjectId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/research/project/{researchProjectId}/results"
+}
+
+export type ResearchResultsListErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ResearchResultsListError = ResearchResultsListErrors[keyof ResearchResultsListErrors]
+
+export type ResearchResultsListResponses = {
+  /**
+   * Accepted Research Results
+   */
+  200: Array<{
+    research_result_id: string
+    research_project_id: string
+    source_session_id: string
+    reviewer_session_id: string
+    title: string
+    summary: string
+    evaluation: string
+    time_created: number
+    time_updated: number
+    atoms: Array<{
+      atom_id: string
+      atom_name: string
+      available: boolean
+      atom_type: "fact" | "method" | "theorem" | "verification" | null
+      atom_evidence_type: "math" | "experiment" | null
+      atom_evidence_status: "pending" | "in_progress" | "proven" | "disproven" | null
+      locked: boolean | null
+      session_id: string | null
+    }>
+    relations: Array<{
+      atom_id_source: string
+      atom_id_target: string
+      relation_type:
+        | "motivates"
+        | "grounds"
+        | "formalized_by"
+        | "derives"
+        | "analyzed_by"
+        | "evaluated_by"
+        | "contradicts"
+        | "other"
+      note: string | null
+    }>
+  }>
+}
+
+export type ResearchResultsListResponse = ResearchResultsListResponses[keyof ResearchResultsListResponses]
+
+export type ResearchResultGetData = {
+  body?: never
+  path: {
+    researchProjectId: string
+    researchResultId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/research/project/{researchProjectId}/result/{researchResultId}"
+}
+
+export type ResearchResultGetErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ResearchResultGetError = ResearchResultGetErrors[keyof ResearchResultGetErrors]
+
+export type ResearchResultGetResponses = {
+  /**
+   * Accepted Research Result
+   */
+  200: {
+    research_result_id: string
+    research_project_id: string
+    source_session_id: string
+    reviewer_session_id: string
+    title: string
+    summary: string
+    evaluation: string
+    time_created: number
+    time_updated: number
+    atoms: Array<{
+      atom_id: string
+      atom_name: string
+      available: boolean
+      atom_type: "fact" | "method" | "theorem" | "verification" | null
+      atom_evidence_type: "math" | "experiment" | null
+      atom_evidence_status: "pending" | "in_progress" | "proven" | "disproven" | null
+      locked: boolean | null
+      session_id: string | null
+    }>
+    relations: Array<{
+      atom_id_source: string
+      atom_id_target: string
+      relation_type:
+        | "motivates"
+        | "grounds"
+        | "formalized_by"
+        | "derives"
+        | "analyzed_by"
+        | "evaluated_by"
+        | "contradicts"
+        | "other"
+      note: string | null
+    }>
+  }
+}
+
+export type ResearchResultGetResponse = ResearchResultGetResponses[keyof ResearchResultGetResponses]
 
 export type ResearchAtomsListData = {
   body?: never
@@ -4515,7 +4661,15 @@ export type ResearchAtomsListResponses = {
     relations: Array<{
       atom_id_source: string
       atom_id_target: string
-      relation_type: string
+      relation_type:
+        | "motivates"
+        | "grounds"
+        | "formalized_by"
+        | "derives"
+        | "analyzed_by"
+        | "evaluated_by"
+        | "contradicts"
+        | "other"
       note: string | null
       time_created: number
       time_updated: number
@@ -4581,7 +4735,18 @@ export type ResearchRelationDeleteData = {
   body?: {
     source_atom_id: string
     target_atom_id: string
-    relation_type: "motivates" | "formalizes" | "derives" | "analyzes" | "validates" | "contradicts" | "other"
+    relation_type:
+      | "motivates"
+      | "grounds"
+      | "formalized_by"
+      | "derives"
+      | "analyzed_by"
+      | "evaluated_by"
+      | "contradicts"
+      | "other"
+      | "formalizes"
+      | "analyzes"
+      | "validates"
   }
   path: {
     researchProjectId: string
@@ -4609,7 +4774,15 @@ export type ResearchRelationDeleteResponses = {
   200: {
     source_atom_id: string
     target_atom_id: string
-    relation_type: "motivates" | "formalizes" | "derives" | "analyzes" | "validates" | "contradicts" | "other"
+    relation_type:
+      | "motivates"
+      | "grounds"
+      | "formalized_by"
+      | "derives"
+      | "analyzed_by"
+      | "evaluated_by"
+      | "contradicts"
+      | "other"
     deleted: true
   }
 }
@@ -4620,8 +4793,30 @@ export type ResearchRelationUpdateData = {
   body?: {
     source_atom_id: string
     target_atom_id: string
-    relation_type: "motivates" | "formalizes" | "derives" | "analyzes" | "validates" | "contradicts" | "other"
-    next_relation_type: "motivates" | "formalizes" | "derives" | "analyzes" | "validates" | "contradicts" | "other"
+    relation_type:
+      | "motivates"
+      | "grounds"
+      | "formalized_by"
+      | "derives"
+      | "analyzed_by"
+      | "evaluated_by"
+      | "contradicts"
+      | "other"
+      | "formalizes"
+      | "analyzes"
+      | "validates"
+    next_relation_type:
+      | "motivates"
+      | "grounds"
+      | "formalized_by"
+      | "derives"
+      | "analyzed_by"
+      | "evaluated_by"
+      | "contradicts"
+      | "other"
+      | "formalizes"
+      | "analyzes"
+      | "validates"
   }
   path: {
     researchProjectId: string
@@ -4653,7 +4848,15 @@ export type ResearchRelationUpdateResponses = {
   200: {
     atom_id_source: string
     atom_id_target: string
-    relation_type: string
+    relation_type:
+      | "motivates"
+      | "grounds"
+      | "formalized_by"
+      | "derives"
+      | "analyzed_by"
+      | "evaluated_by"
+      | "contradicts"
+      | "other"
     note: string | null
     time_created: number
     time_updated: number
@@ -4666,7 +4869,18 @@ export type ResearchRelationCreateData = {
   body?: {
     source_atom_id: string
     target_atom_id: string
-    relation_type: "motivates" | "formalizes" | "derives" | "analyzes" | "validates" | "contradicts" | "other"
+    relation_type:
+      | "motivates"
+      | "grounds"
+      | "formalized_by"
+      | "derives"
+      | "analyzed_by"
+      | "evaluated_by"
+      | "contradicts"
+      | "other"
+      | "formalizes"
+      | "analyzes"
+      | "validates"
     note?: string
   }
   path: {
@@ -4699,7 +4913,15 @@ export type ResearchRelationCreateResponses = {
   200: {
     atom_id_source: string
     atom_id_target: string
-    relation_type: string
+    relation_type:
+      | "motivates"
+      | "grounds"
+      | "formalized_by"
+      | "derives"
+      | "analyzed_by"
+      | "evaluated_by"
+      | "contradicts"
+      | "other"
     note: string | null
     time_created: number
     time_updated: number

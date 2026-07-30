@@ -707,12 +707,22 @@ export function SessionSidePanel(props: {
                         />
                       </Show>
                     </Tabs.Content>
-                    <Tabs.Content value="controller-results" class="flex flex-col h-full overflow-hidden contain-strict">
+                    <Tabs.Content
+                      value="controller-results"
+                      class="flex flex-col h-full overflow-hidden contain-strict"
+                    >
                       <Show when={activeTab() === "controller-results"}>
-                        <ControllerResultsTab
-                          title={language.t("session.controller.results.empty.title")}
-                          description={language.t("session.controller.results.empty.description")}
-                        />
+                        <Show when={researchProject()} keyed>
+                          {(project) => (
+                            <ControllerResultsTab
+                              researchProjectId={project.research_project_id}
+                              currentSessionId={params.id}
+                              title={language.t("session.controller.results.empty.title")}
+                              description={language.t("session.controller.results.empty.description")}
+                              onOpenSession={(sessionID) => navigate(`/${params.dir}/session/${sessionID}`)}
+                            />
+                          )}
+                        </Show>
                       </Show>
                     </Tabs.Content>
                   </Show>
@@ -723,10 +733,7 @@ export function SessionSidePanel(props: {
                     </Tabs.Content>
                   </Show>
 
-                  <Show
-                    when={isResearchProject() && !isAtomSession() ? researchProject() : null}
-                    keyed
-                  >
+                  <Show when={isResearchProject() && !isAtomSession() ? researchProject() : null} keyed>
                     {(project) => (
                       <>
                         <Tabs.Content value="atoms" class="flex flex-col h-full overflow-hidden contain-strict">

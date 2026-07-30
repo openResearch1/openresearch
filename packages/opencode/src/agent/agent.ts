@@ -11,8 +11,9 @@ import { ProviderTransform } from "../provider/transform"
 import PROMPT_GENERATE from "./generate.txt"
 import PROMPT_COMPACTION from "./prompt/compaction.txt"
 import PROMPT_EXPLORE from "./prompt/explore.txt"
-import PROMPT_RESEARCH from "./prompt/research.txt"
+import PROMPT_RESEARCH_GRAPH from "./prompt/research-atom-graph.txt"
 import PROMPT_CONTROLLER from "./prompt/controller.txt"
+import PROMPT_REVIEWER from "./prompt/reviewer.txt"
 import PROMPT_SUMMARY from "./prompt/summary.txt"
 import PROMPT_TITLE from "./prompt/title.txt"
 import PROMPT_RESEARCH_PROJECT_INIT from "./prompt/research_project_init.txt"
@@ -31,6 +32,9 @@ import PROMPT_DEEP_RESEARCH from "./prompt/deep_research.txt"
 import PROMPT_DEEP_RESEARCH_PLAN from "./prompt/deep_research_plan.txt"
 import PROMPT_DEEP_RESEARCH_SEARCH_VERIFY from "./prompt/deep_research_search_verify.txt"
 import PROMPT_DEEP_RESEARCH_GENERATE from "./prompt/deep_research_generate.txt"
+import PROMPT_INTERACTION from "./prompt/shared-interaction.txt"
+import PROMPT_WORKSPACE from "./prompt/shared-workspace-safety.txt"
+import PROMPT_CODE from "./prompt/shared-code-editing.txt"
 import { PermissionNext } from "@/permission/next"
 import { mergeDeep, pipe, sortBy, values } from "remeda"
 import { Global } from "@/global"
@@ -164,7 +168,7 @@ export namespace Agent {
           }),
           user,
         ),
-        prompt: PROMPT_EXPERIMENT,
+        prompt: [PROMPT_INTERACTION, PROMPT_WORKSPACE, PROMPT_CODE, PROMPT_EXPERIMENT].join("\n\n"),
         mode: "primary",
         native: true,
       },
@@ -279,13 +283,14 @@ export namespace Agent {
           }),
           user,
         ),
-        prompt: PROMPT_RESEARCH,
+        prompt: [PROMPT_INTERACTION, PROMPT_WORKSPACE, PROMPT_RESEARCH_GRAPH].join("\n\n"),
         mode: "primary",
         native: true,
       },
       controller: {
         name: "controller",
-        description: "Coordinates research agents for a human-defined OpenResearch objective without doing research itself.",
+        description:
+          "Coordinates research agents for a human-defined OpenResearch objective without doing research itself.",
         options: {},
         hidden: true,
         permission: PermissionNext.merge(
@@ -305,8 +310,33 @@ export namespace Agent {
           }),
           user,
         ),
-        prompt: PROMPT_CONTROLLER,
+        prompt: [PROMPT_INTERACTION, PROMPT_CONTROLLER].join("\n\n"),
         mode: "primary",
+        native: true,
+      },
+      reviewer: {
+        name: "reviewer",
+        description: "Independently reviews an exact proven Atom subset and submits it only when it is meaningful.",
+        options: {},
+        permission: PermissionNext.merge(
+          defaults,
+          PermissionNext.fromConfig({
+            "*": "deny",
+            read: "allow",
+            research_info: "allow",
+            research_path: "allow",
+            research_result_query: "allow",
+            research_result_submit: "allow",
+            article_query: "allow",
+            atom_query: "allow",
+            atom_relation_query: "allow",
+            atom_graph_prompt: "allow",
+            atom_graph_prompt_smart: "allow",
+          }),
+          user,
+        ),
+        prompt: [PROMPT_RESEARCH_GRAPH, PROMPT_REVIEWER].join("\n\n"),
+        mode: "subagent",
         native: true,
       },
       research_idea: {
@@ -441,7 +471,7 @@ export namespace Agent {
         name: "research_project_init",
         description:
           "Initialize a research project by auto-generating background/goal documents and building an atom network from articles.",
-        prompt: PROMPT_RESEARCH_PROJECT_INIT,
+        prompt: [PROMPT_RESEARCH_GRAPH, PROMPT_RESEARCH_PROJECT_INIT].join("\n\n"),
         permission: PermissionNext.merge(
           defaults,
           PermissionNext.fromConfig({
@@ -484,7 +514,7 @@ export namespace Agent {
         name: "research_article_tree_build",
         description:
           "Build one article-local atom tree only: create atoms and intra-article relations for exactly one target article.",
-        prompt: PROMPT_RESEARCH_ARTICLE_TREE_BUILD,
+        prompt: [PROMPT_RESEARCH_GRAPH, PROMPT_RESEARCH_ARTICLE_TREE_BUILD].join("\n\n"),
         permission: PermissionNext.merge(
           defaults,
           PermissionNext.fromConfig({
@@ -510,8 +540,8 @@ export namespace Agent {
       research_tree_link: {
         name: "research_tree_link",
         description:
-          "Link already-built trees by creating only high-confidence cross-tree atom relations between the provided source and target groups.",
-        prompt: PROMPT_RESEARCH_TREE_LINK,
+          "Link already-built trees by creating only high-confidence cross-tree atom relations between two unordered groups.",
+        prompt: [PROMPT_RESEARCH_GRAPH, PROMPT_RESEARCH_TREE_LINK].join("\n\n"),
         permission: PermissionNext.merge(
           defaults,
           PermissionNext.fromConfig({
@@ -532,7 +562,7 @@ export namespace Agent {
         name: "research_idea_tree_build",
         description:
           "Build one idea-local validation tree only: create atoms and intra-tree relations for exactly one target idea.",
-        prompt: PROMPT_RESEARCH_IDEA_TREE_BUILD,
+        prompt: [PROMPT_RESEARCH_GRAPH, PROMPT_RESEARCH_IDEA_TREE_BUILD].join("\n\n"),
         permission: PermissionNext.merge(
           defaults,
           PermissionNext.fromConfig({
@@ -614,7 +644,8 @@ export namespace Agent {
       },
       deep_research: {
         name: "deep_research",
-        description: "Deep research primary agent. Coordinates three subagents (plan, search-verify, generate) to complete end-to-end in-depth research tasks, including research planning, information search and verification, and research result generation.",
+        description:
+          "Deep research primary agent. Coordinates three subagents (plan, search-verify, generate) to complete end-to-end in-depth research tasks, including research planning, information search and verification, and research result generation.",
         options: {},
         temperature: 0.5,
         steps: 20,
@@ -650,7 +681,8 @@ export namespace Agent {
       },
       deep_research_plan: {
         name: "deep_research_plan",
-        description: "Subagent for deep research planning. Analyzes research topics and requirements, splits research tasks into detailed steps, formulates a scientific and feasible research plan, and clarifies the scope and objectives of each sub-task.",
+        description:
+          "Subagent for deep research planning. Analyzes research topics and requirements, splits research tasks into detailed steps, formulates a scientific and feasible research plan, and clarifies the scope and objectives of each sub-task.",
         options: {},
         temperature: 0.4,
         permission: PermissionNext.merge(
@@ -673,7 +705,8 @@ export namespace Agent {
       },
       deep_research_search_verify: {
         name: "deep_research_search_verify",
-        description: "Subagent for deep research search and verification. Executes search tasks according to the research plan, collects relevant information from multiple sources, verifies the authenticity, accuracy and authority of the information, and filters out valid research materials.",
+        description:
+          "Subagent for deep research search and verification. Executes search tasks according to the research plan, collects relevant information from multiple sources, verifies the authenticity, accuracy and authority of the information, and filters out valid research materials.",
         options: {},
         temperature: 0.2,
         permission: PermissionNext.merge(
@@ -703,7 +736,8 @@ export namespace Agent {
       },
       deep_research_generate: {
         name: "deep_research_generate",
-        description: "Subagent for deep research result generation. Integrates valid information collected and verified, organizes research logic, generates standardized research reports, summaries or analysis conclusions, and ensures the completeness and rigor of the results.",
+        description:
+          "Subagent for deep research result generation. Integrates valid information collected and verified, organizes research logic, generates standardized research reports, summaries or analysis conclusions, and ensures the completeness and rigor of the results.",
         options: {},
         temperature: 0.3,
         steps: 15,

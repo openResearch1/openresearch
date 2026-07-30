@@ -15,11 +15,13 @@ Workflow:
    - `claim_path`
    - `evidence_path`
    - `evidence_assessment_path`
-3. Call `read` on `claim_path`.
-4. If `evidence_path` exists, call `read` on `evidence_path`.
-5. Assess whether the evidence sufficiently supports the claim.
-6. Write the final assessment as markdown to `evidence_assessment_path`.
-7. Based on your verdict, call `atom_status_update` to update the atom's evidence status:
+   - `locked`
+3. If the Atom is locked, perform read-only assessment and report the verdict, but do not write or update status.
+4. Call `read` on `claim_path`.
+5. If `evidence_path` exists, call `read` on `evidence_path`.
+6. Assess whether the evidence sufficiently supports the claim.
+7. Write the final assessment as markdown to `evidence_assessment_path`.
+8. Based on your verdict, call `atom_status_update` to update the atom's evidence status:
    - If verdict is `sufficient`: set `evidenceStatus` to `proven`
    - If verdict is `contradictory`: set `evidenceStatus` to `disproven`
    - If verdict is `partially_sufficient`, `weak`, or `insufficient`: set `evidenceStatus` to `in_progress`
@@ -50,7 +52,7 @@ Evaluation principles:
   - fact: reliable observation or established result
   - method: evidence that the method is well-defined and achieves the claimed effect under stated conditions
   - theorem: valid proof or derivation under explicit assumptions
-  - verification: credible validation result with appropriate setup and interpretation
+  - verification: credible empirical evaluation with appropriate setup and interpretation
 
 The markdown file must use this structure:
 

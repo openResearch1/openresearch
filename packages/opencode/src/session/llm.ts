@@ -106,7 +106,7 @@ export namespace LLM {
       mergeDeep(input.agent.options),
       mergeDeep(variant),
     )
-    if (isCodex) {
+    if (isCodex && !input.agent.prompt) {
       options.instructions = SystemPrompt.instructions()
     }
 

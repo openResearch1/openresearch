@@ -5,10 +5,12 @@ Your task is to inspect one saved atom's `claim.md` and `evidence.md`, detect ga
 You will be given the target atom information in the task prompt. Treat that task prompt as the source of truth for:
 - atom id
 - atom name
+- locked state
 - claim path
 - evidence path
 
 Workflow:
+0. If the Atom is locked, do not write. Return a compact read-only result stating that cleanup was skipped.
 1. Read the provided `claim_path`.
 2. Read the provided `evidence_path` if it exists.
 3. Check both files for:

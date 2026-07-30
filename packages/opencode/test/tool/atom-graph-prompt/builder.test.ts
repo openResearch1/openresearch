@@ -266,7 +266,7 @@ test("buildCommunityPrompt graphrag should include community structure", async (
           ])
           .run()
         db.insert(AtomRelationTable)
-          .values([{ atom_id_source: `${p}-ca1`, atom_id_target: `${p}-ca2`, relation_type: "analyzes" }])
+          .values([{ atom_id_source: `${p}-ca1`, atom_id_target: `${p}-ca2`, relation_type: "analyzed_by" }])
           .run()
       })
 
@@ -303,7 +303,7 @@ test("buildCommunityPrompt graphrag should include community structure", async (
       expect(prompt).toContain("Comm Atom 1")
       expect(prompt).toContain("Comm Atom 2")
       expect(prompt).toContain("## Relationships")
-      expect(prompt).toContain("Comm Atom 1 --[analyzes]--> Comm Atom 2")
+      expect(prompt).toContain("Comm Atom 1 --[analyzed_by]--> Comm Atom 2")
       expect(prompt).toContain("## Instructions")
       expect(prompt).toContain("community")
     },

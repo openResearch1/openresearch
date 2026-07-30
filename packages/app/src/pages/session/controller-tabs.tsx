@@ -2,7 +2,8 @@ import { For, Match, Show, Switch, createEffect, createMemo, createResource, onC
 import { createStore } from "solid-js/store"
 
 import type { CollabAgent } from "@opencode-ai/sdk/v2/client"
-import type { ResearchPathsListResponse } from "@opencode-ai/sdk/v2"
+import type { ResearchPathsListResponse, ResearchResultsListResponse } from "@opencode-ai/sdk/v2"
+import { Markdown } from "@opencode-ai/ui/markdown"
 
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
@@ -31,6 +32,8 @@ function Empty(props: { title: string; description: string }) {
 
 type Path = ResearchPathsListResponse[number]
 type Member = Path["atoms"][number]
+type Result = ResearchResultsListResponse[number]
+type ResultAtom = Result["atoms"][number]
 
 const pathColors: Record<Path["status"], string> = {
   active: "bg-icon-success-base",
@@ -61,10 +64,11 @@ const typeLabels: Record<Member["atom_type"], string> = {
 
 const relationLabels: Record<Path["relations"][number]["relation_type"], string> = {
   motivates: "motivates",
-  formalizes: "formalizes",
+  grounds: "grounds",
+  formalized_by: "is formalized by",
   derives: "derives",
-  analyzes: "analyzes",
-  validates: "validates",
+  analyzed_by: "is analyzed by",
+  evaluated_by: "is evaluated by",
   contradicts: "contradicts",
   other: "relates to",
 }
@@ -146,7 +150,11 @@ function PathAtomCard(props: { atom: Member; onOpen: () => void }) {
   )
 }
 
-function PathDetail(props: { path: Path; onOpenSession: (sessionID: string) => void; onOpenAtom: (atom: Member) => void }) {
+function PathDetail(props: {
+  path: Path
+  onOpenSession: (sessionID: string) => void
+  onOpenAtom: (atom: Member) => void
+}) {
   const sync = useSync()
   const members = createMemo(() => new Map(props.path.atoms.map((atom) => [atom.atom_id, atom])))
   const names = createMemo(() => new Map(props.path.atoms.map((atom) => [atom.atom_id, atom.atom_name])))
@@ -189,7 +197,9 @@ function PathDetail(props: { path: Path; onOpenSession: (sessionID: string) => v
             <span>{props.path.atoms.length} atoms</span>
             <span>{seeds()} seeds</span>
             <span>{props.path.relations.length} relations</span>
-            <span title={props.path.creator_session_id}>Created by {creator()?.title ?? props.path.creator_session_id.slice(0, 12)}</span>
+            <span title={props.path.creator_session_id}>
+              Created by {creator()?.title ?? props.path.creator_session_id.slice(0, 12)}
+            </span>
           </div>
         </div>
 
@@ -200,7 +210,11 @@ function PathDetail(props: { path: Path; onOpenSession: (sessionID: string) => v
           </div>
           <Show
             when={props.path.stages.length > 0}
-            fallback={<div class="rounded-md border border-dashed border-border-weak-base px-4 py-6 text-center text-11-regular text-text-weak">No atoms added yet</div>}
+            fallback={
+              <div class="rounded-md border border-dashed border-border-weak-base px-4 py-6 text-center text-11-regular text-text-weak">
+                No atoms added yet
+              </div>
+            }
           >
             <div class="flex flex-col">
               <For each={props.path.stages}>
@@ -239,7 +253,9 @@ function PathDetail(props: { path: Path; onOpenSession: (sessionID: string) => v
                               >
                                 <div class="col-span-full rounded-md border border-border-base bg-background-stronger p-2.5">
                                   <div class="mb-2 flex items-baseline justify-between gap-2 px-0.5">
-                                    <span class="text-10-medium uppercase tracking-wide text-text-base">Iterative loop</span>
+                                    <span class="text-10-medium uppercase tracking-wide text-text-base">
+                                      Iterative loop
+                                    </span>
                                     <span class="text-10-regular text-text-weak">No fixed internal order</span>
                                   </div>
                                   <div class="grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-2">
@@ -268,9 +284,13 @@ function PathDetail(props: { path: Path; onOpenSession: (sessionID: string) => v
               <For each={props.path.relations}>
                 {(relation) => (
                   <div class="px-3 py-2 text-11-regular text-text-weak">
-                    <span class="text-text-base">{names().get(relation.atom_id_source) ?? relation.atom_id_source}</span>
+                    <span class="text-text-base">
+                      {names().get(relation.atom_id_source) ?? relation.atom_id_source}
+                    </span>
                     <span class="mx-1.5">{relationLabels[relation.relation_type]}</span>
-                    <span class="text-text-base">{names().get(relation.atom_id_target) ?? relation.atom_id_target}</span>
+                    <span class="text-text-base">
+                      {names().get(relation.atom_id_target) ?? relation.atom_id_target}
+                    </span>
                     <Show when={relation.note}>
                       <span class="ml-1.5">{relation.note}</span>
                     </Show>
@@ -346,7 +366,9 @@ export function ControllerPathsTab(props: {
           <div class="h-full flex items-center justify-center text-11-regular text-text-weak">Loading...</div>
         </Match>
         <Match when={paths.error}>
-          <div class="h-full flex items-center justify-center text-11-regular text-text-critical-base">Failed to load Research Paths</div>
+          <div class="h-full flex items-center justify-center text-11-regular text-text-critical-base">
+            Failed to load Research Paths
+          </div>
         </Match>
         <Match when={paths()?.length === 0}>
           <Empty title={props.title} description={props.description} />
@@ -384,8 +406,244 @@ export function ControllerPathsTab(props: {
   )
 }
 
-export function ControllerResultsTab(props: { title: string; description: string }) {
-  return <Empty title={props.title} description={props.description} />
+function ResultCard(props: { result: Result; selected: boolean; onSelect: () => void }) {
+  return (
+    <button
+      type="button"
+      class="w-full min-w-0 rounded-md border px-3 py-3 text-left transition-colors"
+      classList={{
+        "border-border-strong bg-background-stronger": props.selected,
+        "border-border-weak-base bg-background-base hover:bg-surface-raised-base-hover": !props.selected,
+      }}
+      aria-pressed={props.selected}
+      onClick={props.onSelect}
+    >
+      <span class="flex items-center gap-2 text-11-regular text-text-weak">
+        <span class="size-1.5 rounded-full bg-icon-success-base" />
+        <span>Accepted</span>
+        <span class="ml-auto">{date.format(props.result.time_created)}</span>
+      </span>
+      <span class="mt-1.5 block text-13-semibold text-text-strong truncate">{props.result.title}</span>
+      <span class="mt-0.5 block text-11-regular text-text-weak line-clamp-2">{props.result.summary}</span>
+      <span class="mt-2 block text-10-regular text-text-weak">{props.result.atoms.length} atoms</span>
+    </button>
+  )
+}
+
+function ResultAtomCard(props: { atom: ResultAtom; onOpen: () => void }) {
+  return (
+    <button
+      type="button"
+      disabled={!props.atom.available}
+      class="min-w-0 rounded-md border border-border-weak-base bg-background-base px-3 py-2.5 text-left transition-colors enabled:hover:bg-surface-raised-base-hover disabled:opacity-60"
+      onClick={props.onOpen}
+    >
+      <span class="flex items-start gap-2">
+        <span
+          class={`mt-1.5 size-1.5 shrink-0 rounded-full ${props.atom.available ? "bg-icon-success-base" : "bg-icon-weak"}`}
+        />
+        <span class="min-w-0 flex-1">
+          <span class="block text-12-medium text-text-strong truncate">{props.atom.atom_name}</span>
+          <span class="mt-0.5 flex flex-wrap gap-x-2 text-10-regular text-text-weak">
+            <span>{props.atom.atom_type ? typeLabels[props.atom.atom_type] : "Unavailable"}</span>
+            <Show when={props.atom.locked}>
+              <span>Locked</span>
+            </Show>
+          </span>
+        </span>
+      </span>
+    </button>
+  )
+}
+
+function ResultDetail(props: {
+  result: Result
+  onOpenSession: (sessionID: string) => void
+  onOpenAtom: (atom: ResultAtom) => void
+}) {
+  const names = createMemo(() => new Map(props.result.atoms.map((atom) => [atom.atom_id, atom.atom_name])))
+  return (
+    <div class="h-full overflow-y-auto">
+      <div class="max-w-3xl mx-auto px-5 py-5 pb-10">
+        <div class="flex items-start gap-3">
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-2 text-11-regular text-text-weak">
+              <span class="size-2 rounded-full bg-icon-success-base" />
+              <span>Accepted</span>
+              <span>{date.format(props.result.time_created)}</span>
+            </div>
+            <h2 class="mt-1 text-16-semibold text-text-strong break-words">{props.result.title}</h2>
+          </div>
+          <div class="flex shrink-0 gap-2">
+            <button
+              type="button"
+              class="rounded-md border border-border-weak-base px-2.5 py-1.5 text-11-medium text-text-base hover:bg-surface-raised-base-hover"
+              onClick={() => props.onOpenSession(props.result.source_session_id)}
+            >
+              Research
+            </button>
+            <button
+              type="button"
+              class="rounded-md border border-border-weak-base px-2.5 py-1.5 text-11-medium text-text-base hover:bg-surface-raised-base-hover"
+              onClick={() => props.onOpenSession(props.result.reviewer_session_id)}
+            >
+              Reviewer
+            </button>
+          </div>
+        </div>
+
+        <section class="mt-6">
+          <div class="mb-2 text-10-medium uppercase tracking-wide text-text-weak">Result</div>
+          <Markdown text={props.result.summary} class="text-13-regular" />
+        </section>
+
+        <section class="mt-6 rounded-md border border-border-weak-base bg-background-stronger px-4 py-3.5">
+          <div class="mb-2 text-10-medium uppercase tracking-wide text-text-weak">Reviewer evaluation</div>
+          <Markdown text={props.result.evaluation} class="text-12-regular" />
+        </section>
+
+        <section class="mt-7">
+          <div class="mb-2 flex items-baseline justify-between gap-2">
+            <h3 class="text-12-semibold text-text-strong">Accepted Atom subset</h3>
+            <span class="text-10-regular text-text-weak">{props.result.atoms.length} atoms</span>
+          </div>
+          <div class="grid grid-cols-[repeat(auto-fit,minmax(190px,1fr))] gap-2">
+            <For each={props.result.atoms}>
+              {(atom) => <ResultAtomCard atom={atom} onOpen={() => props.onOpenAtom(atom)} />}
+            </For>
+          </div>
+        </section>
+
+        <Show when={props.result.relations.length > 0}>
+          <section class="mt-7">
+            <h3 class="mb-2 text-12-semibold text-text-strong">Relations in this result</h3>
+            <div class="divide-y divide-border-weak-base rounded-md border border-border-weak-base">
+              <For each={props.result.relations}>
+                {(relation) => (
+                  <div class="px-3 py-2 text-11-regular text-text-weak">
+                    <span class="text-text-base">
+                      {names().get(relation.atom_id_source) ?? relation.atom_id_source}
+                    </span>
+                    <span class="mx-1.5">{relationLabels[relation.relation_type]}</span>
+                    <span class="text-text-base">
+                      {names().get(relation.atom_id_target) ?? relation.atom_id_target}
+                    </span>
+                    <Show when={relation.note}>
+                      <span class="ml-1.5">{relation.note}</span>
+                    </Show>
+                  </div>
+                )}
+              </For>
+            </div>
+          </section>
+        </Show>
+      </div>
+    </div>
+  )
+}
+
+export function ControllerResultsTab(props: {
+  researchProjectId: string
+  currentSessionId?: string
+  title: string
+  description: string
+  onOpenSession: (sessionID: string) => void
+}) {
+  const sdk = useSDK()
+  const [state, setState] = createStore({ selected: "", compact: false })
+  const [results, { refetch }] = createResource(
+    () => props.researchProjectId,
+    async (researchProjectId) => {
+      const result = await sdk.client.research.results.list({ researchProjectId })
+      return result.data ?? []
+    },
+  )
+  const selected = createMemo(() => results()?.find((result) => result.research_result_id === state.selected))
+  let root!: HTMLDivElement
+
+  createEffect(() => {
+    const items = results()
+    if (!items?.length) {
+      setState("selected", "")
+      return
+    }
+    if (!items.some((result) => result.research_result_id === state.selected)) {
+      setState("selected", items[0].research_result_id)
+    }
+  })
+
+  onMount(() => {
+    if (typeof ResizeObserver === "undefined") return
+    const observer = new ResizeObserver(([entry]) => setState("compact", entry.contentRect.width < 680))
+    observer.observe(root)
+    onCleanup(() => observer.disconnect())
+  })
+
+  const resultsUnsub = sdk.event.on("research.results.updated", (event) => {
+    if (event.properties.researchProjectId === props.researchProjectId) void refetch()
+  })
+  const atomsUnsub = sdk.event.on("research.atoms.updated", (event) => {
+    if (event.properties.researchProjectId === props.researchProjectId) void refetch()
+  })
+  onCleanup(() => {
+    resultsUnsub()
+    atomsUnsub()
+  })
+
+  const openAtom = async (atom: ResultAtom) => {
+    if (!atom.available) return
+    const result = await sdk.client.research.atom.session.create({ atomId: atom.atom_id }).catch(() => undefined)
+    const sessionID = result?.data?.session_id
+    if (!sessionID) return
+    if (props.currentSessionId) sessionStorage.setItem(`atom-session-return-${sessionID}`, props.currentSessionId)
+    props.onOpenSession(sessionID)
+  }
+
+  return (
+    <div ref={root} class="h-full min-h-0">
+      <Switch>
+        <Match when={results.loading && !results()}>
+          <div class="h-full flex items-center justify-center text-11-regular text-text-weak">Loading...</div>
+        </Match>
+        <Match when={results.error}>
+          <div class="h-full flex items-center justify-center text-11-regular text-text-critical-base">
+            Failed to load Research Results
+          </div>
+        </Match>
+        <Match when={results()?.length === 0}>
+          <Empty title={props.title} description={props.description} />
+        </Match>
+        <Match when={true}>
+          <div class={`h-full min-h-0 flex ${state.compact ? "flex-col" : "flex-row"}`}>
+            <div
+              class={`shrink-0 overflow-y-auto p-3 ${state.compact ? "max-h-[42%] w-full border-b border-border-weak-base" : "h-full w-[38%] min-w-56 border-r border-border-weak-base"}`}
+            >
+              <div class="mb-3 flex items-baseline justify-between gap-2 px-1">
+                <span class="text-11-medium uppercase tracking-wide text-text-weak">Accepted results</span>
+                <span class="text-10-regular text-text-weak">{results()?.length}</span>
+              </div>
+              <div class="flex flex-col gap-2">
+                <For each={results()}>
+                  {(result) => (
+                    <ResultCard
+                      result={result}
+                      selected={result.research_result_id === state.selected}
+                      onSelect={() => setState("selected", result.research_result_id)}
+                    />
+                  )}
+                </For>
+              </div>
+            </div>
+            <div class="min-h-0 min-w-0 flex-1">
+              <Show when={selected()} keyed>
+                {(result) => <ResultDetail result={result} onOpenSession={props.onOpenSession} onOpenAtom={openAtom} />}
+              </Show>
+            </div>
+          </div>
+        </Match>
+      </Switch>
+    </div>
+  )
 }
 
 export function ControllerAgentsTab(props: {
@@ -423,7 +681,10 @@ function AgentNode(props: {
   return (
     <div class="relative">
       <Show when={props.depth > 0}>
-        <div class="absolute -top-2 bottom-1 border-l border-border-weak-base" style={{ left: `${props.depth * 20 - 10}px` }} />
+        <div
+          class="absolute -top-2 bottom-1 border-l border-border-weak-base"
+          style={{ left: `${props.depth * 20 - 10}px` }}
+        />
       </Show>
       <button
         type="button"

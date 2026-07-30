@@ -10,7 +10,15 @@ import { AtomDetailFullscreen } from "./atom-detail-fullscreen"
 type Atom = ResearchAtomsListResponse["atoms"][number]
 type Relation = ResearchAtomsListResponse["relations"][number]
 type AtomKind = "fact" | "method" | "theorem" | "verification"
-type RelationKind = "motivates" | "formalizes" | "derives" | "analyzes" | "validates" | "contradicts" | "other"
+type RelationKind =
+  | "motivates"
+  | "grounds"
+  | "formalized_by"
+  | "derives"
+  | "analyzed_by"
+  | "evaluated_by"
+  | "contradicts"
+  | "other"
 
 const TYPE_LABELS: Record<string, string> = {
   fact: "Fact",
@@ -27,8 +35,12 @@ const EVIDENCE_STATUS_LABELS: Record<string, string> = {
 }
 
 const RELATION_LABELS: Record<string, string> = {
-  depends_on: "depends on",
-  supports: "supports",
+  motivates: "motivates",
+  grounds: "grounds",
+  formalized_by: "is formalized by",
+  derives: "derives",
+  analyzed_by: "is analyzed by",
+  evaluated_by: "is evaluated by",
   contradicts: "contradicts",
   other: "related to",
 }

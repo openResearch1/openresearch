@@ -662,7 +662,10 @@ export namespace SessionPrompt {
       }
 
       // normal processing
-      const agent = await Agent.get(lastUser.agent)
+      const agent = await ResearchSessionAgent.compose({
+        sessionID,
+        agent: await Agent.get(lastUser.agent),
+      })
       const maxSteps = agent.steps ?? Infinity
       const isLastStep = step >= maxSteps
       msgs = await insertReminders({

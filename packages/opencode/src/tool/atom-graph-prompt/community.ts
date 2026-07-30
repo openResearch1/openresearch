@@ -2,7 +2,7 @@ import path from "path"
 import Graph from "graphology"
 import louvain from "graphology-communities-louvain"
 import { Database, inArray, eq } from "../../storage/db"
-import { AtomTable, AtomRelationTable, ResearchProjectTable } from "../../research/research.sql"
+import { AtomTable, AtomRelationTable, ResearchProjectTable, normalizeLinks } from "../../research/research.sql"
 import { Filesystem } from "../../util/filesystem"
 import { Instance } from "../../project/instance"
 import type { AtomType, RelationType, Community, ArticleCommunityComparisonReport } from "./types"
@@ -48,7 +48,16 @@ export interface CommunityQueryOptions {
 const CACHE_FILE = ".atom-communities-cache.json"
 const CACHE_VERSION = "1.0"
 const TYPES: AtomType[] = ["fact", "method", "theorem", "verification"]
-const RELS: RelationType[] = ["motivates", "formalizes", "derives", "analyzes", "validates", "contradicts", "other"]
+const RELS: RelationType[] = [
+  "motivates",
+  "grounds",
+  "formalized_by",
+  "derives",
+  "analyzed_by",
+  "evaluated_by",
+  "contradicts",
+  "other",
+]
 const EVS = ["math", "experiment"] as const
 const STATS = ["pending", "in_progress", "proven", "disproven"] as const
 const FLOWS = TYPES.flatMap((source) => TYPES.map((target) => `${source}->${target}`))
@@ -168,7 +177,7 @@ function buildGraph(articleIds?: string[]) {
   }
 
   // 添加关系作为边（只包含两端都在当前项目内的关系）
-  const relations = Database.use((db) => db.select().from(AtomRelationTable).all())
+  const relations = normalizeLinks(Database.use((db) => db.select().from(AtomRelationTable).all()))
 
   for (const rel of relations) {
     if (atomIdSet.has(rel.atom_id_source) && atomIdSet.has(rel.atom_id_target)) {

@@ -27,20 +27,22 @@ type AtomKind = "fact" | "method" | "theorem" | "verification"
 
 const RELATION_COLORS: Record<string, string> = {
   motivates: "#8b5cf6",
-  formalizes: "#06b6d4",
+  grounds: "#0ea5e9",
+  formalized_by: "#06b6d4",
   derives: "#f97316",
-  analyzes: "#ec4899",
-  validates: "#22c55e",
+  analyzed_by: "#ec4899",
+  evaluated_by: "#22c55e",
   contradicts: "#ef4444",
   other: "#94a3b8",
 }
 
 const RELATION_LABELS: Record<string, string> = {
   motivates: "Motivates",
-  formalizes: "Formalizes",
+  grounds: "Grounds",
+  formalized_by: "Formalized By",
   derives: "Derives",
-  analyzes: "Analyzes",
-  validates: "Validates",
+  analyzed_by: "Analyzed By",
+  evaluated_by: "Evaluated By",
   contradicts: "Contradicts",
   other: "Other",
 }

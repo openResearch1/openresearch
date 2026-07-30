@@ -39,11 +39,11 @@ Important rules:
 - Do not create cross-tree relations in this step.
 - The main skeleton must be:
   - one central idea atom
-  - several method/theorem atoms pointed to by the idea atom or formally/analytically attached to it
-  - several verification atoms pointed to by those method/theorem atoms via `validates`
-- The structure must obey `research.txt` relation semantics, especially:
+  - several method/theorem atoms motivated or grounded by the idea and its required premises
+  - several verification atoms pointed to by those method/theorem atoms via `evaluated_by`
+- The structure must obey the OpenResearch relation semantics, especially:
   - source is prior
   - target is downstream
-  - `validates` must be `method/theorem -> verification`
+  - `evaluated_by` must be `method/theorem -> verification`
 - Related existing atoms may inform wording or later linking, but must not determine the main skeleton of the new tree.
 - If the subagent reused an existing idea-local tree instead of creating duplicates, record that clearly.

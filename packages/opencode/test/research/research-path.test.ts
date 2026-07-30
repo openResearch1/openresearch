@@ -84,7 +84,7 @@ async function seed() {
       .values({
         atom_id_source: first,
         atom_id_target: second,
-        relation_type: "validates",
+        relation_type: "evaluated_by",
         time_created: now,
         time_updated: now,
       })
@@ -127,7 +127,11 @@ describe("research.path", () => {
           ]),
         )
         expect(first.relations).toEqual([
-          expect.objectContaining({ atom_id_source: item.first, atom_id_target: item.second, relation_type: "validates" }),
+          expect.objectContaining({
+            atom_id_source: item.first,
+            atom_id_target: item.second,
+            relation_type: "evaluated_by",
+          }),
         ])
         expect(first.stages).toEqual([
           { index: 1, groups: [{ atom_ids: [item.first], cyclic: false }] },
@@ -159,7 +163,7 @@ describe("research.path", () => {
             {
               atom_id_source: item.second,
               atom_id_target: item.first,
-              relation_type: "analyzes",
+              relation_type: "analyzed_by",
               note: null,
             },
           ]),

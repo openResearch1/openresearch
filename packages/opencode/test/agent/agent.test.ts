@@ -29,6 +29,42 @@ test("returns default native agents when no config", async () => {
   })
 })
 
+test("composes shared prompts only into selected agents", async () => {
+  await using tmp = await tmpdir()
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const build = await Agent.get("build")
+      const plan = await Agent.get("plan")
+      const general = await Agent.get("general")
+      const explore = await Agent.get("explore")
+      const experiment = await Agent.get("experiment")
+      const research = await Agent.get("research")
+      const controller = await Agent.get("controller")
+
+      expect(build?.prompt).toBeUndefined()
+      expect(plan?.prompt).toBeUndefined()
+      expect(general?.prompt).toBeUndefined()
+      expect(explore?.prompt).not.toContain("## Interaction and response style")
+
+      expect(experiment?.prompt).toContain("## Interaction and response style")
+      expect(experiment?.prompt).toContain("## Workspace safety")
+      expect(experiment?.prompt).toContain("## Code editing")
+      expect(experiment?.prompt).toContain("You are the autonomous experiment agent")
+
+      expect(research?.prompt).toContain("## Interaction and response style")
+      expect(research?.prompt).toContain("## Workspace safety")
+      expect(research?.prompt).not.toContain("## Code editing")
+      expect(research?.prompt).toContain("## Atom model")
+
+      expect(controller?.prompt).toContain("## Interaction and response style")
+      expect(controller?.prompt).not.toContain("## Workspace safety")
+      expect(controller?.prompt).not.toContain("## Code editing")
+      expect(controller?.prompt).toContain("You are the Controller for an OpenResearch project")
+    },
+  })
+})
+
 test("build agent has correct default properties", async () => {
   await using tmp = await tmpdir()
   await Instance.provide({
@@ -129,15 +165,16 @@ test("resource preparation agent owns acquisition through verification", async (
   })
 })
 
-test("research agent locks experiment creation to a queried branch head", async () => {
+test("research agent carries the shared Atom graph definition", async () => {
   await using tmp = await tmpdir()
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
       const research = await Agent.get("research")
       expect(evalPerm(research, "research_code_branch_query")).toBe("allow")
-      expect(research?.prompt).toContain("latest commit subject")
-      expect(research?.prompt).toContain("expectedHeadSha")
+      expect(research?.prompt).toContain("## Atom model")
+      expect(research?.prompt).toContain("`evaluated_by`")
+      expect(research?.prompt).not.toContain("expectedHeadSha")
     },
   })
 })

@@ -84,13 +84,14 @@ evidence status 分布，4 个桶：
 
 ### 5. `rel`
 
-community 内部 relation type 分布，7 个桶：
+community 内部 relation type 分布，8 个桶：
 
 - `motivates`
-- `formalizes`
+- `grounds`
+- `formalized_by`
 - `derives`
-- `analyzes`
-- `validates`
+- `analyzed_by`
+- `evaluated_by`
 - `contradicts`
 - `other`
 

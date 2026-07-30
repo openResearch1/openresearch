@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 
+import { Agent } from "../../src/agent/agent"
 import { Instance } from "../../src/project/instance"
 import { ControllerAgent } from "../../src/research/controller-agent"
 import { AtomTable, ExperimentTable, ResearchProjectTable } from "../../src/research/research.sql"
@@ -98,16 +99,16 @@ describe("research.session-agent", () => {
         expect(await ResearchSessionAgent.resolve({ sessionID: item.main.id, agent: "deep_research" })).toBe(
           "deep_research",
         )
-        await expect(
-          ResearchSessionAgent.resolve({ sessionID: item.main.id, agent: "experiment" }),
-        ).rejects.toThrow("not available in main sessions")
+        await expect(ResearchSessionAgent.resolve({ sessionID: item.main.id, agent: "experiment" })).rejects.toThrow(
+          "not available in main sessions",
+        )
 
         for (const agent of ["plan", "build", "research"]) {
           expect(await ResearchSessionAgent.resolve({ sessionID: item.atom.id, agent })).toBe(agent)
         }
-        await expect(
-          ResearchSessionAgent.resolve({ sessionID: item.atom.id, agent: "deep_research" }),
-        ).rejects.toThrow("not available in atom sessions")
+        await expect(ResearchSessionAgent.resolve({ sessionID: item.atom.id, agent: "deep_research" })).rejects.toThrow(
+          "not available in atom sessions",
+        )
 
         for (const agent of ["experiment", "plan", "build"]) {
           expect(await ResearchSessionAgent.resolve({ sessionID: item.experiment.id, agent })).toBe(agent)
@@ -147,6 +148,59 @@ describe("research.session-agent", () => {
         await expect(
           SessionPrompt.shell({ sessionID: item.experiment.id, agent: "research", command: "true" }),
         ).rejects.toThrow("not available in experiment sessions")
+      },
+    })
+  })
+
+  test("composes shared graph rules with session-specific Research work", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const item = await seed()
+        const research = (await Agent.get("research"))!
+        const build = (await Agent.get("build"))!
+        const main = await ResearchSessionAgent.compose({ sessionID: item.main.id, agent: research })
+        const atom = await ResearchSessionAgent.compose({ sessionID: item.atom.id, agent: research })
+        const delegated = await ResearchSessionAgent.compose({ sessionID: item.child.id, agent: research })
+        const custom = await ResearchSessionAgent.compose({
+          sessionID: item.main.id,
+          agent: { ...research, prompt: "custom research base" },
+        })
+
+        expect(research.prompt).toContain("## Atom model")
+        expect(research.prompt).toContain("`evaluated_by`")
+        expect(research.prompt).not.toContain("## Main Research mode")
+        expect(research.prompt).not.toContain("## Atom Research mode")
+
+        expect(main.prompt).toContain("## Atom model")
+        expect(main.prompt).toContain("## Interaction and response style")
+        expect(main.prompt).toContain("## Workspace safety")
+        expect(main.prompt).not.toContain("## Code editing")
+        expect(main.prompt).toContain("## Main Research mode")
+        expect(main.prompt).toContain("research_path")
+        expect(main.prompt).toContain("Turn the user's objective and ideas")
+        expect(main.prompt).toContain("must not create, run, monitor, or manage experiments")
+        expect(main.prompt).toContain("spawn a `reviewer` Agent")
+        expect(main.prompt).toContain("Only the Reviewer may call `research_result_submit`")
+        expect(main.prompt).not.toContain("expectedHeadSha")
+        expect(main.prompt).not.toContain("## Atom Research mode")
+
+        expect(atom.prompt).toContain("## Atom model")
+        expect(atom.prompt).toContain("## Interaction and response style")
+        expect(atom.prompt).toContain("## Workspace safety")
+        expect(atom.prompt).not.toContain("## Code editing")
+        expect(atom.prompt).toContain("## Atom Research mode")
+        expect(atom.prompt).toContain("directly supports assessment")
+        expect(atom.prompt).not.toContain("research_path")
+        expect(atom.prompt).toContain("or call `delegate_atom`")
+        expect(atom.prompt).not.toContain("## Main Research mode")
+
+        expect(delegated.prompt).toContain("## Main Research mode")
+        expect(delegated.prompt).toContain("## Delegated Research constraint")
+        expect(custom.prompt).toStartWith("custom research base")
+        expect(custom.prompt).toContain("## Main Research mode")
+        expect(await ResearchSessionAgent.compose({ sessionID: item.main.id, agent: build })).toBe(build)
       },
     })
   })

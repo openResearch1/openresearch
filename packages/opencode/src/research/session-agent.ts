@@ -1,12 +1,16 @@
 import { Agent } from "@/agent/agent"
+import PROMPT_RESEARCH_ATOM from "@/agent/prompt/research-atom.txt"
+import PROMPT_RESEARCH_MAIN from "@/agent/prompt/research-main.txt"
 import { Session } from "@/session"
 import { Database, eq } from "@/storage/db"
 import { ControllerAgent } from "./controller-agent"
+import { CollabAgentNode } from "@/collab/agent-node"
 import { AtomTable, ExperimentTable, ResearchProjectTable } from "./research.sql"
 
 export namespace ResearchSessionAgent {
   const policies = {
     controller: { agents: ["controller"], default: "controller", pinned: true },
+    reviewer: { agents: ["reviewer"], default: "reviewer", pinned: true },
     experiment: { agents: ["experiment", "plan", "build"], default: "experiment" },
     atom: { agents: ["plan", "build", "research"], default: "research" },
     main: { agents: ["research", "deep_research", "plan", "build"], default: "research" },
@@ -18,6 +22,9 @@ export namespace ResearchSessionAgent {
   export async function policy(sessionID: string): Promise<Policy | undefined> {
     const session = await Session.get(sessionID)
     if (ControllerAgent.get(sessionID)) return { kind: "controller", ...policies.controller }
+    if (CollabAgentNode.loadBySessionId(sessionID)?.subagent_type === "reviewer") {
+      return { kind: "reviewer", ...policies.reviewer }
+    }
 
     const experiment = Database.use((db) =>
       db
@@ -58,5 +65,34 @@ export namespace ResearchSessionAgent {
     const agent = await Agent.get(name)
     if (agent?.hidden) return name
     throw new Error(`${name} is not available in ${current.kind} sessions`)
+  }
+
+  export async function compose(input: { sessionID: string; agent: Agent.Info }) {
+    if (input.agent.name !== "research") return input.agent
+    const current = await policy(input.sessionID)
+    if (current && current.kind !== "atom" && current.kind !== "main") return input.agent
+    const session = await Session.get(input.sessionID)
+    const project = Database.use((db) =>
+      db
+        .select({ id: ResearchProjectTable.research_project_id })
+        .from(ResearchProjectTable)
+        .where(eq(ResearchProjectTable.project_id, session.projectID))
+        .get(),
+    )
+    const kind = current?.kind ?? (project ? "main" : undefined)
+    if (kind !== "atom" && kind !== "main") return input.agent
+    const delegated =
+      kind === "main" && (session.parentID || session.collabPeer)
+        ? [
+            "## Delegated Research constraint",
+            "You are an independent Research peer, not the owning Main Session. Read project Paths for context, but do not create, update, complete, or cancel them. Return durable Atom and evidence changes plus a concise handoff to your parent.",
+          ].join("\n\n")
+        : undefined
+    return {
+      ...input.agent,
+      prompt: [input.agent.prompt, kind === "atom" ? PROMPT_RESEARCH_ATOM : PROMPT_RESEARCH_MAIN, delegated]
+        .filter(Boolean)
+        .join("\n\n"),
+    }
   }
 }
