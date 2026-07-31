@@ -1,4 +1,8 @@
+import path from "path"
+import fs from "fs/promises"
+
 import { test, expect } from "bun:test"
+
 import { tmpdir } from "../../fixture/fixture"
 import { Instance } from "../../../src/project/instance"
 import {
@@ -7,9 +11,8 @@ import {
   getAtomEmbedding,
   cosineSimilarity,
   batchGenerateEmbeddings,
+  pruneEmbeddingCache,
 } from "../../../src/tool/atom-graph-prompt/embedding"
-import path from "path"
-import fs from "fs/promises"
 
 test("should generate and cache embeddings", async () => {
   await using tmp = await tmpdir({ git: true })
@@ -20,7 +23,7 @@ test("should generate and cache embeddings", async () => {
       await fs.mkdir(path.join(tmp.path, "atom_list"), { recursive: true })
 
       const cache = await loadEmbeddingCache()
-      expect(cache.version).toBe("1.0")
+      expect(cache.version).toBe("3.0")
       expect(Object.keys(cache.embeddings)).toHaveLength(0)
 
       // Generate embedding
@@ -32,10 +35,12 @@ test("should generate and cache embeddings", async () => {
       // Verify cached
       expect(cache.embeddings["atom-1"]).toBeDefined()
       expect(cache.embeddings["atom-1"].claimEmbedding).toEqual(embedding)
+      const hash = cache.embeddings["atom-1"].contentHash
 
-      // Get again from cache - should return same value
-      const cached = await getAtomEmbedding("atom-1", "different text", cache)
-      expect(cached).toEqual(embedding)
+      // Changed text should replace the stale cached embedding.
+      const updated = await getAtomEmbedding("atom-1", "different text", cache)
+      expect(updated).not.toEqual(embedding)
+      expect(cache.embeddings["atom-1"].contentHash).not.toBe(hash)
     },
   })
 })
@@ -105,9 +110,11 @@ test("should persist cache to file", async () => {
 
       // Reload and verify
       const loaded = await loadEmbeddingCache()
-      expect(loaded.version).toBe("1.0")
+      expect(loaded.version).toBe("3.0")
       expect(loaded.embeddings["persist-1"]).toBeDefined()
       expect(loaded.embeddings["persist-1"].claimEmbedding).toHaveLength(384)
+      expect(loaded.embeddings["persist-1"].dimensions).toBe(384)
+      expect(loaded.embeddings["persist-1"].contentHash).toBeString()
     },
   })
 })
@@ -163,6 +170,61 @@ test("should batch generate embeddings", async () => {
       // Verify saved to file
       const loaded = await loadEmbeddingCache()
       expect(loaded.embeddings["batch-1"]).toBeDefined()
+    },
+  })
+})
+
+test("should not persist query embeddings", async () => {
+  await using tmp = await tmpdir({ git: true })
+
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const cache = await loadEmbeddingCache()
+      const embedding = await getAtomEmbedding("query:test", "test query", cache, { persist: false })
+      await saveEmbeddingCache(cache)
+
+      expect(embedding).toHaveLength(384)
+      expect(cache.embeddings["query:test"]).toBeUndefined()
+      expect((await loadEmbeddingCache()).embeddings["query:test"]).toBeUndefined()
+    },
+  })
+})
+
+test("should prune embeddings for deleted atoms", async () => {
+  await using tmp = await tmpdir({ git: true })
+
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const cache = await loadEmbeddingCache()
+      await getAtomEmbedding("kept", "active claim", cache)
+      await getAtomEmbedding("removed", "deleted claim", cache)
+      pruneEmbeddingCache(cache, ["kept"])
+      await saveEmbeddingCache(cache)
+
+      const loaded = await loadEmbeddingCache()
+      expect(loaded.embeddings.kept).toBeDefined()
+      expect(loaded.embeddings.removed).toBeUndefined()
+    },
+  })
+})
+
+test("should merge concurrent cache updates", async () => {
+  await using tmp = await tmpdir({ git: true })
+
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const left = await loadEmbeddingCache()
+      const right = await loadEmbeddingCache()
+      await getAtomEmbedding("left", "left claim", left)
+      await getAtomEmbedding("right", "right claim", right)
+      await Promise.all([saveEmbeddingCache(left), saveEmbeddingCache(right)])
+
+      const loaded = await loadEmbeddingCache()
+      expect(loaded.embeddings.left).toBeDefined()
+      expect(loaded.embeddings.right).toBeDefined()
     },
   })
 })

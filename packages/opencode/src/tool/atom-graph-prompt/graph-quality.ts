@@ -145,7 +145,9 @@ export async function evaluateGraphQuality(options: GraphQualityOptions = {}): P
   for (const community of communities) {
     cemb.set(
       community.id,
-      await getAtomEmbedding(`community:${community.id}`, `${community.summary} ${community.keywords.join(" ")}`, ec),
+      await getAtomEmbedding(`community:${community.id}`, `${community.summary} ${community.keywords.join(" ")}`, ec, {
+        kind: "community",
+      }),
     )
   }
   await saveEmbeddingCache(ec)

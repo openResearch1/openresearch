@@ -713,14 +713,14 @@ export async function queryCommunities(options: CommunityQueryOptions = {}): Pro
   // 如果有查询，进行语义搜索
   if (query) {
     const embeddingCache = await loadEmbeddingCache()
-    const queryEmbedding = await getAtomEmbedding("query", query, embeddingCache)
+    const queryEmbedding = await getAtomEmbedding("query", query, embeddingCache, { persist: false })
 
     // 为每个社区计算相似度
     const scored = await Promise.all(
       communities.map(async (community) => {
         // 使用摘要和关键词计算相似度
         const text = `${community.summary} ${community.keywords.join(" ")}`
-        const commEmbedding = await getAtomEmbedding(community.id, text, embeddingCache)
+        const commEmbedding = await getAtomEmbedding(community.id, text, embeddingCache, { kind: "community" })
         const similarity = cosineSimilarity(queryEmbedding, commEmbedding)
 
         return { community, similarity }

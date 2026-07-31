@@ -1,10 +1,15 @@
 import path from "path"
+import { randomUUID } from "crypto"
+import { rename, rm } from "fs/promises"
+
 import { Auth } from "../../auth"
 import { Config } from "../../config/config"
 import { Env } from "../../env"
 import { ModelsDev } from "../../provider/models"
 import { Instance } from "../../project/instance"
 import { Filesystem } from "../../util/filesystem"
+import { Hash } from "../../util/hash"
+import { Lock } from "../../util/lock"
 
 /**
  * Embedding 缓存管理（使用文件系统，不改动数据库）
@@ -12,6 +17,9 @@ import { Filesystem } from "../../util/filesystem"
 
 export interface AtomEmbedding {
   atomId: string
+  kind: "atom" | "community"
+  contentHash: string
+  dimensions: number
   claimEmbedding: number[]
   timestamp: number
 }
@@ -20,10 +28,13 @@ export interface EmbeddingCache {
   version: string
   model: string
   embeddings: Record<string, AtomEmbedding>
+  changed: Set<string>
+  removed: Set<string>
+  reset: boolean
 }
 
 const CACHE_FILE = ".atom-embeddings-cache.json"
-const CACHE_VERSION = "2.0"
+const CACHE_VERSION = "3.0"
 const SIMPLE_DIM = 384
 const SIMPLE_MODEL = `simple:${SIMPLE_DIM}`
 
@@ -163,7 +174,7 @@ async function resolve(providerID: string, modelID: string, cfg: Awaited<ReturnT
     url,
     headers,
     dims,
-    signature: `${providerID}/${modelID}@${root}`,
+    signature: `${providerID}/${modelID}@${root}#${dims ?? "default"}`,
   } satisfies Target
 }
 
@@ -172,6 +183,9 @@ async function sync(cache: EmbeddingCache) {
   if (cache.model === next) return
   cache.model = next
   cache.embeddings = {}
+  cache.changed.clear()
+  cache.removed.clear()
+  cache.reset = true
 }
 
 async function remote(texts: string[], target: Target) {
@@ -239,6 +253,9 @@ async function generate(texts: string[], cache: EmbeddingCache) {
       mode().simple = true
       cache.model = SIMPLE_MODEL
       cache.embeddings = {}
+      cache.changed.clear()
+      cache.removed.clear()
+      cache.reset = true
     }
   }
 
@@ -255,6 +272,30 @@ function getCachePath(): string {
   return path.join(Instance.directory, "atom_list", CACHE_FILE)
 }
 
+function empty(model: string): EmbeddingCache {
+  return {
+    version: CACHE_VERSION,
+    model,
+    embeddings: {},
+    changed: new Set(),
+    removed: new Set(),
+    reset: false,
+  }
+}
+
+async function readCache(cachePath: string, model: string): Promise<EmbeddingCache | undefined> {
+  if (!(await Filesystem.exists(cachePath))) return
+  const content = await Filesystem.readText(cachePath)
+  const cache = JSON.parse(content) as Pick<EmbeddingCache, "version" | "model" | "embeddings">
+  if (cache.version !== CACHE_VERSION || cache.model !== model) return
+  return {
+    ...cache,
+    changed: new Set(),
+    removed: new Set(),
+    reset: false,
+  }
+}
+
 /**
  * 读取缓存
  */
@@ -263,25 +304,14 @@ export async function loadEmbeddingCache(): Promise<EmbeddingCache> {
   const next = active(await target())
 
   try {
-    if (await Filesystem.exists(cachePath)) {
-      const content = await Filesystem.readText(cachePath)
-      const cache = JSON.parse(content) as EmbeddingCache
-
-      // 版本检查
-      if (cache.version === CACHE_VERSION && cache.model === next) {
-        return cache
-      }
-    }
+    using _ = await Lock.read(cachePath)
+    const cache = await readCache(cachePath, next)
+    if (cache) return cache
   } catch (error) {
     console.warn("Failed to load embedding cache:", error)
   }
 
-  // 返回空缓存
-  return {
-    version: CACHE_VERSION,
-    model: next,
-    embeddings: {},
-  }
+  return empty(next)
 }
 
 /**
@@ -289,37 +319,94 @@ export async function loadEmbeddingCache(): Promise<EmbeddingCache> {
  */
 export async function saveEmbeddingCache(cache: EmbeddingCache): Promise<void> {
   const cachePath = getCachePath()
+  if (!cache.reset && cache.changed.size === 0 && cache.removed.size === 0) return
+  if (cache.model !== active(await target())) return
+  let tmp: string | undefined
 
   try {
-    await Filesystem.write(cachePath, JSON.stringify(cache, null, 2))
+    using _ = await Lock.write(cachePath)
+    const changed = new Map(
+      Array.from(cache.changed).flatMap((id) => {
+        const item = cache.embeddings[id]
+        return item ? [[id, item] as const] : []
+      }),
+    )
+    const removed = new Set(cache.removed)
+    const current = cache.reset ? undefined : await readCache(cachePath, cache.model)
+    const embeddings = current?.embeddings ?? {}
+
+    for (const id of removed) delete embeddings[id]
+    for (const [id, item] of changed) embeddings[id] = item
+
+    tmp = `${cachePath}.${process.pid}.${randomUUID()}.tmp`
+    await Filesystem.write(
+      tmp,
+      JSON.stringify({
+        version: CACHE_VERSION,
+        model: cache.model,
+        embeddings,
+      }),
+    )
+    await rename(tmp, cachePath)
+
+    cache.embeddings = embeddings
+    cache.changed.clear()
+    cache.removed.clear()
+    cache.reset = false
   } catch (error) {
     console.warn("Failed to save embedding cache:", error)
+    if (tmp) await rm(tmp, { force: true }).catch(() => {})
   }
 }
 
 /**
  * 获取 atom 的 embedding（从缓存或生成新的）
  */
-export async function getAtomEmbedding(atomId: string, claimText: string, cache: EmbeddingCache): Promise<number[]> {
+export async function getAtomEmbedding(
+  atomId: string,
+  claimText: string,
+  cache: EmbeddingCache,
+  options: { persist?: boolean; kind?: AtomEmbedding["kind"] } = {},
+): Promise<number[]> {
   await sync(cache)
 
-  // 检查缓存
+  const contentHash = Hash.fast(claimText)
   const cached = cache.embeddings[atomId]
-  if (cached) {
+  const kind = options.kind ?? "atom"
+  if (
+    options.persist !== false &&
+    cached?.kind === kind &&
+    cached?.contentHash === contentHash &&
+    cached.dimensions === cached.claimEmbedding.length
+  ) {
     return cached.claimEmbedding
   }
 
-  // 生成新的 embedding
   const [embedding] = await generate([claimText], cache)
+  if (options.persist === false) return embedding
 
-  // 更新缓存
   cache.embeddings[atomId] = {
     atomId,
+    kind,
+    contentHash,
+    dimensions: embedding.length,
     claimEmbedding: embedding,
     timestamp: Date.now(),
   }
+  cache.changed.add(atomId)
+  cache.removed.delete(atomId)
 
   return embedding
+}
+
+export function pruneEmbeddingCache(cache: EmbeddingCache, atomIds: string[]) {
+  const active = new Set(atomIds)
+  for (const [id, item] of Object.entries(cache.embeddings)) {
+    if (item.kind !== "atom" || active.has(id)) continue
+    delete cache.embeddings[id]
+    cache.changed.delete(id)
+    cache.removed.add(id)
+  }
 }
 
 /**
@@ -410,7 +497,14 @@ export async function batchGenerateEmbeddings(
 ): Promise<void> {
   await sync(cache)
 
-  const needsEmbedding = items.filter((item) => !cache.embeddings[item.atomId])
+  const needsEmbedding = items.filter((item) => {
+    const cached = cache.embeddings[item.atomId]
+    return (
+      cached?.kind !== "atom" ||
+      cached.contentHash !== Hash.fast(item.claimText) ||
+      cached.dimensions !== cached.claimEmbedding.length
+    )
+  })
 
   if (needsEmbedding.length === 0) {
     return
@@ -428,9 +522,14 @@ export async function batchGenerateEmbeddings(
     for (const [idx, item] of batch.entries()) {
       cache.embeddings[item.atomId] = {
         atomId: item.atomId,
+        kind: "atom",
+        contentHash: Hash.fast(item.claimText),
+        dimensions: embeddings[idx].length,
         claimEmbedding: embeddings[idx],
         timestamp: Date.now(),
       }
+      cache.changed.add(item.atomId)
+      cache.removed.delete(item.atomId)
     }
   }
 

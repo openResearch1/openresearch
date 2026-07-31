@@ -13,6 +13,7 @@ import {
   cosineSimilarity,
   saveEmbeddingCache,
   batchGenerateEmbeddings,
+  pruneEmbeddingCache,
 } from "./embedding"
 import { scoreAndRankAtoms, selectDiverseAtoms, type ScoringWeights, DEFAULT_WEIGHTS } from "./scoring"
 import { selectAtomsWithinBudget, adaptiveBudgetSelection, type TokenBudgetOptions } from "./token-budget"
@@ -256,7 +257,8 @@ async function semanticSearch(query: string, options: SemanticSearchOptions): Pr
 
   // 1. 生成查询的 embedding
   const cache = await loadEmbeddingCache()
-  let queryEmbedding = await getAtomEmbedding(`query:${query}`, query, cache)
+  let queryEmbedding = await getAtomEmbedding(`query:${query}`, query, cache, { persist: false })
+  const model = cache.model
 
   // 2. 获取当前项目的 atoms
   let atoms: (typeof AtomTable.$inferSelect)[]
@@ -272,6 +274,11 @@ async function semanticSearch(query: string, options: SemanticSearchOptions): Pr
         db.select().from(AtomTable).where(eq(AtomTable.research_project_id, researchProjectId)).all(),
       )
     : Database.use((db) => db.select().from(AtomTable).all())
+
+  pruneEmbeddingCache(
+    cache,
+    atoms.map((atom) => atom.atom_id),
+  )
 
   // 3. 应用类型过滤
   if (atomTypes && atomTypes.length > 0) {
@@ -310,7 +317,9 @@ async function semanticSearch(query: string, options: SemanticSearchOptions): Pr
 
   // Batch generation may switch embedding backends after a timeout/fallback,
   // so refresh the query vector from the current cache before comparing.
-  queryEmbedding = await getAtomEmbedding(`query:${query}`, query, cache)
+  if (cache.model !== model) {
+    queryEmbedding = await getAtomEmbedding(`query:${query}`, query, cache, { persist: false })
+  }
 
   const similarities: Array<{
     atomId: string
