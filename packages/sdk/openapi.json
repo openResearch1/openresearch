@@ -20943,10 +20943,6 @@
               "disable_paste_summary": {
                 "type": "boolean"
               },
-              "batch_tool": {
-                "description": "Enable the batch tool",
-                "type": "boolean"
-              },
               "openTelemetry": {
                 "description": "Enable OpenTelemetry spans for AI SDK calls (using the 'experimental_telemetry' flag)",
                 "type": "boolean"

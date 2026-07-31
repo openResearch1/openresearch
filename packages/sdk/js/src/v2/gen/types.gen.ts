@@ -1799,10 +1799,6 @@ export type Config = {
   experimental?: {
     disable_paste_summary?: boolean
     /**
-     * Enable the batch tool
-     */
-    batch_tool?: boolean
-    /**
      * Enable OpenTelemetry spans for AI SDK calls (using the 'experimental_telemetry' flag)
      */
     openTelemetry?: boolean

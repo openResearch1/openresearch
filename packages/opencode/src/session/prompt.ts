@@ -10,14 +10,7 @@ import { SessionRevert } from "./revert"
 import { Session } from "."
 import { Agent } from "../agent/agent"
 import { Provider } from "../provider/provider"
-import {
-  type JSONSchema7,
-  type Tool as AITool,
-  type ToolExecutionOptions,
-  tool,
-  jsonSchema,
-  asSchema,
-} from "ai"
+import { type JSONSchema7, type Tool as AITool, type ToolExecutionOptions, tool, jsonSchema, asSchema } from "ai"
 import { SessionCompaction } from "./compaction"
 import { Instance } from "../project/instance"
 import { Bus } from "../bus"
@@ -973,9 +966,9 @@ export namespace SessionPrompt {
       agent: input.agent.name,
       messages: input.messages,
       metadata: async (val: { title?: string; metadata?: Record<string, unknown> }) => {
-        const match = input.processor.partFromToolCall(options.toolCallId)
-        if (match && match.state.status === "running") {
-          await Session.updatePart({
+        await input.processor.updateToolCall(options.toolCallId, (match) => {
+          if (match.state.status !== "pending" && match.state.status !== "running") return match
+          return {
             ...match,
             state: {
               title: val.title,
@@ -983,11 +976,11 @@ export namespace SessionPrompt {
               status: "running",
               input: inputRecord(args),
               time: {
-                start: Date.now(),
+                start: match.state.status === "running" ? match.state.time.start : Date.now(),
               },
             },
-          })
-        }
+          }
+        })
       },
       async ask(req) {
         await PermissionNext.ask({

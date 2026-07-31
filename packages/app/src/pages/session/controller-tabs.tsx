@@ -4,6 +4,7 @@ import { createStore } from "solid-js/store"
 import type { CollabAgent } from "@opencode-ai/sdk/v2/client"
 import type { ResearchPathsListResponse, ResearchResultsListResponse } from "@opencode-ai/sdk/v2"
 import { Markdown } from "@opencode-ai/ui/markdown"
+import { Select } from "@opencode-ai/ui/select"
 
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
@@ -34,6 +35,15 @@ type Path = ResearchPathsListResponse[number]
 type Member = Path["atoms"][number]
 type Result = ResearchResultsListResponse[number]
 type ResultAtom = Result["atoms"][number]
+type PathFilter = Path["status"] | "all"
+
+const pathFilters: PathFilter[] = ["active", "completed", "cancelled", "all"]
+const pathFilterLabels: Record<PathFilter, string> = {
+  active: "Active",
+  completed: "Completed",
+  cancelled: "Cancelled",
+  all: "All",
+}
 
 const pathColors: Record<Path["status"], string> = {
   active: "bg-icon-success-base",
@@ -313,7 +323,11 @@ export function ControllerPathsTab(props: {
   onOpenSession: (sessionID: string) => void
 }) {
   const sdk = useSDK()
-  const [state, setState] = createStore({ selected: "", compact: false })
+  const [state, setState] = createStore({
+    selected: "",
+    compact: false,
+    filter: "active" as PathFilter,
+  })
   const [paths, { refetch }] = createResource(
     () => props.researchProjectId,
     async (researchProjectId) => {
@@ -321,12 +335,15 @@ export function ControllerPathsTab(props: {
       return result.data ?? []
     },
   )
-  const selected = createMemo(() => paths()?.find((path) => path.research_path_id === state.selected))
+  const visible = createMemo(() =>
+    state.filter === "all" ? (paths() ?? []) : (paths() ?? []).filter((path) => path.status === state.filter),
+  )
+  const selected = createMemo(() => visible().find((path) => path.research_path_id === state.selected))
   let root!: HTMLDivElement
 
   createEffect(() => {
-    const items = paths()
-    if (!items?.length) {
+    const items = visible()
+    if (!items.length) {
       setState("selected", "")
       return
     }
@@ -378,24 +395,55 @@ export function ControllerPathsTab(props: {
             <div
               class={`shrink-0 overflow-y-auto p-3 ${state.compact ? "max-h-[42%] w-full border-b border-border-weak-base" : "h-full w-[38%] min-w-56 border-r border-border-weak-base"}`}
             >
-              <div class="mb-3 flex items-baseline justify-between gap-2 px-1">
+              <div class="mb-3 flex items-center justify-between gap-2 px-1">
                 <span class="text-11-medium uppercase tracking-wide text-text-weak">Research paths</span>
-                <span class="text-10-regular text-text-weak">{paths()?.length}</span>
+                <div class="flex items-center gap-2">
+                  <span class="text-10-regular text-text-weak">{visible().length}</span>
+                  <Select
+                    aria-label="Filter Research Paths by status"
+                    options={pathFilters}
+                    current={state.filter}
+                    label={(filter) => pathFilterLabels[filter]}
+                    onSelect={(filter) => filter && setState("filter", filter)}
+                    variant="secondary"
+                    size="small"
+                    valueClass="text-10-regular"
+                    triggerStyle={{ "min-width": "6rem" }}
+                  />
+                </div>
               </div>
-              <div class="flex flex-col gap-2">
-                <For each={paths()}>
-                  {(path) => (
-                    <PathCard
-                      path={path}
-                      selected={path.research_path_id === state.selected}
-                      onSelect={() => setState("selected", path.research_path_id)}
-                    />
-                  )}
-                </For>
-              </div>
+              <Show
+                when={visible().length > 0}
+                fallback={
+                  <div class="rounded-md border border-dashed border-border-weak-base px-3 py-6 text-center text-11-regular text-text-weak">
+                    No {state.filter === "all" ? "matching" : state.filter} paths
+                  </div>
+                }
+              >
+                <div class="flex flex-col gap-2">
+                  <For each={visible()}>
+                    {(path) => (
+                      <PathCard
+                        path={path}
+                        selected={path.research_path_id === state.selected}
+                        onSelect={() => setState("selected", path.research_path_id)}
+                      />
+                    )}
+                  </For>
+                </div>
+              </Show>
             </div>
             <div class="min-h-0 min-w-0 flex-1">
-              <Show when={selected()} keyed>
+              <Show
+                when={selected()}
+                keyed
+                fallback={
+                  <Empty
+                    title={`No ${state.filter === "all" ? "matching" : state.filter} paths`}
+                    description="Choose another status to view Research Path history."
+                  />
+                }
+              >
                 {(path) => <PathDetail path={path} onOpenSession={props.onOpenSession} onOpenAtom={openAtom} />}
               </Show>
             </div>

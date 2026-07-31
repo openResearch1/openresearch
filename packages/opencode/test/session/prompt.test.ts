@@ -240,22 +240,27 @@ describe("session.prompt workflow wait_interaction", () => {
             const args = {
               action: "next" as const,
               instance_id: meta.instance.id,
-              ...(turns === 1
-                ? { context_patch: { parent_answer: "approved", child_wait_checked: true } }
-                : {}),
+              ...(turns === 1 ? { context_patch: { parent_answer: "approved", child_wait_checked: true } } : {}),
             }
-            const output = (Workflow.next({
-              sessionID: session.id,
-              instanceID: meta.instance.id,
-              context: args.context_patch,
-            }),
-            { output: `workflow next ${turns}`, title: "", metadata: {} })
+            const output =
+              (Workflow.next({
+                sessionID: session.id,
+                instanceID: meta.instance.id,
+                context: args.context_patch,
+              }),
+              { output: `workflow next ${turns}`, title: "", metadata: {} })
             return {
               fullStream: (async function* () {
                 yield { type: "start" }
                 yield { type: "tool-input-start", id: `call_next_${turns}`, toolName: "workflow" }
                 yield { type: "tool-call", toolCallId: `call_next_${turns}`, toolName: "workflow", input: args }
-                yield { type: "tool-result", toolCallId: `call_next_${turns}`, toolName: "workflow", input: args, output }
+                yield {
+                  type: "tool-result",
+                  toolCallId: `call_next_${turns}`,
+                  toolName: "workflow",
+                  input: args,
+                  output,
+                }
                 yield {
                   type: "finish-step",
                   finishReason: "tool-calls",
@@ -336,8 +341,9 @@ describe("session.prompt workflow wait_interaction", () => {
           }
           if (turns === 2) {
             const args = { action: "inspect" as const, instance_id: instance }
-            const output = (Workflow.inspect({ sessionID: session.id, instanceID: instance }),
-            { output: "workflow inspect", title: "", metadata: {} })
+            const output =
+              (Workflow.inspect({ sessionID: session.id, instanceID: instance }),
+              { output: "workflow inspect", title: "", metadata: {} })
             return {
               fullStream: (async function* () {
                 yield { type: "start" }
@@ -360,13 +366,14 @@ describe("session.prompt workflow wait_interaction", () => {
               code: "TEST_DONE",
               message: "stop after inspect",
             }
-            const output = (Workflow.fail({
-              sessionID: session.id,
-              instanceID: instance,
-              code: args.code,
-              message: args.message,
-            }),
-            { output: "workflow failed", title: "", metadata: {} })
+            const output =
+              (Workflow.fail({
+                sessionID: session.id,
+                instanceID: instance,
+                code: args.code,
+                message: args.message,
+              }),
+              { output: "workflow failed", title: "", metadata: {} })
             return {
               fullStream: (async function* () {
                 yield { type: "start" }
@@ -492,11 +499,150 @@ describe("session.prompt workflow wait_interaction", () => {
           expect(turns).toBe(1)
           expect(Workflow.latest(session.id)?.status).toBe("waiting_interaction")
           const messages = await Session.messages({ sessionID: session.id })
-          const text = messages.flatMap((msg) => msg.parts.filter((part) => part.type === "text").map((part) => part.text))
+          const text = messages.flatMap((msg) =>
+            msg.parts.filter((part) => part.type === "text").map((part) => part.text),
+          )
           expect(text.some((part) => part.includes("Workflow forced another model step"))).toBe(false)
         } finally {
           stream.mockRestore()
           await Session.remove(session.id)
+        }
+      },
+    })
+  })
+})
+
+describe("session.prompt parallel tools", () => {
+  test("records tool calls without input events and matches reverse-order results", async () => {
+    await using tmp = await tmpdir({ git: true })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({})
+        let turns = 0
+        const stream = spyOn(LLM, "stream").mockImplementation(async (input) => {
+          if (input.small) {
+            return {
+              text: Promise.resolve("Parallel tools"),
+              fullStream: (async function* () {})(),
+            } as unknown as Awaited<ReturnType<typeof LLM.stream>>
+          }
+          turns++
+          if (turns === 1) {
+            return {
+              fullStream: (async function* () {
+                yield { type: "start" }
+                yield { type: "start-step" }
+                yield { type: "tool-call", toolCallId: "call-a", toolName: "lookup", input: { value: "a" } }
+                yield { type: "tool-call", toolCallId: "call-b", toolName: "lookup", input: { value: "b" } }
+                yield {
+                  type: "tool-result",
+                  toolCallId: "call-b",
+                  toolName: "lookup",
+                  input: { value: "b" },
+                  output: { output: "result-b", title: "B", metadata: { value: "b" } },
+                }
+                yield {
+                  type: "tool-result",
+                  toolCallId: "call-a",
+                  toolName: "lookup",
+                  input: { value: "a" },
+                  output: { output: "result-a", title: "A", metadata: { value: "a" } },
+                }
+                yield {
+                  type: "finish-step",
+                  finishReason: "tool-calls",
+                  usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+                }
+                yield { type: "finish" }
+              })(),
+            } as unknown as Awaited<ReturnType<typeof LLM.stream>>
+          }
+          return {
+            fullStream: (async function* () {
+              yield { type: "start" }
+              yield { type: "start-step" }
+              yield {
+                type: "finish-step",
+                finishReason: "stop",
+                usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+              }
+              yield { type: "finish" }
+            })(),
+          } as unknown as Awaited<ReturnType<typeof LLM.stream>>
+        })
+
+        try {
+          await SessionPrompt.prompt({
+            sessionID: session.id,
+            agent: "build",
+            model: { providerID: "opencode", modelID: "kimi-k2.5-free" },
+            parts: [{ type: "text", text: "look up both values" }],
+          })
+
+          const messages = await Session.messages({ sessionID: session.id })
+          const tools = messages.flatMap((message) => message.parts).filter((part) => part.type === "tool")
+          expect(tools).toHaveLength(2)
+          expect(
+            tools.map((part) => ({
+              callID: part.callID,
+              input: part.state.input,
+              output: part.state.status === "completed" ? part.state.output : undefined,
+            })),
+          ).toEqual([
+            { callID: "call-a", input: { value: "a" }, output: "result-a" },
+            { callID: "call-b", input: { value: "b" }, output: "result-b" },
+          ])
+        } finally {
+          stream.mockRestore()
+        }
+      },
+    })
+  })
+
+  test("captures a snapshot before a fast tool can modify the worktree", async () => {
+    await using tmp = await tmpdir({ git: true })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({})
+        const stream = spyOn(LLM, "stream").mockImplementation(async (input) => {
+          if (input.small) {
+            return {
+              text: Promise.resolve("Snapshot race"),
+              fullStream: (async function* () {})(),
+            } as unknown as Awaited<ReturnType<typeof LLM.stream>>
+          }
+          await Bun.write(path.join(tmp.path, "race.txt"), "created before start-step\n")
+          return {
+            fullStream: (async function* () {
+              yield { type: "start" }
+              yield { type: "start-step" }
+              yield {
+                type: "finish-step",
+                finishReason: "stop",
+                usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+              }
+              yield { type: "finish" }
+            })(),
+          } as unknown as Awaited<ReturnType<typeof LLM.stream>>
+        })
+
+        try {
+          await SessionPrompt.prompt({
+            sessionID: session.id,
+            agent: "build",
+            model: { providerID: "opencode", modelID: "kimi-k2.5-free" },
+            parts: [{ type: "text", text: "create a file" }],
+          })
+
+          const messages = await Session.messages({ sessionID: session.id })
+          const patch = messages.flatMap((message) => message.parts).find((part) => part.type === "patch")
+          expect(patch?.files.some((file) => file.endsWith("/race.txt"))).toBe(true)
+        } finally {
+          stream.mockRestore()
         }
       },
     })

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test"
 import path from "path"
-import type { ModelMessage } from "ai"
+import { jsonSchema, tool, type ModelMessage } from "ai"
 import { LLM } from "../../src/session/llm"
 import { Global } from "../../src/global"
 import { Instance } from "../../src/project/instance"
@@ -221,6 +221,152 @@ function createEventResponse(chunks: unknown[], includeDone = false) {
 }
 
 describe("session.llm.stream", () => {
+  test("executes multiple tool calls concurrently", async () => {
+    const server = state.server
+    if (!server) throw new Error("Server not initialized")
+
+    const providerID = "alibaba"
+    const modelID = "qwen-plus"
+    const fixture = await loadFixture(providerID, modelID)
+    const response = createEventResponse(
+      [
+        {
+          id: "chatcmpl-tools",
+          object: "chat.completion.chunk",
+          created: 1,
+          model: fixture.model.id,
+          choices: [{ index: 0, delta: { role: "assistant" }, finish_reason: null }],
+        },
+        {
+          id: "chatcmpl-tools",
+          object: "chat.completion.chunk",
+          created: 1,
+          model: fixture.model.id,
+          choices: [
+            {
+              index: 0,
+              delta: {
+                tool_calls: [
+                  {
+                    index: 0,
+                    id: "call-1",
+                    type: "function",
+                    function: { name: "lookup", arguments: "{}" },
+                  },
+                  {
+                    index: 1,
+                    id: "call-2",
+                    type: "function",
+                    function: { name: "lookup", arguments: "{}" },
+                  },
+                ],
+              },
+              finish_reason: null,
+            },
+          ],
+        },
+        {
+          id: "chatcmpl-tools",
+          object: "chat.completion.chunk",
+          created: 1,
+          model: fixture.model.id,
+          choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
+        },
+      ],
+      true,
+    )
+    const request = waitRequest("/chat/completions", response)
+    const both = deferred<void>()
+    const started: string[] = []
+    let active = 0
+    let peak = 0
+
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(
+          path.join(dir, "openresearch.json"),
+          JSON.stringify({
+            enabled_providers: [providerID],
+            provider: {
+              [providerID]: {
+                name: fixture.provider.name,
+                env: fixture.provider.env,
+                npm: fixture.provider.npm,
+                api: fixture.provider.api,
+                models: { [modelID]: fixture.model },
+                options: {
+                  apiKey: "test-key",
+                  baseURL: `${server.url.origin}/v1`,
+                },
+              },
+            },
+          }),
+        )
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const model = await Provider.getModel(providerID, modelID)
+        const agent = {
+          name: "test",
+          mode: "primary",
+          options: {},
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        } satisfies Agent.Info
+        const user = {
+          id: "user-tools",
+          sessionID: "session-tools",
+          role: "user",
+          time: { created: Date.now() },
+          agent: agent.name,
+          model: { providerID, modelID },
+        } satisfies MessageV2.User
+        const events: string[] = []
+        const calls: string[] = []
+        const results: string[] = []
+        const stream = await LLM.stream({
+          user,
+          sessionID: user.sessionID,
+          model,
+          agent,
+          system: ["Use tools."],
+          abort: new AbortController().signal,
+          messages: [{ role: "user", content: "Look up both values" }],
+          tools: {
+            lookup: tool({
+              description: "Lookup a value",
+              inputSchema: jsonSchema({ type: "object", properties: {}, additionalProperties: false }),
+              async execute(_input, options) {
+                active++
+                peak = Math.max(peak, active)
+                started.push(options.toolCallId)
+                if (started.length === 2) both.resolve()
+                await Promise.race([both.promise, Bun.sleep(1_000)])
+                active--
+                return { output: options.toolCallId }
+              },
+            }),
+          },
+        })
+
+        for await (const event of stream.fullStream) {
+          events.push(event.type)
+          if (event.type === "tool-call") calls.push(event.toolCallId)
+          if (event.type === "tool-result") results.push(event.toolCallId)
+        }
+
+        await request
+        expect(started).toEqual(["call-1", "call-2"])
+        expect(peak).toBe(2)
+        expect(calls).toEqual(["call-1", "call-2"])
+        expect(results.toSorted()).toEqual(["call-1", "call-2"])
+        expect(events.lastIndexOf("finish-step")).toBeGreaterThan(events.lastIndexOf("tool-result"))
+      },
+    })
+  })
+
   test("sends temperature, tokens, and reasoning options for openai-compatible models", async () => {
     const server = state.server
     if (!server) {

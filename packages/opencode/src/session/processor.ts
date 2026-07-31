@@ -35,17 +35,44 @@ export namespace SessionProcessor {
     let attempt = 0
     let needsCompaction = false
 
+    async function ensureToolCall(value: { id: string; toolName: string }) {
+      const match = toolcalls[value.id]
+      if (match) return match
+      const part = await Session.updatePart({
+        id: Identifier.ascending("part"),
+        messageID: input.assistantMessage.id,
+        sessionID: input.assistantMessage.sessionID,
+        type: "tool",
+        tool: value.toolName,
+        callID: value.id,
+        state: {
+          status: "pending",
+          input: {},
+          raw: "",
+        },
+      })
+      toolcalls[value.id] = part as MessageV2.ToolPart
+      return toolcalls[value.id]
+    }
+
+    async function updateToolCall(toolCallID: string, update: (part: MessageV2.ToolPart) => MessageV2.ToolPart) {
+      const match = toolcalls[toolCallID]
+      if (!match) return
+      const part = await Session.updatePart(update(match))
+      toolcalls[toolCallID] = part as MessageV2.ToolPart
+      return toolcalls[toolCallID]
+    }
+
     const result = {
       get message() {
         return input.assistantMessage
       },
-      partFromToolCall(toolCallID: string) {
-        return toolcalls[toolCallID]
-      },
+      updateToolCall,
       async process(streamInput: LLM.StreamInput) {
         log.info("process")
         needsCompaction = false
         const shouldBreak = (await Config.get()).experimental?.continue_loop_on_deny !== true
+        snapshot = await Snapshot.track()
         while (true) {
           try {
             let currentText: MessageV2.TextPart | undefined
@@ -109,20 +136,7 @@ export namespace SessionProcessor {
                   break
 
                 case "tool-input-start":
-                  const part = await Session.updatePart({
-                    id: toolcalls[value.id]?.id ?? Identifier.ascending("part"),
-                    messageID: input.assistantMessage.id,
-                    sessionID: input.assistantMessage.sessionID,
-                    type: "tool",
-                    tool: value.toolName,
-                    callID: value.id,
-                    state: {
-                      status: "pending",
-                      input: {},
-                      raw: "",
-                    },
-                  })
-                  toolcalls[value.id] = part as MessageV2.ToolPart
+                  await ensureToolCall(value)
                   break
 
                 case "tool-input-delta":
@@ -132,22 +146,26 @@ export namespace SessionProcessor {
                   break
 
                 case "tool-call": {
-                  const match = toolcalls[value.toolCallId]
-                  if (match) {
-                    const part = await Session.updatePart({
-                      ...match,
-                      tool: value.toolName,
-                      state: {
-                        status: "running",
-                        input: value.input,
-                        time: {
-                          start: Date.now(),
-                        },
-                      },
-                      metadata: value.providerMetadata,
-                    })
-                    toolcalls[value.toolCallId] = part as MessageV2.ToolPart
-
+                  await ensureToolCall({ id: value.toolCallId, toolName: value.toolName })
+                  const part = await updateToolCall(value.toolCallId, (match) => ({
+                    ...match,
+                    tool: value.toolName,
+                    state:
+                      match.state.status === "running"
+                        ? {
+                            ...match.state,
+                            input: value.input,
+                          }
+                        : {
+                            status: "running",
+                            input: value.input,
+                            time: {
+                              start: Date.now(),
+                            },
+                          },
+                    metadata: value.providerMetadata,
+                  }))
+                  if (part) {
                     const parts = await MessageV2.parts(input.assistantMessage.id)
                     const lastThree = parts.slice(-DOOM_LOOP_THRESHOLD)
 
@@ -210,6 +228,7 @@ export namespace SessionProcessor {
                         status: "error",
                         input: value.input ?? match.state.input,
                         error: (value.error as any).toString(),
+                        metadata: match.state.metadata,
                         time: {
                           start: match.state.time.start,
                           end: Date.now(),
@@ -231,7 +250,7 @@ export namespace SessionProcessor {
                   throw value.error
 
                 case "start-step":
-                  snapshot = await Snapshot.track()
+                  snapshot = snapshot ?? (await Snapshot.track())
                   await Session.updatePart({
                     id: Identifier.ascending("part"),
                     messageID: input.assistantMessage.id,

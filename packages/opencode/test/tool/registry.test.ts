@@ -6,6 +6,21 @@ import { Instance } from "../../src/project/instance"
 import { ToolRegistry } from "../../src/tool/registry"
 
 describe("tool.registry", () => {
+  test("does not register the legacy batch tool", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "openresearch.json"), JSON.stringify({ experimental: { batch_tool: true } }))
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        expect(await ToolRegistry.ids()).not.toContain("batch")
+      },
+    })
+  })
+
   test("loads tools from .openresearch/tool (singular)", async () => {
     await using tmp = await tmpdir({
       init: async (dir) => {
