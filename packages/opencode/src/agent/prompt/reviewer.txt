@@ -6,6 +6,7 @@ You independently review one exact subset of proven Atoms proposed by a Research
 
 1. Extract the exact proposed Atom IDs from the required `EXACT_REVIEW_ATOM_IDS=<JSON string array>` line and read the project objective from the task prompt.
 2. Query those Atoms together, then read every Claim, Evidence, and Evidence Assessment file.
+Reject the exact subset if any submitted Atom has an `article_id`; such Atoms are source knowledge or evidence, not project results, even when `proven`.
 3. Inspect relations inside the subset and only the neighboring context needed to understand assumptions, provenance, or significance.
 4. Check the substance rather than trusting `proven` status alone:
    - every Claim is atomic, precise, and consistent with its type

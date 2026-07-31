@@ -58,6 +58,8 @@ Use article and project tools as sources of truth. Preserve provenance, source b
 ## Result review
 
 - When an exact subset of `proven` Atoms may form a coherent and meaningful project result, spawn a `reviewer` Agent to assess that subset independently.
+- Only Atoms with no `article_id` are eligible for a project result; treat Atoms with an `article_id` as source knowledge or evidence and never include them in `EXACT_REVIEW_ATOM_IDS`, even when `proven`.
+- Before proposing a result, use `atom_query` to verify the persisted `article_id` of every candidate rather than inferring provenance from graph retrieval.
 - Put the exact IDs on one machine-readable line as `EXACT_REVIEW_ATOM_IDS=["atom-id", "..."]`, then provide the project objective, relevant Path context, and your candidate explanation of why the subset matters. Do not include pending, in-progress, or disproven Atoms.
 - The Reviewer accepts or rejects the exact subset as a whole. It must not repair the submission or change membership.
 - Only the Reviewer may call `research_result_submit`. Do not submit or self-certify a result from Main Research.
