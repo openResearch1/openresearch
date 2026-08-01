@@ -328,7 +328,13 @@ export namespace CollabAgentNode {
     id: string,
     status: CollabAgentStatus,
     extra?: TransitionExtra,
-    expected?: { runId: string | null; parentId: string | null; status?: CollabAgentStatus },
+    expected?: {
+      runId: string | null
+      parentId: string | null
+      status?: CollabAgentStatus
+      timeUpdated?: number
+      error?: null
+    },
   ): AgentInfo {
     const now = Date.now()
     const row = Database.use((db) => {
@@ -360,6 +366,9 @@ export namespace CollabAgentNode {
                 ? eq(CollabAgentTable.parent_agent_id, expected.parentId)
                 : isNull(CollabAgentTable.parent_agent_id),
             expected?.status ? eq(CollabAgentTable.status, expected.status) : undefined,
+            expected?.timeUpdated ? eq(CollabAgentTable.time_updated, expected.timeUpdated) : undefined,
+            expected?.error === null ? isNull(CollabAgentTable.error_json) : undefined,
+            isActive(status) ? inArray(CollabAgentTable.status, ACTIVE_STATUSES) : undefined,
           ),
         )
         .returning()
@@ -458,6 +467,7 @@ export namespace CollabAgentNode {
               ? eq(CollabAgentTable.parent_agent_id, input.parentId)
               : isNull(CollabAgentTable.parent_agent_id),
             inArray(CollabAgentTable.status, ACTIVE_STATUSES),
+            input.status === "completed" ? isNull(CollabAgentTable.error_json) : undefined,
           ),
         )
         .returning()

@@ -98,6 +98,7 @@ export namespace Question {
     sessionID: string
     questions: Info[]
     tool?: { messageID: string; callID: string }
+    signal?: AbortSignal
   }): Promise<Answer[]> {
     const s = await state()
     const id = Identifier.ascending("question")
@@ -111,12 +112,26 @@ export namespace Question {
         questions: input.questions,
         tool: input.tool,
       }
+      const stop = () => {
+        if (!s.pending[id]) return
+        delete s.pending[id]
+        Bus.publish(Event.Rejected, { sessionID: input.sessionID, requestID: id })
+        reject(new RejectedError())
+      }
+      input.signal?.addEventListener("abort", stop, { once: true })
       s.pending[id] = {
         info,
-        resolve,
-        reject,
+        resolve(answers) {
+          input.signal?.removeEventListener("abort", stop)
+          resolve(answers)
+        },
+        reject(error) {
+          input.signal?.removeEventListener("abort", stop)
+          reject(error)
+        },
       }
       Bus.publish(Event.Asked, info)
+      if (input.signal?.aborted) stop()
     })
   }
 
@@ -157,6 +172,19 @@ export namespace Question {
     })
 
     existing.reject(new RejectedError())
+  }
+
+  export async function rejectSession(sessionID: string): Promise<void> {
+    const s = await state()
+    for (const [id, existing] of Object.entries(s.pending)) {
+      if (existing.info.sessionID !== sessionID) continue
+      delete s.pending[id]
+      Bus.publish(Event.Rejected, {
+        sessionID,
+        requestID: existing.info.id,
+      })
+      existing.reject(new RejectedError())
+    }
   }
 
   export class RejectedError extends Error {

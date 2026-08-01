@@ -228,7 +228,7 @@ export namespace SessionPrompt {
         sessionID: input.sessionID,
         error: assistantMessage.error,
       })
-      return userMessage
+      return { info: assistantMessage, parts: [] }
     }
 
     const message = await createUserMessage(input)
@@ -537,6 +537,7 @@ export namespace SessionPrompt {
               ...req,
               sessionID: sessionID,
               ruleset: PermissionNext.merge(taskAgent.permission, session.permission ?? []),
+              signal: abort,
             })
           },
         }
@@ -696,6 +697,14 @@ export namespace SessionPrompt {
         sessionID: sessionID,
         model,
         abort,
+        interactive: !session.collabPeer,
+        retry: session.collabPeer
+          ? {
+              count: 3,
+              deadline: Date.now() + 60_000,
+              delay: 30_000,
+            }
+          : undefined,
       })
       using _ = defer(() => InstructionPrompt.clear(processor.message.id))
 
@@ -983,12 +992,33 @@ export namespace SessionPrompt {
         })
       },
       async ask(req) {
-        await PermissionNext.ask({
+        const ruleset = PermissionNext.merge(input.agent.permission, input.session.permission ?? [])
+        if (
+          input.session.collabPeer &&
+          req.patterns.some((pattern) => PermissionNext.evaluate(req.permission, pattern, ruleset).action === "ask")
+        ) {
+          throw new PermissionNext.DeniedError(
+            ruleset.filter((rule) => rule.permission === req.permission || rule.permission === "*"),
+          )
+        }
+        const pending = PermissionNext.ask({
           ...req,
           sessionID: input.session.id,
           tool: { messageID: input.processor.message.id, callID: options.toolCallId },
-          ruleset: PermissionNext.merge(input.agent.permission, input.session.permission ?? []),
+          ruleset,
+          signal: options.abortSignal,
         })
+        if (!input.session.collabPeer) {
+          await pending
+          return
+        }
+        const stop = () => void PermissionNext.rejectSession(input.session.id)
+        options.abortSignal?.addEventListener("abort", stop, { once: true })
+        try {
+          await pending
+        } finally {
+          options.abortSignal?.removeEventListener("abort", stop)
+        }
       },
     })
 
@@ -996,6 +1026,7 @@ export namespace SessionPrompt {
       { modelID: input.model.api.id, providerID: input.model.providerID },
       input.agent,
     )) {
+      if (input.session.collabPeer && item.id === "question") continue
       const schema = ProviderTransform.schema(input.model, z.toJSONSchema(item.parameters))
       tools[item.id] = tool({
         description: item.description,

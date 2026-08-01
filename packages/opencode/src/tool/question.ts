@@ -13,6 +13,7 @@ export const QuestionTool = Tool.define("question", {
       sessionID: ctx.sessionID,
       questions: params.questions,
       tool: ctx.callID ? { messageID: ctx.messageID, callID: ctx.callID } : undefined,
+      signal: ctx.abort,
     })
 
     function format(answer: Question.Answer | undefined) {

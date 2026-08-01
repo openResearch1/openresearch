@@ -5,6 +5,7 @@ import { CollabAgentNode } from "@/collab/agent-node"
 import { AgentPolicySchema, type AgentSpec } from "@/collab/types"
 import { MessageV2 } from "@/session/message-v2"
 import { PermissionNext } from "@/permission/next"
+import { Provider } from "@/provider/provider"
 import { ResearchSessionControl } from "@/research/session-control"
 import { Tool } from "./tool"
 import DESCRIPTION from "./spawn-agent.txt"
@@ -86,6 +87,7 @@ export const SpawnAgentTool = Tool.define("spawn_agent", async (ctx) => {
         providerID: parentMsg.info.providerID,
         modelID: parentMsg.info.modelID,
       }
+      if (params.model) await Provider.getModel(params.model.providerID, params.model.modelID)
       const resolvedModel = params.model ?? agent.model ?? inheritedModel
 
       const spec: AgentSpec = {

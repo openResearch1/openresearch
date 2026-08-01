@@ -99,6 +99,52 @@ describe("CollabRecovery.scan synthesizes missing child reports", () => {
     })
   })
 
+  test("redirects a stranded remote task callback for an idle agent", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const session = await Session.create({ title: "recovery-remote-terminal" })
+        const id = Identifier.ascending("collab_agent")
+        CollabAgentNode.create({
+          id,
+          sessionId: session.id,
+          name: "idle experiment",
+          projectId: Instance.project.id,
+          rootAgentId: id,
+          subagentType: "experiment",
+          spec: { initialPrompt: "x" },
+          status: "idle",
+        })
+        CollabMessage.post({
+          recipientAgentId: id,
+          runId: null,
+          kind: "remote_task_terminal",
+          payload: {
+            taskId: crypto.randomUUID(),
+            expId: crypto.randomUUID(),
+            kind: "experiment_run",
+            title: "finished task",
+            status: "finished",
+            logPath: null,
+            errorMessage: null,
+          },
+        })
+        expect(CollabMessage.drain(id)[0]?.status).toBe("processing")
+
+        await CollabRecovery.scan()
+
+        expect(CollabMessage.list(id)).toMatchObject([
+          {
+            kind: "session_remote_task_terminal",
+            status: "pending",
+            claim_id: null,
+            run_id: null,
+          },
+        ])
+      },
+    })
+  })
+
   test("does not synthesize Atom reports for terminal human runs", async () => {
     await Instance.provide({
       directory: projectRoot,

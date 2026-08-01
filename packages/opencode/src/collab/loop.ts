@@ -9,6 +9,8 @@ import { MessageV2 } from "@/session/message-v2"
 import { Provider } from "@/provider/provider"
 import { Workflow } from "@/workflow"
 import { ExperimentRemoteTaskListener } from "@/research/experiment-remote-task-listener"
+import { PermissionNext } from "@/permission/next"
+import { Question } from "@/question"
 import { CollabAgentNode } from "./agent-node"
 import { CollabMessage } from "./message"
 import { CollabRuntime } from "./runtime"
@@ -40,7 +42,9 @@ import type {
 export namespace CollabLoop {
   const log = Log.create({ service: "collab.loop" })
   const waiters = new Map<string, Set<() => void>>()
+  export const DEFAULT_TIMEOUT = 5 * 60 * 1000
   type Identity = { runId: string | null; parentId: string | null }
+  type Guard = Identity & { status?: AgentInfo["status"]; timeUpdated?: number; error?: null }
 
   class PromptRetry extends Error {
     constructor(readonly error: unknown) {
@@ -50,12 +54,128 @@ export namespace CollabLoop {
 
   class PromptAbort extends Error {}
 
+  class TurnError extends Error {
+    constructor(readonly info: AgentError) {
+      super(info.message)
+    }
+  }
+
+  function failure(err: unknown): AgentError {
+    if (err instanceof TurnError) return err.info
+    if (Provider.ModelNotFoundError.isInstance(err)) {
+      return {
+        code: "MODEL_UNAVAILABLE",
+        message: `Model ${err.data.providerID}/${err.data.modelID} is unavailable.`,
+      }
+    }
+    if (err instanceof SessionPrompt.ModelUnavailableError) {
+      return { code: "MODEL_UNAVAILABLE", message: err.message }
+    }
+    if (MessageV2.AuthError.isInstance(err)) {
+      return { code: "PROVIDER_AUTH", message: err.data.message }
+    }
+    if (MessageV2.APIError.isInstance(err)) {
+      return {
+        code: err.data.isRetryable ? "PROVIDER_API_RETRY_EXHAUSTED" : "PROVIDER_API",
+        message: err.data.message,
+      }
+    }
+    if (MessageV2.ContextOverflowError.isInstance(err)) {
+      return { code: "CONTEXT_OVERFLOW", message: err.data.message }
+    }
+    const value = err as { message?: unknown; stack?: unknown; data?: { message?: unknown } }
+    return {
+      code: "LOOP_CRASH",
+      message:
+        typeof value?.message === "string"
+          ? value.message
+          : typeof value?.data?.message === "string"
+            ? value.data.message
+            : String(err),
+      detail: typeof value?.stack === "string" ? value.stack : undefined,
+    }
+  }
+
   GlobalBus.on("event", (e) => {
     if (e.payload.type !== CollabEvent.MessagePosted.type) return
     const props = e.payload.properties as { recipientAgentId?: string; kind?: string }
     if (!props.recipientAgentId || !isWakeKind(props.kind ?? "")) return
     for (const wake of [...(waiters.get(props.recipientAgentId) ?? [])]) wake()
   })
+
+  function deadline(node: AgentInfo) {
+    return (node.time_started ?? node.time_created) + (node.spec.policy?.timeout_ms ?? DEFAULT_TIMEOUT)
+  }
+
+  function schedule(node: AgentInfo, identity: Identity) {
+    CollabRuntime.schedule(node.id, Math.max(deadline(node) - Date.now(), 0), () => {
+      void fail(
+        node.id,
+        {
+          code: "TIMEOUT",
+          message: `Agent exceeded its ${node.spec.policy?.timeout_ms ?? DEFAULT_TIMEOUT}ms timeout.`,
+        },
+        identity,
+      )
+    })
+  }
+
+  export function watch(agentId: string) {
+    const node = CollabAgentNode.tryLoad(agentId)
+    if (!node || !CollabAgentNode.isActive(node.status)) return
+    schedule(node, { runId: node.run_id, parentId: node.parent_agent_id })
+  }
+
+  export async function fail(agentId: string, error: AgentError, expected?: Guard) {
+    let node = CollabAgentNode.tryLoad(agentId)
+    if (!node || !CollabAgentNode.isActive(node.status)) return
+    const guard: Guard = {
+      runId: node.run_id,
+      parentId: node.parent_agent_id,
+      status: node.status,
+      timeUpdated: node.time_updated,
+      error: node.error ? undefined : null,
+      ...expected,
+    }
+    const identity = { runId: guard.runId, parentId: guard.parentId }
+    if (!matches(node, identity)) return
+    try {
+      node = CollabAgentNode.transition(node.id, node.status, { error: node.error ?? error }, guard)
+    } catch {
+      return
+    }
+
+    const runtime = CollabRuntime.get(agentId)
+    if (runtime) {
+      CollabRuntime.abortAndUnregister(agentId)
+      await Promise.race([runtime.promise.catch(() => {}), Bun.sleep(1000)])
+      node = CollabAgentNode.tryLoad(agentId)
+      if (!node || !matches(node, identity) || !CollabAgentNode.isActive(node.status)) return
+    }
+
+    SessionPrompt.cancel(node.session_id)
+    await Promise.all([Question.rejectSession(node.session_id), PermissionNext.rejectSession(node.session_id)])
+    let release = SessionOwnership.claim(node.session_id, "collab")
+    if (!release) {
+      SessionOwnership.revoke(node.session_id)
+      await SessionOwnership.wait(node.session_id)
+      release = SessionOwnership.claim(node.session_id, "collab")
+    }
+    if (!release) {
+      CollabRuntime.schedule(agentId, SessionOwnership.retryAfter(node.session_id), () => {
+        void fail(agentId, node.error ?? error, identity)
+      })
+      return
+    }
+
+    try {
+      const msgs = CollabMessage.drain(agentId)
+      if (msgs.length) CollabMessage.drop(msgs)
+      await finalizeFailed(node, identity, node.error ?? error, undefined, release.token)
+    } finally {
+      release()
+    }
+  }
 
   export async function start(agentId: string, expected?: Identity): Promise<void> {
     const node = CollabAgentNode.load(agentId)
@@ -70,6 +190,17 @@ export namespace CollabLoop {
     }
     const current = CollabAgentNode.tryLoad(agentId)
     if (!current || !matches(current, identity)) return
+    if (session.collabPeer && Date.now() >= deadline(current)) {
+      await fail(
+        agentId,
+        {
+          code: "TIMEOUT",
+          message: `Agent exceeded its ${current.spec.policy?.timeout_ms ?? DEFAULT_TIMEOUT}ms timeout.`,
+        },
+        identity,
+      )
+      return
+    }
     if (CollabRuntime.has(agentId)) {
       if (CollabRuntime.matches(agentId, identity)) {
         log.warn("loop already running", { agentId })
@@ -88,26 +219,64 @@ export namespace CollabLoop {
     }
     CollabMessage.retryProcessing(agentId)
     const abort = new AbortController()
+    const peer = session.collabPeer === true
+    let expired = false
+    const timeout = peer
+      ? setTimeout(() => {
+          expired = true
+          abort.abort()
+          void fail(
+            agentId,
+            {
+              code: "TIMEOUT",
+              message: `Agent exceeded its ${current.spec.policy?.timeout_ms ?? DEFAULT_TIMEOUT}ms timeout.`,
+            },
+            identity,
+          )
+        }, Math.max(deadline(current) - Date.now(), 0))
+      : undefined
+    timeout?.unref?.()
     const lost = () => abort.abort()
     release.signal.addEventListener("abort", lost, { once: true })
-    const promise = runLoop(agentId, identity, abort.signal, release.token)
+    const promise = (expired
+      ? Promise.reject(new TurnError({ code: "TIMEOUT", message: "Agent timed out before it could start." }))
+      : runLoop(agentId, identity, abort.signal, release.token, peer)
+    )
       .catch(async (err) => {
         const cause = err instanceof PromptRetry ? err.error : err
         log.error("loop crashed", { agentId, error: String(cause) })
         if (!release.valid()) return
-        if (Provider.ModelNotFoundError.isInstance(cause) || cause instanceof SessionPrompt.ModelUnavailableError) {
+        if (expired) {
+          await markLoopFailed(
+            agentId,
+            identity,
+            new TurnError({
+              code: "TIMEOUT",
+              message: `Agent exceeded its ${current.spec.policy?.timeout_ms ?? DEFAULT_TIMEOUT}ms timeout.`,
+            }),
+            release.token,
+          )
+          return
+        }
+        if (
+          !peer &&
+          (Provider.ModelNotFoundError.isInstance(cause) || cause instanceof SessionPrompt.ModelUnavailableError)
+        ) {
           await waitForModel(agentId, identity, cause)
           return
         }
-        if (err instanceof PromptRetry || cause instanceof PromptAbort) return
+        if (cause instanceof PromptAbort) return
+        if (err instanceof PromptRetry && !peer) return
         await markLoopFailed(agentId, identity, cause, release.token)
       })
       .finally(() => {
+        if (timeout) clearTimeout(timeout)
         release.signal.removeEventListener("abort", lost)
         release()
         const timer = setTimeout(() => {
           const fresh = CollabAgentNode.tryLoad(agentId)
           if (!fresh || !matches(fresh, identity) || !CollabAgentNode.isActive(fresh.status)) return
+          if (peer) schedule(fresh, identity)
           if (
             fresh.status === "waiting_interaction" &&
             fresh.error?.code === "MODEL_UNAVAILABLE" &&
@@ -137,12 +306,7 @@ export namespace CollabLoop {
     try {
       const info = current(agentId, identity)
       if (!info || !CollabAgentNode.isActive(info.status)) return
-      const error: AgentError = {
-        code: "LOOP_CRASH",
-        message: err instanceof Error ? err.message : String(err),
-        detail: err instanceof Error ? err.stack : undefined,
-      }
-      await finalizeFailed(info, identity, error, undefined, lease)
+      await finalizeFailed(info, identity, failure(err), undefined, lease)
     } catch (e) {
       log.error("markLoopFailed failed", { agentId, error: String(e) })
     }
@@ -181,7 +345,7 @@ export namespace CollabLoop {
     })
   }
 
-  async function runLoop(agentId: string, identity: Identity, abort: AbortSignal, lease: string) {
+  async function runLoop(agentId: string, identity: Identity, abort: AbortSignal, lease: string, peer: boolean) {
     log.info("loop.start", { agentId })
 
     // Recovery path: if the agent already left `pending`, its initialPrompt
@@ -286,7 +450,16 @@ export namespace CollabLoop {
       if (gotCancel) {
         log.info("loop.cancel", { agentId })
         const error: AgentError = { code: "CANCELED", message: "cancel message received" }
-        CollabAgentNode.transition(node.id, node.status, { error })
+        try {
+          CollabAgentNode.transition(node.id, node.status, { error }, {
+            runId: node.run_id,
+            parentId: node.parent_agent_id,
+            status: node.status,
+            timeUpdated: node.time_updated,
+          })
+        } catch {
+          return
+        }
         await CollabSupervisor.cancelDescendants(agentId, { reason: "parent canceled", initiator: "parent" })
         CollabMessage.drop(msgs)
         CollabMessage.closeInbox(agentId)
@@ -300,10 +473,19 @@ export namespace CollabLoop {
         if (!fresh) return
         if (fresh.active_children > 0) {
           await CollabSupervisor.cancelDescendants(fresh.id, { reason: node.error.message, initiator: "parent" })
-          CollabAgentNode.transition(fresh.id, "blocked_on_children", {
-            phase: "awaiting_children",
-            error: node.error,
-          })
+          try {
+            CollabAgentNode.transition(
+              fresh.id,
+              "blocked_on_children",
+              { phase: "awaiting_children", error: node.error },
+              {
+                runId: fresh.run_id,
+                parentId: fresh.parent_agent_id,
+                status: fresh.status,
+                timeUpdated: fresh.time_updated,
+              },
+            )
+          } catch {}
           return
         }
         if (node.error.code === "CANCELED") {
@@ -350,6 +532,10 @@ export namespace CollabLoop {
           )
         } catch (err) {
           const fresh = CollabAgentNode.tryLoad(agentId)
+          if (peer) {
+            if (fresh && CollabAgentNode.isActive(fresh.status)) CollabMessage.drop(msgs)
+            throw err
+          }
           const unavailable =
             Provider.ModelNotFoundError.isInstance(err) || err instanceof SessionPrompt.ModelUnavailableError
           if (fresh && CollabAgentNode.isActive(fresh.status)) {
@@ -476,8 +662,9 @@ export namespace CollabLoop {
           : matchParts(durable.parts, input.parts as PromptPartDraft[]))
       ) {
         if (abort.aborted) throw new PromptAbort("Prompt aborted before durable resume")
-        await SessionPrompt.loop({ sessionID: node.session_id })
+        const result = await SessionPrompt.loop({ sessionID: node.session_id })
         if (abort.aborted) throw new PromptAbort("Prompt aborted during durable resume")
+        if (result?.info.role === "assistant" && result.info.error) throw new TurnError(failure(result.info.error))
         return
       }
       if (durable) {
@@ -485,7 +672,7 @@ export namespace CollabLoop {
         if (abort.aborted) throw new PromptAbort("Prompt aborted during durable replacement")
       }
       if (abort.aborted) throw new PromptAbort("Prompt aborted before delivery")
-      await SessionPrompt.prompt({
+      const result = await SessionPrompt.prompt({
         ...input.prompt,
         sessionID: node.session_id,
         messageID: input.messageID,
@@ -494,6 +681,7 @@ export namespace CollabLoop {
         parts: input.parts,
       })
       if (abort.aborted) throw new PromptAbort("Prompt aborted during delivery")
+      if (result?.info.role === "assistant" && result.info.error) throw new TurnError(failure(result.info.error))
     } catch (err) {
       throw err
     } finally {
@@ -583,6 +771,7 @@ export namespace CollabLoop {
     const fresh = current(node.id, identity)
     if (!fresh) return false
     if (!CollabAgentNode.isActive(fresh.status)) return false
+    if (fresh.error) return false
     if (fresh.active_children > 0) return false
     if (ExperimentRemoteTaskListener.has(fresh.id, "collab")) return false
     if (CollabMessage.hasPendingWakeMsg(fresh.id)) return false
@@ -629,13 +818,34 @@ export namespace CollabLoop {
     if (abort?.aborted) return
     const currentNode = current(node.id, identity)
     if (!currentNode || !CollabAgentNode.isActive(currentNode.status)) return
-    const fresh = CollabAgentNode.transition(currentNode.id, currentNode.status, { error })
+    const fresh = (() => {
+      try {
+        return CollabAgentNode.transition(currentNode.id, currentNode.status, { error }, {
+          runId: currentNode.run_id,
+          parentId: currentNode.parent_agent_id,
+          status: currentNode.status,
+          timeUpdated: currentNode.time_updated,
+        })
+      } catch {
+        return
+      }
+    })()
+    if (!fresh) return
     if (fresh.active_children > 0) {
       await CollabSupervisor.cancelDescendants(fresh.id, { reason: error.message, initiator: "parent" })
-      CollabAgentNode.transition(fresh.id, "blocked_on_children", {
-        phase: "awaiting_children",
-        error,
-      })
+      try {
+        CollabAgentNode.transition(
+          fresh.id,
+          "blocked_on_children",
+          { phase: "awaiting_children", error },
+          {
+            runId: fresh.run_id,
+            parentId: fresh.parent_agent_id,
+            status: fresh.status,
+            timeUpdated: fresh.time_updated,
+          },
+        )
+      } catch {}
       return
     }
     const payload: ChildFailedPayload = {
@@ -684,13 +894,34 @@ export namespace CollabLoop {
     const error: AgentError = { code: "CANCELED", message: reason }
     const currentNode = current(node.id, identity)
     if (!currentNode || !CollabAgentNode.isActive(currentNode.status)) return
-    const fresh = CollabAgentNode.transition(currentNode.id, currentNode.status, { error })
+    const fresh = (() => {
+      try {
+        return CollabAgentNode.transition(currentNode.id, currentNode.status, { error }, {
+          runId: currentNode.run_id,
+          parentId: currentNode.parent_agent_id,
+          status: currentNode.status,
+          timeUpdated: currentNode.time_updated,
+        })
+      } catch {
+        return
+      }
+    })()
+    if (!fresh) return
     if (fresh.active_children > 0) {
       await CollabSupervisor.cancelDescendants(fresh.id, { reason, initiator: "parent" })
-      CollabAgentNode.transition(fresh.id, "blocked_on_children", {
-        phase: "awaiting_children",
-        error,
-      })
+      try {
+        CollabAgentNode.transition(
+          fresh.id,
+          "blocked_on_children",
+          { phase: "awaiting_children", error },
+          {
+            runId: fresh.run_id,
+            parentId: fresh.parent_agent_id,
+            status: fresh.status,
+            timeUpdated: fresh.time_updated,
+          },
+        )
+      } catch {}
       return
     }
     const payload: ChildFailedPayload = {

@@ -1,4 +1,4 @@
-import { and, Database, eq, inArray, isNull } from "@/storage/db"
+import { and, Database, eq, inArray } from "@/storage/db"
 import { CollabAgentTable } from "@/collab/collab.sql"
 import { CollabMessage } from "@/collab/message"
 import type { RemoteTaskTerminalPayload } from "@/collab/types"
@@ -8,15 +8,22 @@ import { RemoteTaskTable } from "./research.sql"
 type Task = typeof RemoteTaskTable.$inferSelect
 
 const terminal = new Set<Task["status"]>(["finished", "failed", "crashed", "canceled"])
+const active = new Set(["pending", "running", "blocked_on_children", "waiting_interaction"])
 
 export namespace ExperimentRemoteTaskListener {
-  export function register(input: { taskId: string; agentId: string; mode: "direct" | "collab" }) {
+  function lifecycle(agent: typeof CollabAgentTable.$inferSelect) {
+    const mode = active.has(agent.status) && agent.run_id ? ("collab" as const) : ("direct" as const)
+    return { mode, run: mode === "collab" ? agent.run_id : null }
+  }
+
+  export function register(input: { taskId: string; agentId: string }) {
     return Database.transaction((tx) => {
       const task = tx.select().from(RemoteTaskTable).where(eq(RemoteTaskTable.task_id, input.taskId)).get()
       if (!task) throw new Error(`remote task not found: ${input.taskId}`)
       if (terminal.has(task.status)) return { listening: false as const, duplicate: false, task }
       const agent = tx.select().from(CollabAgentTable).where(eq(CollabAgentTable.id, input.agentId)).get()
       if (!agent) throw new Error(`collab agent not found: ${input.agentId}`)
+      const state = lifecycle(agent)
 
       const existing = tx
         .select()
@@ -27,24 +34,22 @@ export namespace ExperimentRemoteTaskListener {
         .get()
       const now = Date.now()
       if (existing) {
-        if (existing.run_id === agent.run_id && existing.mode === input.mode) {
-          return { listening: true as const, duplicate: true, task }
-        }
+        const duplicate = existing.run_id === state.run && existing.mode === state.mode
         tx.update(RemoteTaskListenerTable)
-          .set({ mode: input.mode, run_id: agent.run_id, time_updated: now })
+          .set({ mode: state.mode, run_id: state.run, time_created: now, time_updated: now })
           .where(
             and(eq(RemoteTaskListenerTable.task_id, input.taskId), eq(RemoteTaskListenerTable.agent_id, input.agentId)),
           )
           .run()
-        return { listening: true as const, duplicate: false, task }
+        return { listening: true as const, duplicate, task }
       }
 
       tx.insert(RemoteTaskListenerTable)
         .values({
           task_id: input.taskId,
           agent_id: input.agentId,
-          mode: input.mode,
-          run_id: agent.run_id,
+          mode: state.mode,
+          run_id: state.run,
           time_created: now,
           time_updated: now,
         })
@@ -75,43 +80,86 @@ export namespace ExperimentRemoteTaskListener {
     )
   }
 
+  export function reconcile(agentId: string) {
+    const tasks = Database.transaction((tx) => {
+      const agent = tx.select().from(CollabAgentTable).where(eq(CollabAgentTable.id, agentId)).get()
+      if (!agent) return []
+      const rows = tx
+        .select({ listener: RemoteTaskListenerTable, task: RemoteTaskTable })
+        .from(RemoteTaskListenerTable)
+        .innerJoin(RemoteTaskTable, eq(RemoteTaskTable.task_id, RemoteTaskListenerTable.task_id))
+        .where(eq(RemoteTaskListenerTable.agent_id, agentId))
+        .all()
+      const now = Date.now()
+      for (const row of rows) {
+        if (
+          row.listener.mode !== "collab" ||
+          (active.has(agent.status) && !!row.listener.run_id && row.listener.run_id === agent.run_id)
+        )
+          continue
+        tx.update(RemoteTaskListenerTable)
+          .set({ mode: "direct", run_id: null, time_updated: now })
+          .where(
+            and(
+              eq(RemoteTaskListenerTable.task_id, row.listener.task_id),
+              eq(RemoteTaskListenerTable.agent_id, row.listener.agent_id),
+            ),
+          )
+          .run()
+      }
+      return rows.filter((row) => terminal.has(row.task.status)).map((row) => row.task)
+    })
+    for (const task of tasks) notify(task)
+  }
+
   export function notify(task: Task) {
     if (!terminal.has(task.status)) return
     const listeners = Database.use((db) =>
       db.select().from(RemoteTaskListenerTable).where(eq(RemoteTaskListenerTable.task_id, task.task_id)).all(),
     )
-    const payload: RemoteTaskTerminalPayload = {
-      taskId: task.task_id,
-      expId: task.exp_id,
-      kind: task.kind,
-      title: task.title,
-      status: task.status as RemoteTaskTerminalPayload["status"],
-      logPath: task.log_path,
-      errorMessage: task.error_message,
-    }
     for (const listener of listeners) {
-      CollabMessage.post({
-        recipientAgentId: listener.agent_id,
-        senderAgentId: null,
-        runId: listener.run_id,
-        expectedRunId: listener.run_id,
-        kind: listener.mode === "direct" ? "session_remote_task_terminal" : "remote_task_terminal",
-        payload,
-      })
-      Database.use((db) =>
-        db
+      Database.transaction((tx) => {
+        const claimed = tx
           .delete(RemoteTaskListenerTable)
           .where(
             and(
               eq(RemoteTaskListenerTable.task_id, listener.task_id),
               eq(RemoteTaskListenerTable.agent_id, listener.agent_id),
-              listener.run_id
-                ? eq(RemoteTaskListenerTable.run_id, listener.run_id)
-                : isNull(RemoteTaskListenerTable.run_id),
             ),
           )
-          .run(),
-      )
+          .returning()
+          .get()
+        if (!claimed) return
+        const current = tx.select().from(RemoteTaskTable).where(eq(RemoteTaskTable.task_id, task.task_id)).get()
+        if (!current || !terminal.has(current.status)) {
+          tx.insert(RemoteTaskListenerTable).values(claimed).run()
+          return
+        }
+        const agent = tx.select().from(CollabAgentTable).where(eq(CollabAgentTable.id, claimed.agent_id)).get()
+        if (!agent) return
+        const collab =
+          claimed.mode === "collab" && active.has(agent.status) && !!claimed.run_id && claimed.run_id === agent.run_id
+        const payload: RemoteTaskTerminalPayload = {
+          taskId: current.task_id,
+          expId: current.exp_id,
+          kind: current.kind,
+          title: current.title,
+          status: current.status as RemoteTaskTerminalPayload["status"],
+          logPath: current.log_path,
+          errorMessage: current.error_message,
+        }
+        const posted =
+          CollabMessage.findRemoteTerminal(claimed.agent_id, current.task_id, claimed.time_created)?.id ??
+          CollabMessage.post({
+            recipientAgentId: claimed.agent_id,
+            senderAgentId: null,
+            runId: collab ? claimed.run_id : null,
+            expectedRunId: agent.run_id,
+            kind: collab ? "remote_task_terminal" : "session_remote_task_terminal",
+            payload,
+          })
+        if (!posted) throw new Error(`Failed to post terminal callback for remote task ${current.task_id}`)
+      })
     }
   }
 }

@@ -172,6 +172,7 @@ export namespace CollabAutoWake {
   }
 
   async function driveNode(node: AgentInfo, inflight: Set<string>) {
+    CollabMessage.reconcileRemoteTerminals(node.id)
     if (CollabMessage.hasPendingKind(node.id, "session_remote_task_terminal")) {
       await maybeDriveDirect(node, inflight)
       return

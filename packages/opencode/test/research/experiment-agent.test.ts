@@ -11,6 +11,7 @@ import { CollabAutoWake } from "../../src/collab/auto-wake"
 import { CollabEvent } from "../../src/collab/events"
 import { CollabLoop } from "../../src/collab/loop"
 import { CollabMessage } from "../../src/collab/message"
+import { CollabRecovery } from "../../src/collab/recovery"
 import { CollabRuntime } from "../../src/collab/runtime"
 import { Identifier } from "../../src/id/id"
 import { Instance } from "../../src/project/instance"
@@ -19,11 +20,12 @@ import { ExperimentAgent } from "../../src/research/experiment-agent"
 import { ExperimentRemoteTask } from "../../src/research/experiment-remote-task"
 import { ExperimentRemoteTaskListener } from "../../src/research/experiment-remote-task-listener"
 import { ResearchSessionControl } from "../../src/research/session-control"
-import { AtomTable, ExperimentTable, ResearchProjectTable } from "../../src/research/research.sql"
+import { AtomTable, ExperimentTable, RemoteTaskTable, ResearchProjectTable } from "../../src/research/research.sql"
 import { Session } from "../../src/session"
 import type { MessageV2 } from "../../src/session/message-v2"
 import { SessionPrompt } from "../../src/session/prompt"
 import { SessionStatus } from "../../src/session/status"
+import { SessionOwnership } from "../../src/session/ownership"
 import { Database } from "../../src/storage/db"
 import { SpawnAgentTool } from "../../src/tool/spawn-agent"
 import type { Tool } from "../../src/tool/tool"
@@ -126,7 +128,11 @@ describe("research.experiment-agent", () => {
           screenName: "train",
           command: "python train.py",
         })
-        ExperimentRemoteTaskListener.register({ taskId: task.task_id, agentId: child.id, mode: "direct" })
+        const release = SessionOwnership.claim(child.session_id, "collab")
+        expect(release).toBeDefined()
+        ExperimentRemoteTaskListener.register({ taskId: task.task_id, agentId: child.id })
+        release?.()
+        expect(ExperimentRemoteTaskListener.has(child.id, "direct")).toBeDefined()
 
         await expect(Collab.resume({ agentId: child.id, prompt: "inspect" })).rejects.toThrow("human session")
         ExperimentRemoteTask.update({ taskId: task.task_id, status: "finished" })
@@ -147,6 +153,8 @@ describe("research.experiment-agent", () => {
           await Bun.sleep(20)
           expect(prompt).toHaveBeenCalledTimes(1)
           expect(CollabMessage.hasPendingKind(child.id, "session_remote_task_terminal")).toBe(true)
+          expect(() => ResearchSessionControl.assertHuman(parent.session_id)).not.toThrow()
+          expect(ResearchSessionControl.branchSettled(parent.id)).toBe(false)
         } finally {
           CollabAutoWake.setEnabled(false)
           prompt.mockRestore()
@@ -190,7 +198,7 @@ describe("research.experiment-agent", () => {
           screenName: "train",
           command: "python train.py",
         })
-        ExperimentRemoteTaskListener.register({ taskId: task.task_id, agentId: child.id, mode: "direct" })
+        ExperimentRemoteTaskListener.register({ taskId: task.task_id, agentId: child.id })
 
         const other = path.join(tmp.path, "other")
         await fs.mkdir(other)
@@ -220,6 +228,156 @@ describe("research.experiment-agent", () => {
     })
   })
 
+  test("recovers a terminal listener left behind by a restart", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const item = await seed()
+        const attached = await ExperimentAgent.attach(item.expId)
+        const child = CollabAgentNode.load(attached.agentId!)
+        const task = ExperimentRemoteTask.create({
+          expId: item.expId,
+          kind: "experiment_run",
+          title: "Recovered task",
+          server: "{}",
+          remoteRoot: "/tmp",
+          screenName: "recovered",
+          command: "python train.py",
+        })
+        ExperimentRemoteTaskListener.register({ taskId: task.task_id, agentId: child.id })
+        Database.use((db) =>
+          db
+            .update(RemoteTaskTable)
+            .set({ status: "finished", time_updated: Date.now() })
+            .where(eq(RemoteTaskTable.task_id, task.task_id))
+            .run(),
+        )
+        CollabMessage.post({
+          recipientAgentId: child.id,
+          runId: null,
+          kind: "remote_task_terminal",
+          payload: {
+            taskId: task.task_id,
+            expId: item.expId,
+            kind: task.kind,
+            title: task.title,
+            status: "finished",
+            logPath: task.log_path,
+            errorMessage: null,
+          },
+        })
+
+        CollabRecovery.reconcile()
+        CollabRecovery.reconcile()
+
+        expect(ExperimentRemoteTaskListener.has(child.id)).toBeUndefined()
+        expect(CollabMessage.list(child.id, { kind: "session_remote_task_terminal" })).toMatchObject([
+          { status: "pending", run_id: null },
+        ])
+      },
+    })
+  })
+
+  test("delivers a new callback when a resource task id is reused", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const item = await seed()
+        const attached = await ExperimentAgent.attach(item.expId)
+        const child = CollabAgentNode.load(attached.agentId!)
+        const input = {
+          expId: item.expId,
+          kind: "resource_download" as const,
+          resourceKey: "dataset",
+          title: "Dataset",
+          server: "{}",
+          remoteRoot: "/tmp",
+          screenName: "dataset",
+          command: "download dataset",
+        }
+        const first = ExperimentRemoteTask.create(input)
+        ExperimentRemoteTaskListener.register({ taskId: first.task_id, agentId: child.id })
+        Database.use((db) =>
+          db
+            .update(RemoteTaskTable)
+            .set({ status: "finished", time_updated: Date.now() })
+            .where(eq(RemoteTaskTable.task_id, first.task_id))
+            .run(),
+        )
+        CollabMessage.post({
+          recipientAgentId: child.id,
+          runId: null,
+          kind: "session_remote_task_terminal",
+          payload: {
+            taskId: first.task_id,
+            expId: item.expId,
+            kind: first.kind,
+            title: first.title,
+            status: "finished",
+            logPath: first.log_path,
+            errorMessage: null,
+          },
+        })
+        CollabMessage.ack(CollabMessage.drain(child.id, "direct"))
+        await Bun.sleep(2)
+
+        const second = ExperimentRemoteTask.create(input)
+        expect(second.task_id).toBe(first.task_id)
+        ExperimentRemoteTaskListener.register({ taskId: second.task_id, agentId: child.id })
+        ExperimentRemoteTask.update({ taskId: second.task_id, status: "finished" })
+
+        expect(CollabMessage.list(child.id, { kind: "session_remote_task_terminal" })).toMatchObject([
+          { status: "consumed" },
+          { status: "pending" },
+        ])
+      },
+    })
+  })
+
+  test("does not consume a new listener from a stale terminal snapshot", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const item = await seed()
+        const attached = await ExperimentAgent.attach(item.expId)
+        const child = CollabAgentNode.load(attached.agentId!)
+        const task = ExperimentRemoteTask.create({
+          expId: item.expId,
+          kind: "experiment_run",
+          title: "Restarted task",
+          server: "{}",
+          remoteRoot: "/tmp",
+          screenName: "restarted",
+          command: "python train.py",
+        })
+        ExperimentRemoteTaskListener.register({ taskId: task.task_id, agentId: child.id })
+        Database.use((db) =>
+          db
+            .update(RemoteTaskTable)
+            .set({ status: "finished", time_updated: Date.now() })
+            .where(eq(RemoteTaskTable.task_id, task.task_id))
+            .run(),
+        )
+        const stale = ExperimentRemoteTask.get(task.task_id)!
+        Database.use((db) =>
+          db
+            .update(RemoteTaskTable)
+            .set({ status: "pending", time_updated: Date.now() })
+            .where(eq(RemoteTaskTable.task_id, task.task_id))
+            .run(),
+        )
+
+        ExperimentRemoteTaskListener.notify(stale)
+
+        expect(ExperimentRemoteTaskListener.has(child.id)).toBeDefined()
+        expect(CollabMessage.list(child.id, { kind: "session_remote_task_terminal" })).toHaveLength(0)
+      },
+    })
+  })
+
   test("wakes a blocked experiment when another instance detects remote task completion", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
@@ -238,7 +396,8 @@ describe("research.experiment-agent", () => {
           screenName: "train",
           command: "python train.py",
         })
-        ExperimentRemoteTaskListener.register({ taskId: task.task_id, agentId: child.id, mode: "collab" })
+        ExperimentRemoteTaskListener.register({ taskId: task.task_id, agentId: child.id })
+        expect(ExperimentRemoteTaskListener.has(child.id, "collab")).toBeDefined()
 
         let directory: string | undefined
         const prompt = spyOn(SessionPrompt, "prompt").mockImplementation(

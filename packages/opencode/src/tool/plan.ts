@@ -36,6 +36,7 @@ export const PlanExitTool = Tool.define("plan_exit", {
         },
       ],
       tool: ctx.callID ? { messageID: ctx.messageID, callID: ctx.callID } : undefined,
+      signal: ctx.abort,
     })
 
     const answer = answers[0]?.[0]
@@ -93,6 +94,7 @@ export const PlanEnterTool = Tool.define("plan_enter", {
         },
       ],
       tool: ctx.callID ? { messageID: ctx.messageID, callID: ctx.callID } : undefined,
+      signal: ctx.abort,
     })
 
     const answer = answers[0]?.[0]

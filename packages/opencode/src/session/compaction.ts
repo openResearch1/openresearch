@@ -107,6 +107,7 @@ export namespace SessionCompaction {
     overflow?: boolean
   }) {
     const userMessage = input.messages.findLast((m) => m.info.id === input.parentID)!.info as MessageV2.User
+    const session = await Session.get(input.sessionID)
 
     let messages = input.messages
     let replay: MessageV2.WithParts | undefined
@@ -163,6 +164,14 @@ export namespace SessionCompaction {
       sessionID: input.sessionID,
       model,
       abort: input.abort,
+      interactive: !session.collabPeer,
+      retry: session.collabPeer
+        ? {
+            count: 3,
+            deadline: Date.now() + 60_000,
+            delay: 30_000,
+          }
+        : undefined,
     })
     // Allow plugins to inject context or replace compaction prompt
     const compacting = await Plugin.trigger(

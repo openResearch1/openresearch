@@ -28,6 +28,7 @@ export async function InstanceBootstrap() {
   Snapshot.init()
   Truncate.init()
   ExperimentWatcher.init()
+  CollabRecovery.reconcile()
   ExperimentRemoteTaskWatcher.init()
 
   // Resume orphaned Collab agents left active by the previous process. scan()

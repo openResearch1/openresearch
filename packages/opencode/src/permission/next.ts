@@ -131,10 +131,11 @@ export namespace PermissionNext {
   export const ask = fn(
     Request.partial({ id: true }).extend({
       ruleset: Ruleset,
+      signal: z.custom<AbortSignal>().optional(),
     }),
     async (input) => {
       const s = await state()
-      const { ruleset, ...request } = input
+      const { ruleset, signal, ...request } = input
       for (const pattern of request.patterns ?? []) {
         const rule = evaluate(request.permission, pattern, ruleset, s.approved)
         log.info("evaluated", { permission: request.permission, pattern, action: rule })
@@ -147,12 +148,26 @@ export namespace PermissionNext {
               id,
               ...request,
             }
+            const stop = () => {
+              if (!s.pending[id]) return
+              delete s.pending[id]
+              Bus.publish(Event.Replied, { sessionID: request.sessionID, requestID: id, reply: "reject" })
+              reject(new RejectedError())
+            }
+            signal?.addEventListener("abort", stop, { once: true })
             s.pending[id] = {
               info,
-              resolve,
-              reject,
+              resolve() {
+                signal?.removeEventListener("abort", stop)
+                resolve()
+              },
+              reject(error) {
+                signal?.removeEventListener("abort", stop)
+                reject(error)
+              },
             }
             Bus.publish(Event.Asked, info)
+            if (signal?.aborted) stop()
           })
         }
         if (rule.action === "allow") continue
@@ -232,6 +247,20 @@ export namespace PermissionNext {
       }
     },
   )
+
+  export async function rejectSession(sessionID: string) {
+    const s = await state()
+    for (const [id, existing] of Object.entries(s.pending)) {
+      if (existing.info.sessionID !== sessionID) continue
+      delete s.pending[id]
+      Bus.publish(Event.Replied, {
+        sessionID,
+        requestID: existing.info.id,
+        reply: "reject",
+      })
+      existing.reject(new RejectedError())
+    }
+  }
 
   export function evaluate(permission: string, pattern: string, ...rulesets: Ruleset[]): Rule {
     const merged = merge(...rulesets)

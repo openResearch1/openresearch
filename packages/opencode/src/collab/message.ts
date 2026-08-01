@@ -410,6 +410,103 @@ export namespace CollabMessage {
     })
   }
 
+  export function hasOutstandingCollab(agentId: string): boolean {
+    return Database.use((db) => {
+      const row = db
+        .select({ id: CollabMessageTable.id })
+        .from(CollabMessageTable)
+        .where(
+          and(
+            eq(CollabMessageTable.recipient_agent_id, agentId),
+            inArray(CollabMessageTable.status, ["pending", "processing"]),
+            ne(CollabMessageTable.kind, "session_remote_task_terminal"),
+          ),
+        )
+        .limit(1)
+        .get()
+      return !!row
+    })
+  }
+
+  export function findRemoteTerminal(agentId: string, taskId: string, since: number) {
+    return Database.use((db) =>
+      db
+        .select({ id: CollabMessageTable.id, payload: CollabMessageTable.payload_json })
+        .from(CollabMessageTable)
+        .where(
+          and(
+            eq(CollabMessageTable.recipient_agent_id, agentId),
+            inArray(CollabMessageTable.kind, ["remote_task_terminal", "session_remote_task_terminal"]),
+            gte(CollabMessageTable.time_created, since),
+          ),
+        )
+        .all()
+        .find(
+          (row) =>
+            typeof row.payload === "object" &&
+            row.payload !== null &&
+            "taskId" in row.payload &&
+            row.payload.taskId === taskId,
+        ),
+    )
+  }
+
+  export function reconcileRemoteTerminals(agentId: string) {
+    const rows = Database.transaction((tx) => {
+      const agent = tx.select().from(CollabAgentTable).where(eq(CollabAgentTable.id, agentId)).get()
+      if (!agent) return []
+      const found = tx
+        .select()
+        .from(CollabMessageTable)
+        .where(
+          and(
+            eq(CollabMessageTable.recipient_agent_id, agentId),
+            eq(CollabMessageTable.kind, "remote_task_terminal"),
+            inArray(CollabMessageTable.status, ["pending", "processing"]),
+          ),
+        )
+        .all()
+        .filter(
+          (row) =>
+            !["pending", "running", "blocked_on_children", "waiting_interaction"].includes(agent.status) ||
+            (!!agent.parent_agent_id && (!row.run_id || row.run_id !== agent.run_id)),
+        )
+      if (!found.length) return found
+      const now = Date.now()
+      const repaired = tx
+        .update(CollabMessageTable)
+        .set({
+          kind: "session_remote_task_terminal",
+          run_id: null,
+          status: "pending",
+          claim_id: null,
+          time_consumed: null,
+          time_updated: now,
+        })
+        .where(
+          inArray(
+            CollabMessageTable.id,
+            found.map((row) => row.id),
+          ),
+        )
+        .returning()
+        .all()
+      Database.effect(() => {
+        for (const row of repaired) {
+          Bus.publish(CollabEvent.MessagePosted, {
+            messageId: row.id,
+            recipientAgentId: row.recipient_agent_id,
+            senderAgentId: row.sender_agent_id,
+            kind: row.kind,
+          })
+        }
+      })
+      return repaired
+    })
+    if (rows.length) log.info("reconciled remote terminal messages", { agentId, count: rows.length })
+    return rows.length
+  }
+
   export function hasOutstandingWakeMsg(agentId: string): boolean {
     return Database.use((db) => {
       const row = db

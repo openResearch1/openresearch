@@ -358,7 +358,7 @@ describe("research.atom-agent", () => {
             screenName: "interrupted",
             command: "python train.py",
           })
-          ExperimentRemoteTaskListener.register({ taskId: task.task_id, agentId: result.agentId, mode: "collab" })
+          ExperimentRemoteTaskListener.register({ taskId: task.task_id, agentId: result.agentId })
           await Session.remove(source.id)
 
           const target = CollabAgentNode.load(result.agentId)

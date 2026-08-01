@@ -28,6 +28,12 @@ export namespace SessionProcessor {
     sessionID: string
     model: Provider.Model
     abort: AbortSignal
+    interactive?: boolean
+    retry?: {
+      count: number
+      deadline: number
+      delay: number
+    }
   }) {
     const toolcalls: Record<string, MessageV2.ToolPart> = {}
     let snapshot: string | undefined
@@ -180,6 +186,7 @@ export namespace SessionProcessor {
                       )
                     ) {
                       const agent = await Agent.get(input.assistantMessage.agent)
+                      if (input.interactive === false) throw new PermissionNext.DeniedError(agent.permission)
                       await PermissionNext.ask({
                         permission: "doom_loop",
                         patterns: [value.toolName],
@@ -190,6 +197,7 @@ export namespace SessionProcessor {
                         },
                         always: [value.toolName],
                         ruleset: agent.permission,
+                        signal: input.abort,
                       })
                     }
                   }
@@ -383,9 +391,15 @@ export namespace SessionProcessor {
               })
             } else {
               const retry = SessionRetry.retryable(error)
-              if (retry !== undefined) {
+              const delay = Math.min(
+                SessionRetry.delay(attempt + 1, error.name === "APIError" ? error : undefined),
+                input.retry?.delay ?? Infinity,
+              )
+              const allowed =
+                retry !== undefined &&
+                (!input.retry || (attempt < input.retry.count && Date.now() + delay <= input.retry.deadline))
+              if (allowed) {
                 attempt++
-                const delay = SessionRetry.delay(attempt, error.name === "APIError" ? error : undefined)
                 SessionStatus.set(input.sessionID, {
                   type: "retry",
                   attempt,
@@ -393,14 +407,18 @@ export namespace SessionProcessor {
                   next: Date.now() + delay,
                 })
                 await SessionRetry.sleep(delay, input.abort).catch(() => {})
-                continue
+                if (!input.abort.aborted) continue
+                blocked = true
+                SessionStatus.set(input.sessionID, { type: "idle" })
               }
-              input.assistantMessage.error = error
-              Bus.publish(Session.Event.Error, {
-                sessionID: input.assistantMessage.sessionID,
-                error: input.assistantMessage.error,
-              })
-              SessionStatus.set(input.sessionID, { type: "idle" })
+              if (!blocked) {
+                input.assistantMessage.error = error
+                Bus.publish(Session.Event.Error, {
+                  sessionID: input.assistantMessage.sessionID,
+                  error: input.assistantMessage.error,
+                })
+                SessionStatus.set(input.sessionID, { type: "idle" })
+              }
             }
           }
           if (snapshot) {

@@ -55,7 +55,7 @@ export namespace ResearchSessionControl {
       throw new BusyError(sessionID, kind, true, node.initiator === "human")
     }
     if (node.parent_agent_id) throw new BusyError(sessionID, kind)
-    if (!settled(node.id, "human")) throw new BusyError(sessionID, kind, false)
+    if (!settled(node.id, "human", true, false)) throw new BusyError(sessionID, kind, false)
   }
 
   export function canStartHumanRun(sessionID: string) {
@@ -137,7 +137,7 @@ export namespace ResearchSessionControl {
     return CollabAgentNode.loadBranch(agentId)
   }
 
-  function settled(agentId: string, owner: SessionOwnership.Owner, strict = true) {
+  function settled(agentId: string, owner: SessionOwnership.Owner, strict = true, direct = true) {
     const node = CollabAgentNode.load(agentId)
     if (node.parent_agent_id && CollabAgentNode.isActive(node.status)) return false
     if (SessionStatus.get(node.session_id).type !== "idle") return false
@@ -147,8 +147,8 @@ export namespace ResearchSessionControl {
     return branch(agentId).every((item) => {
       if (
         CollabRuntime.has(item.id) ||
-        ExperimentRemoteTaskListener.has(item.id) ||
-        CollabMessage.hasOutstanding(item.id)
+        ExperimentRemoteTaskListener.has(item.id, direct ? undefined : "collab") ||
+        (direct ? CollabMessage.hasOutstanding(item.id) : CollabMessage.hasOutstandingCollab(item.id))
       )
         return false
       if (item.id !== node.id && CollabAgentNode.isActive(item.status)) return false

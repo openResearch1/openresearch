@@ -2,7 +2,10 @@ import { and, eq, gte, inArray, isNull } from "drizzle-orm"
 import { Database } from "@/storage/db"
 import { Instance } from "@/project/instance"
 import { Log } from "@/util/log"
+import { Session } from "@/session"
 import { SessionOwnership } from "@/session/ownership"
+import { ExperimentRemoteTaskListener } from "@/research/experiment-remote-task-listener"
+import { Workflow } from "@/workflow"
 import { CollabMessageTable } from "./collab.sql"
 import { CollabAgentNode } from "./agent-node"
 import { CollabMessage } from "./message"
@@ -17,7 +20,16 @@ export namespace CollabRecovery {
 
   const ACTIVE_STATUSES = ["pending", "running", "blocked_on_children", "waiting_interaction"] as const
 
+  export function reconcile() {
+    const nodes = CollabAgentNode.loadByProject(Instance.project.id)
+    for (const node of nodes) {
+      ExperimentRemoteTaskListener.reconcile(node.id)
+      CollabMessage.reconcileRemoteTerminals(node.id)
+    }
+  }
+
   export async function scan() {
+    reconcile()
     CollabProgressHook.ensure()
     CollabAutoWake.ensure()
 
@@ -42,6 +54,60 @@ export namespace CollabRecovery {
 
     for (const node of CollabAgentNode.loadActiveByProject(project.id)) {
       CollabAgentNode.recomputeActiveChildren(node.id)
+    }
+    for (const node of CollabAgentNode.loadActiveByProject(project.id)) {
+      const session = await Session.get(node.session_id).catch(() => undefined)
+      if (!session?.collabPeer) continue
+      const guard = {
+        runId: node.run_id,
+        parentId: node.parent_agent_id,
+        status: node.status,
+        timeUpdated: node.time_updated,
+      }
+
+      const workflow = Workflow.latest(node.session_id)
+      if (node.status === "waiting_interaction" && workflow?.status !== "waiting_interaction") {
+        await CollabLoop.fail(
+          node.id,
+          {
+            code: node.error?.code ?? "ORPHANED_WAIT",
+            message: node.error?.message ?? "Spawned agent was waiting without an active interaction workflow.",
+          },
+          guard,
+        )
+        continue
+      }
+      const timeout = node.spec.policy?.timeout_ms ?? CollabLoop.DEFAULT_TIMEOUT
+      if (Date.now() >= (node.time_started ?? node.time_created) + timeout) {
+        await CollabLoop.fail(
+          node.id,
+          {
+            code: "TIMEOUT",
+            message: `Agent exceeded its ${timeout}ms timeout.`,
+          },
+          guard,
+        )
+        continue
+      }
+      if (node.status === "waiting_interaction") CollabLoop.watch(node.id)
+
+      const messages = await Session.messages({ sessionID: node.session_id })
+      const failed = messages.findLast(
+        (message) =>
+          message.info.role === "assistant" &&
+          !!message.info.error &&
+          message.info.time.created >= (node.time_started ?? node.time_created),
+      )
+      if (failed?.info.role !== "assistant" || !failed.info.error) continue
+      const error = failed.info.error as { name?: string; data?: { message?: string } }
+      await CollabLoop.fail(
+        node.id,
+        {
+          code: error.name ?? "SESSION_ERROR",
+          message: error.data?.message ?? "Spawned agent session failed.",
+        },
+        guard,
+      )
     }
     const active = CollabAgentNode.loadActiveByProject(project.id)
     log.info("scan.start", { project: project.id, activeCount: active.length })
