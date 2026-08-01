@@ -190,7 +190,7 @@ export namespace Agent {
             read: "allow",
             glob: "allow",
             grep: "allow",
-            write: "allow",
+            edit: "allow",
           }),
           user,
         ),

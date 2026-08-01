@@ -612,7 +612,12 @@ describe("tool.experiment-remote-task lifecycle", () => {
 
           const get = await ExperimentRemoteTaskGetTool.init()
           const first = await get.execute(
-            { expId: "exp-1", taskId: started.metadata.taskId, listenForTerminal: true },
+            {
+              expId: "exp-1",
+              taskId: started.metadata.taskId,
+              listenForTerminal: true,
+              waitTimeoutMs: 1000,
+            },
             context,
           )
           expect(first.metadata.listening).toBe(true)

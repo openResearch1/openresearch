@@ -231,6 +231,8 @@ test("experiment subagents keep focused permissions and contracts", async () => 
       const commit = await Agent.get("experiment_commit")
 
       expect(evalPerm(plan, "bash")).toBe("deny")
+      expect(evalPerm(plan, "edit")).toBe("allow")
+      expect(PermissionNext.disabled(["edit", "write", "apply_patch"], plan!.permission).size).toBe(0)
       expect(evalPerm(plan, "experiment_query")).toBe("allow")
       expect(evalPerm(plan, "experiment_remote_task_start")).toBe("deny")
       expect(evalPerm(env, "experiment_query")).toBe("allow")

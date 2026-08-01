@@ -49,7 +49,7 @@ import {
 import { parseSshConfig } from "@/research/ssh-config"
 import { isArticleDirectory } from "@/research/article-source"
 import { readRemoteTaskLog } from "@/research/remote-task-runner"
-import { defaultRemoteCodePath, syncCodeToRemote } from "@/research/remote-code-sync"
+import { resolveRemoteCodePath, syncCodeToRemote } from "@/research/remote-code-sync"
 import { AtomAgent } from "@/research/atom-agent"
 import { CodeBranch } from "@/research/code-branch"
 import { ResearchDeletionTable } from "@/research/research-deletion.sql"
@@ -2303,10 +2303,11 @@ export const ResearchRoutes = new Hono()
       if (!row)
         return c.json({ success: false, message: `remote server not found: ${experiment.remote_server_id}` }, 404)
 
-      const remoteCodePath = (body.remoteCodePath ?? experiment.remote_code_path ?? defaultRemoteCodePath(expId)).trim()
       try {
+        const server = normalizeRemoteServerConfig(JSON.parse(row.config))
+        const remoteCodePath = resolveRemoteCodePath(server, expId, body.remoteCodePath ?? experiment.remote_code_path)
         const result = await syncCodeToRemote({
-          server: normalizeRemoteServerConfig(JSON.parse(row.config)),
+          server,
           codePath: experiment.code_path,
           remoteCodePath,
           delete: body.delete,

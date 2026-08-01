@@ -143,7 +143,9 @@ export const ExperimentRemoteTaskGetTool = Tool.define("experiment_remote_task_g
       .number()
       .positive()
       .optional()
-      .describe("Optional maximum time to wait for terminal status in milliseconds."),
+      .describe(
+        "Optional maximum time for waitForTerminal in milliseconds. Ignored when using listenForTerminal.",
+      ),
     listenForTerminal: z
       .boolean()
       .optional()
@@ -157,9 +159,6 @@ export const ExperimentRemoteTaskGetTool = Tool.define("experiment_remote_task_g
     }
     if (params.listenForTerminal && !params.taskId) {
       throw new Error("taskId is required when listenForTerminal is enabled")
-    }
-    if (params.listenForTerminal && params.waitTimeoutMs !== undefined) {
-      throw new Error("waitTimeoutMs is only supported with waitForTerminal")
     }
     if (params.taskId) {
       const existing = ExperimentRemoteTask.get(params.taskId)

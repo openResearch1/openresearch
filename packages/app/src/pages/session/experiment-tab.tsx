@@ -38,6 +38,13 @@ type LegacyDirectServerConfig = Omit<DirectServerConfig, "mode">
 
 type ServerConfig = DirectServerConfig | SshConfigServerConfig | LegacyDirectServerConfig
 
+function defaultRemotePath(config: ServerConfig | null, expId: string) {
+  const value = config?.resource_root?.trim()
+  if (!value) return ""
+  const root = value === "/" ? "" : value.replace(/\/+$/, "")
+  return `${root}/experiments/${expId}`
+}
+
 function errorMessage(input: unknown, fallback: string) {
   if (input instanceof Error && input.message) return input.message
   if (typeof input === "string" && input) return input
@@ -517,7 +524,8 @@ export function ExpProgressTab(
   const [saving, setSaving] = createSignal(false)
   const [editingRemotePath, setEditingRemotePath] = createSignal(false)
   const [remotePathInput, setRemotePathInput] = createSignal(
-    props.experiment.remote_code_path ?? `experiments/${props.experiment.exp_id}`,
+    props.experiment.remote_code_path ??
+      defaultRemotePath(props.experiment.remote_server_config ?? null, props.experiment.exp_id),
   )
   const [savingRemotePath, setSavingRemotePath] = createSignal(false)
   const [syncingCode, setSyncingCode] = createSignal(false)
@@ -535,7 +543,9 @@ export function ExpProgressTab(
   )
   const codePath = createMemo(() => props.experiment.code_path)
   const [currentRemotePath, setCurrentRemotePath] = createSignal<string | null>(props.experiment.remote_code_path ?? null)
-  const remotePath = createMemo(() => currentRemotePath() ?? `experiments/${props.experiment.exp_id}`)
+  const remotePath = createMemo(
+    () => currentRemotePath() ?? defaultRemotePath(currentServerConfig(), props.experiment.exp_id),
+  )
   const describeServer = (cfg: ServerConfig) =>
     "mode" in cfg && cfg.mode === "ssh_config"
       ? `${cfg.user ? `${cfg.user}@` : ""}${cfg.host_alias}`
@@ -788,7 +798,7 @@ export function ExpProgressTab(
               fallback={
                 <div class="flex flex-col gap-2">
                   <div class="flex items-center gap-2">
-                    <div class="text-14-regular font-mono truncate">{remotePath()}</div>
+                    <div class="text-14-regular font-mono truncate">{remotePath() || "resource_root required"}</div>
                     <Show when={!currentRemotePath()}>
                       <div class="text-11-regular text-text-weak">default</div>
                     </Show>
@@ -827,7 +837,7 @@ export function ExpProgressTab(
                 <input
                   value={remotePathInput()}
                   onInput={(e) => setRemotePathInput(e.currentTarget.value)}
-                  placeholder={`experiments/${props.experiment.exp_id}`}
+                  placeholder={`/path/to/resource_root/experiments/${props.experiment.exp_id}`}
                   class="rounded border border-border-weak-base bg-background-stronger px-2 py-1 text-13-regular text-text-base font-mono outline-none focus:border-border-base"
                 />
                 <div class="text-11-regular text-text-weak">
