@@ -41,6 +41,7 @@ export namespace Collab {
     subagentType: string
     spec: AgentSpec
     permission?: PermissionNext.Ruleset
+    startParent?: "human"
   }
 
   export async function spawn(input: SpawnInput): Promise<AgentInfo> {
@@ -83,16 +84,24 @@ export namespace Collab {
     const agentId = Identifier.ascending("collab_agent")
     const rootAgentId = parent ? parent.root_agent_id : agentId
 
-    const info = CollabAgentNode.create({
-      id: agentId,
-      sessionId: session.id,
-      parentAgentId: parent?.id ?? null,
-      name: input.name,
-      projectId: expectedProjectId,
-      rootAgentId,
-      subagentType: input.subagentType,
-      spec: input.spec,
-    })
+    const info = await Promise.resolve()
+      .then(() =>
+        CollabAgentNode.create({
+          id: agentId,
+          sessionId: session.id,
+          parentAgentId: parent?.id ?? null,
+          name: input.name,
+          projectId: expectedProjectId,
+          rootAgentId,
+          subagentType: input.subagentType,
+          spec: input.spec,
+          startParent: input.startParent,
+        }),
+      )
+      .catch(async (err) => {
+        await Session.remove(session.id).catch(() => undefined)
+        throw err
+      })
 
     void CollabLoop.start(agentId)
     log.info("spawn", { agentId, parentAgentId: parent?.id, sessionId: session.id, projectId: expectedProjectId })
@@ -181,6 +190,12 @@ export namespace Collab {
     if (!node) throw new NotFoundError({ message: `Agent not found: ${input.agentId}` })
     node =
       (await import("@/research/experiment-agent").then((mod) => mod.ExperimentAgent.recover(input.agentId))) ?? node
+    if (node.initiator === "human" && CollabAgentNode.isActive(node.status)) {
+      throw new Error(`Cannot resume agent ${node.id}: its current run belongs to a human session.`)
+    }
+    if (CollabAgentNode.isActive(node.status) && node.error && node.error.code !== "MODEL_UNAVAILABLE") {
+      throw new Error(`Cannot resume agent ${node.id}: its current run is terminating (${node.error.code}).`)
+    }
     if (node.parent_agent_id && CollabAgentNode.isActive(node.status) && !node.run_id) {
       node = CollabAgentNode.ensureRun(node.id)
     }
@@ -233,6 +248,7 @@ export namespace Collab {
           runId: node.run_id,
           expectedParentAgentId: node.parent_agent_id,
           expectedRunId: node.run_id,
+          expectedErrorCode: null,
           kind: "user_input",
           payload: { text: input.prompt, model: input.model },
         })

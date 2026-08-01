@@ -1,6 +1,12 @@
 import z from "zod"
 import { BusEvent } from "@/bus/bus-event"
-import { AgentInfoSchema, CollabAgentPhaseSchema, CollabAgentStatusSchema, CollabMsgKindSchema } from "./types"
+import {
+  AgentInfoSchema,
+  CollabAgentPhaseSchema,
+  CollabAgentStatusSchema,
+  CollabMsgKindSchema,
+  RunInitiatorSchema,
+} from "./types"
 
 export namespace CollabEvent {
   export const AgentCreated = BusEvent.define(
@@ -18,6 +24,7 @@ export namespace CollabEvent {
       status: CollabAgentStatusSchema,
       phase: CollabAgentPhaseSchema,
       active_children: z.number().int().nonnegative(),
+      initiator: RunInitiatorSchema.nullable(),
     }),
   )
 

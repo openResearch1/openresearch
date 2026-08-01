@@ -97,6 +97,7 @@ export namespace ExperimentAgent {
 
   export async function recover(agentId: string) {
     const node = CollabAgentNode.tryLoad(agentId)
+    if (node?.initiator === "human" && CollabAgentNode.isActive(node.status)) return node
     const expId = node?.spec.metadata?.expId
     if (typeof expId !== "string") return node
     const result = await attach(expId, { force: true })

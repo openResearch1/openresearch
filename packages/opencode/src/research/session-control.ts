@@ -15,10 +15,13 @@ export namespace ResearchSessionControl {
       public readonly sessionID: string,
       domain: "Atom" | "Experiment" = "Experiment",
       controlled = true,
+      human = false,
     ) {
       super(
         domain === "Experiment"
-          ? `Experiment session ${sessionID} is controlled by its Atom agent`
+          ? human
+            ? `Experiment session ${sessionID} has an active human-initiated task`
+            : `Experiment session ${sessionID} is controlled by its Atom agent`
           : controlled
             ? `Atom session ${sessionID} is controlled by a project agent`
             : `Atom session ${sessionID} is busy`,
@@ -47,11 +50,46 @@ export namespace ResearchSessionControl {
     const node = CollabAgentNode.loadBySessionId(sessionID)
     if (!node) return
     if (kind === "Experiment") {
+      if (node.initiator === "human" && node.status === "waiting_interaction") return
       if (!node.parent_agent_id || !CollabAgentNode.isActive(node.status)) return
-      throw new BusyError(sessionID, kind)
+      throw new BusyError(sessionID, kind, true, node.initiator === "human")
     }
     if (node.parent_agent_id) throw new BusyError(sessionID, kind)
     if (!settled(node.id, "human")) throw new BusyError(sessionID, kind, false)
+  }
+
+  export function canStartHumanRun(sessionID: string) {
+    if (domain(sessionID) !== "Experiment") return false
+    if (SessionOwnership.current(sessionID) !== "human") return false
+    const node = CollabAgentNode.loadBySessionId(sessionID)
+    if (!node?.parent_agent_id || CollabAgentNode.isActive(node.status) || node.active_children > 0) return false
+    const parent = CollabAgentNode.tryLoad(node.parent_agent_id)
+    return !!parent && CollabAgentNode.isActive(parent.status)
+  }
+
+  export function queueHumanPrompt(sessionID: string, prompt: Omit<SessionPrompt.PromptInput, "sessionID">) {
+    const node = CollabAgentNode.loadBySessionId(sessionID)
+    if (!node?.parent_agent_id || node.initiator !== "human" || !CollabAgentNode.isActive(node.status)) return false
+    if (node.error && node.error.code !== "MODEL_UNAVAILABLE") return false
+    const text = prompt.parts
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("\n\n")
+    return !!CollabMessage.post({
+      recipientAgentId: node.id,
+      senderAgentId: null,
+      runId: node.run_id,
+      expectedParentAgentId: node.parent_agent_id,
+      expectedRunId: node.run_id,
+      expectedErrorCode: node.error?.code ?? null,
+      kind: "user_input",
+      payload: {
+        text,
+        messageId: prompt.messageID,
+        model: prompt.model,
+        prompt,
+      },
+    })
   }
 
   export function claimHuman(sessionID: string) {
@@ -64,14 +102,30 @@ export namespace ResearchSessionControl {
       return () => {
         release.signal.removeEventListener("abort", lost)
         release()
+        CollabAutoWake.wake(sessionID)
       }
     } catch (error) {
       release()
+      CollabAutoWake.wake(sessionID)
       throw error
     }
   }
 
   export function assertAbort(sessionID: string) {
+    const node = CollabAgentNode.loadBySessionId(sessionID)
+    if (node?.initiator === "human" && CollabAgentNode.isActive(node.status)) {
+      CollabMessage.post({
+        recipientAgentId: node.id,
+        senderAgentId: null,
+        runId: node.run_id,
+        expectedParentAgentId: node.parent_agent_id,
+        expectedRunId: node.run_id,
+        kind: "cancel",
+        payload: { reason: "Canceled by human", initiator: "user" },
+      })
+      SessionOwnership.revoke(sessionID)
+      return
+    }
     if (SessionOwnership.current(sessionID) === "human") {
       SessionOwnership.revoke(sessionID)
       return
@@ -98,10 +152,11 @@ export namespace ResearchSessionControl {
       )
         return false
       if (item.id !== node.id && CollabAgentNode.isActive(item.status)) return false
+      const current = SessionOwnership.current(item.session_id)
+      if (current === "human" && owner !== "human") return false
       if (!strict) return true
       if (SessionStatus.get(item.session_id).type !== "idle") return false
       if (CollabAutoWake.isDriving(item.session_id)) return false
-      const current = SessionOwnership.current(item.session_id)
       if (item.id === node.id && current === owner) return true
       return current === undefined
     })

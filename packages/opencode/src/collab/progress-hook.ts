@@ -53,6 +53,7 @@ export namespace CollabProgressHook {
     if (!node) return
     if (!node.parent_agent_id) return
     if (!CollabAgentNode.isActive(node.status)) return
+    if (node.initiator === "human") return
 
     const prevTurn = turnCounter.get(node.id) ?? 0
     const turn = prevTurn + 1

@@ -99,6 +99,44 @@ describe("CollabRecovery.scan synthesizes missing child reports", () => {
     })
   })
 
+  test("does not synthesize Atom reports for terminal human runs", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const parentSession = await Session.create({ title: "human-recovery-parent" })
+        const parentId = Identifier.ascending("collab_agent")
+        CollabAgentNode.create({
+          id: parentId,
+          sessionId: parentSession.id,
+          name: "parent",
+          projectId: Instance.project.id,
+          rootAgentId: parentId,
+          subagentType: "general",
+          spec: { initialPrompt: "x" },
+        })
+        const childSession = await Session.create({ title: "human-recovery-child" })
+        const childId = Identifier.ascending("collab_agent")
+        CollabAgentNode.create({
+          id: childId,
+          sessionId: childSession.id,
+          parentAgentId: parentId,
+          name: "human child",
+          projectId: Instance.project.id,
+          rootAgentId: parentId,
+          subagentType: "experiment",
+          spec: { initialPrompt: "x" },
+          initiator: "human",
+        })
+        CollabAgentNode.transition(childId, "canceled", { timeEnded: Date.now() })
+
+        await CollabRecovery.scan()
+
+        expect(CollabMessage.list(parentId, { kind: "child_failed" })).toHaveLength(0)
+        expect(CollabAgentNode.load(parentId).active_children).toBe(0)
+      },
+    })
+  })
+
   test("legacy terminal reports before the current start do not suppress recovery", async () => {
     await Instance.provide({
       directory: projectRoot,

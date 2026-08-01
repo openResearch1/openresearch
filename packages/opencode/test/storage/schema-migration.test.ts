@@ -52,6 +52,9 @@ test("upgrades a database that already applied project Atom delegation", async (
     expect(sqlite.query("PRAGMA table_info('collab_message')").all()).toContainEqual(
       expect.objectContaining({ name: "claim_id" }),
     )
+    expect(sqlite.query("PRAGMA table_info('collab_agent')").all()).toContainEqual(
+      expect.objectContaining({ name: "initiator" }),
+    )
     expect(sqlite.query("PRAGMA table_info('remote_task_listener')").all()).toContainEqual(
       expect.objectContaining({ name: "run_id" }),
     )

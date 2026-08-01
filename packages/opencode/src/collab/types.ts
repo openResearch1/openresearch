@@ -1,4 +1,5 @@
 import z from "zod"
+import type { SessionPrompt } from "@/session/prompt"
 import { collabAgentPhases, collabAgentStatuses, collabMsgKinds } from "./collab.sql"
 
 export const CollabAgentStatusSchema = z.enum(collabAgentStatuses)
@@ -9,6 +10,9 @@ export type CollabAgentPhase = z.infer<typeof CollabAgentPhaseSchema>
 
 export const CollabMsgKindSchema = z.enum(collabMsgKinds)
 export type CollabMsgKind = z.infer<typeof CollabMsgKindSchema>
+
+export const RunInitiatorSchema = z.enum(["human", "agent"])
+export type RunInitiator = z.infer<typeof RunInitiatorSchema>
 
 export const WAKE_MESSAGE_KINDS: readonly CollabMsgKind[] = [
   "child_done",
@@ -144,7 +148,9 @@ export const UserInputPayloadSchema = z.object({
     })
     .optional(),
 })
-export type UserInputPayload = z.infer<typeof UserInputPayloadSchema>
+export type UserInputPayload = z.infer<typeof UserInputPayloadSchema> & {
+  prompt?: Omit<SessionPrompt.PromptInput, "sessionID">
+}
 
 export const SystemPayloadSchema = z.object({
   event: z.enum(["timeout", "retry", "resource_reclaim"]),
@@ -172,6 +178,7 @@ export const AgentInfoSchema = z
     project_id: z.string(),
     root_agent_id: z.string(),
     run_id: z.string().nullable(),
+    initiator: RunInitiatorSchema.nullable(),
     subagent_type: z.string(),
     status: CollabAgentStatusSchema,
     phase: CollabAgentPhaseSchema,

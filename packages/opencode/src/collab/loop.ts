@@ -105,6 +105,19 @@ export namespace CollabLoop {
       .finally(() => {
         release.signal.removeEventListener("abort", lost)
         release()
+        const timer = setTimeout(() => {
+          const fresh = CollabAgentNode.tryLoad(agentId)
+          if (!fresh || !matches(fresh, identity) || !CollabAgentNode.isActive(fresh.status)) return
+          if (
+            fresh.status === "waiting_interaction" &&
+            fresh.error?.code === "MODEL_UNAVAILABLE" &&
+            !CollabMessage.hasPendingKind(agentId, "user_input")
+          )
+            return
+          if (!CollabMessage.hasPendingWakeMsg(agentId)) return
+          void start(agentId, identity)
+        }, 0)
+        timer.unref?.()
       })
     CollabRuntime.register(agentId, abort, promise, identity)
     return promise
@@ -142,6 +155,13 @@ export namespace CollabLoop {
       ? `${err.data.providerID}/${err.data.modelID}`
       : "the configured models"
     const message = `Model ${unavailable} is unavailable. Resume this same agent after selecting an available model.`
+    if (node.initiator === "human") {
+      CollabAgentNode.transition(node.id, "waiting_interaction", {
+        phase: "main_loop",
+        error: { code: "MODEL_UNAVAILABLE", message },
+      })
+      return
+    }
     if (!node.parent_agent_id) {
       CollabAgentNode.transition(node.id, "waiting_interaction", { phase: "main_loop" })
       return
@@ -179,7 +199,10 @@ export namespace CollabLoop {
         hasRunInitialPrompt = true
       } else if (initial.status === "running" || initial.status === "waiting_interaction") {
         if (initial.status === "waiting_interaction") {
-          CollabAgentNode.transition(agentId, "running", { phase: "main_loop" })
+          CollabAgentNode.transition(agentId, "running", {
+            phase: "main_loop",
+            error: initial.error?.code === "MODEL_UNAVAILABLE" ? null : undefined,
+          })
         }
         hasRunInitialPrompt = true
       }
@@ -208,6 +231,7 @@ export namespace CollabLoop {
       let failFastTrigger: ChildFailedPayload | undefined
       let fallback: UserInputPayload["model"]
       let messageID: string | undefined
+      let prompt: UserInputPayload["prompt"]
 
       for (const m of msgs) {
         const payload = m.payload_json as unknown
@@ -248,11 +272,9 @@ export namespace CollabLoop {
             const p = payload as UserInputPayload
             fallback = p.model ?? fallback
             messageID = p.messageId ?? messageID
-            Workflow.autoResume({
-              sessionID: node.session_id,
-              userMessageID: p.messageId ?? m.id,
-              userMessage: p.text,
-            })
+            prompt = p.prompt ?? prompt
+            if (p.prompt) break
+            Workflow.autoResume({ sessionID: node.session_id, userMessageID: p.messageId ?? m.id, userMessage: p.text })
             injections.push({ type: "text", text: p.text })
             break
           }
@@ -263,8 +285,32 @@ export namespace CollabLoop {
 
       if (gotCancel) {
         log.info("loop.cancel", { agentId })
+        const error: AgentError = { code: "CANCELED", message: "cancel message received" }
+        CollabAgentNode.transition(node.id, node.status, { error })
         await CollabSupervisor.cancelDescendants(agentId, { reason: "parent canceled", initiator: "parent" })
-        await finalizeCanceled(node, identity, "cancel message received", abort, lease)
+        CollabMessage.drop(msgs)
+        CollabMessage.closeInbox(agentId)
+        await finalizeCanceled(node, identity, error.message, abort, lease)
+        return
+      }
+
+      if (node.error && node.error.code !== "MODEL_UNAVAILABLE") {
+        CollabMessage.ack(msgs)
+        const fresh = current(agentId, identity)
+        if (!fresh) return
+        if (fresh.active_children > 0) {
+          await CollabSupervisor.cancelDescendants(fresh.id, { reason: node.error.message, initiator: "parent" })
+          CollabAgentNode.transition(fresh.id, "blocked_on_children", {
+            phase: "awaiting_children",
+            error: node.error,
+          })
+          return
+        }
+        if (node.error.code === "CANCELED") {
+          await finalizeCanceled(fresh, identity, node.error.message, abort, lease)
+        } else {
+          await finalizeFailed(fresh, identity, node.error, abort, lease)
+        }
         return
       }
 
@@ -286,19 +332,39 @@ export namespace CollabLoop {
       const collapsedProgress = collapseProgress(progressMsgs, node.spec.policy?.progress_injection ?? "latest")
       for (const p of collapsedProgress) injections.push(buildChildProgressPart(p))
 
-      if (injections.length > 0) {
+      if (injections.length > 0 || prompt) {
         if (abort.aborted || !current(agentId, identity)) {
           CollabMessage.retry(msgs, false)
           return
         }
         try {
-          await runPromptTurn(node, { parts: finalizeParts(injections), fallback, messageID }, abort)
+          await runPromptTurn(
+            node,
+            {
+              parts: [...(prompt?.parts ?? []), ...finalizeParts(injections)],
+              fallback,
+              messageID,
+              prompt,
+            },
+            abort,
+          )
         } catch (err) {
           const fresh = CollabAgentNode.tryLoad(agentId)
           const unavailable =
             Provider.ModelNotFoundError.isInstance(err) || err instanceof SessionPrompt.ModelUnavailableError
           if (fresh && CollabAgentNode.isActive(fresh.status)) {
-            CollabMessage.retry(msgs, false)
+            const queued = prompt
+              ? msgs.filter((msg) => msg.kind === "user_input" && (msg.payload_json as UserInputPayload).prompt)
+              : []
+            if (unavailable && queued.length) {
+              CollabMessage.drop(queued)
+              CollabMessage.retry(
+                msgs.filter((msg) => !queued.includes(msg)),
+                false,
+              )
+            } else {
+              CollabMessage.retry(msgs, false)
+            }
             if (!unavailable) CollabRuntime.schedule(agentId, 1000, () => void start(agentId, identity))
           }
           throw new PromptRetry(err)
@@ -329,6 +395,14 @@ export namespace CollabLoop {
         !ExperimentRemoteTaskListener.has(refreshed.id, "collab") &&
         !CollabMessage.hasPendingWakeMsg(refreshed.id)
       ) {
+        if (refreshed.error) {
+          if (refreshed.error.code === "CANCELED") {
+            await finalizeCanceled(refreshed, identity, refreshed.error.message, abort, lease)
+          } else {
+            await finalizeFailed(refreshed, identity, refreshed.error, abort, lease)
+          }
+          return
+        }
         const inst = Workflow.latest(refreshed.session_id)
         if (inst?.status === "waiting_interaction") {
           if (await pauseIfWorkflowWaiting(agentId, identity, abort)) return
@@ -366,20 +440,23 @@ export namespace CollabLoop {
   async function runPromptTurn(
     node: AgentInfo,
     input: {
-      parts: PromptPartDraft[]
+      parts: SessionPrompt.PromptInput["parts"]
       fallback?: { providerID: string; modelID: string }
       messageID?: string
+      prompt?: Omit<SessionPrompt.PromptInput, "sessionID">
     },
     abort: AbortSignal,
   ) {
-    const model = input.fallback
-      ? await SessionPrompt.resolveModel({
-          sessionID: node.session_id,
-          agent: node.subagent_type,
-          preferred: node.spec.model,
-          fallback: input.fallback,
-        })
-      : node.spec.model
+    const model =
+      input.prompt?.model ??
+      (input.fallback
+        ? await SessionPrompt.resolveModel({
+            sessionID: node.session_id,
+            agent: node.subagent_type,
+            preferred: node.spec.model,
+            fallback: input.fallback,
+          })
+        : node.spec.model)
     if (abort.aborted) throw new PromptAbort("Prompt aborted before model resolution")
     if (input.fallback && model) {
       CollabAgentNode.spec(node.id, { ...node.spec, model })
@@ -392,7 +469,12 @@ export namespace CollabLoop {
         ? await MessageV2.get({ sessionID: node.session_id, messageID: input.messageID }).catch(() => undefined)
         : undefined
       if (abort.aborted) throw new PromptAbort("Prompt aborted during durable lookup")
-      if (durable?.info.role === "user" && matchParts(durable.parts, input.parts)) {
+      if (
+        durable?.info.role === "user" &&
+        (input.prompt
+          ? containsPromptParts(durable.parts, input.parts)
+          : matchParts(durable.parts, input.parts as PromptPartDraft[]))
+      ) {
         if (abort.aborted) throw new PromptAbort("Prompt aborted before durable resume")
         await SessionPrompt.loop({ sessionID: node.session_id })
         if (abort.aborted) throw new PromptAbort("Prompt aborted during durable resume")
@@ -404,9 +486,10 @@ export namespace CollabLoop {
       }
       if (abort.aborted) throw new PromptAbort("Prompt aborted before delivery")
       await SessionPrompt.prompt({
+        ...input.prompt,
         sessionID: node.session_id,
         messageID: input.messageID,
-        agent: node.subagent_type,
+        agent: input.prompt?.agent ?? node.subagent_type,
         model,
         parts: input.parts,
       })
@@ -424,6 +507,11 @@ export namespace CollabLoop {
     if (!node.parent_agent_id) return false
     const inst = Workflow.latest(node.session_id)
     if (inst?.status !== "waiting_interaction") return false
+
+    if (node.initiator === "human") {
+      CollabAgentNode.transition(node.id, "waiting_interaction", { phase: "main_loop" })
+      return true
+    }
 
     const step = inst.current_index >= 0 ? inst.steps[inst.current_index] : undefined
     const payload: ChildWaitingPayload = {
@@ -518,11 +606,13 @@ export namespace CollabLoop {
     })
     if (!done) return false
 
-    Bus.publish(CollabEvent.AgentCompleted, {
-      agentId: done.id,
-      rootAgentId: done.root_agent_id,
-      summary: summary ?? undefined,
-    })
+    if (fresh.initiator !== "human") {
+      Bus.publish(CollabEvent.AgentCompleted, {
+        agentId: done.id,
+        rootAgentId: done.root_agent_id,
+        summary: summary ?? undefined,
+      })
+    }
     const release = current(done.id, identity)
     if (release?.parent_agent_id && release.spec.policy?.detach_on_terminal) CollabAgentNode.release(done.id)
     log.info("completed", { agentId: done.id })
@@ -537,8 +627,17 @@ export namespace CollabLoop {
     lease?: string,
   ) {
     if (abort?.aborted) return
-    const fresh = current(node.id, identity)
-    if (!fresh || !CollabAgentNode.isActive(fresh.status)) return
+    const currentNode = current(node.id, identity)
+    if (!currentNode || !CollabAgentNode.isActive(currentNode.status)) return
+    const fresh = CollabAgentNode.transition(currentNode.id, currentNode.status, { error })
+    if (fresh.active_children > 0) {
+      await CollabSupervisor.cancelDescendants(fresh.id, { reason: error.message, initiator: "parent" })
+      CollabAgentNode.transition(fresh.id, "blocked_on_children", {
+        phase: "awaiting_children",
+        error,
+      })
+      return
+    }
     const payload: ChildFailedPayload = {
       runId: fresh.run_id ?? undefined,
       childAgentId: fresh.id,
@@ -561,12 +660,14 @@ export namespace CollabLoop {
     if (!done) return
     ExperimentRemoteTaskListener.clear(CollabAgentNode.loadBranch(done.id).map((item) => item.id))
 
-    Bus.publish(CollabEvent.AgentFailed, {
-      agentId: done.id,
-      rootAgentId: done.root_agent_id,
-      code: error.code,
-      message: error.message,
-    })
+    if (fresh.initiator !== "human") {
+      Bus.publish(CollabEvent.AgentFailed, {
+        agentId: done.id,
+        rootAgentId: done.root_agent_id,
+        code: error.code,
+        message: error.message,
+      })
+    }
     const release = current(done.id, identity)
     if (release?.parent_agent_id && release.spec.policy?.detach_on_terminal) CollabAgentNode.release(done.id)
     log.warn("failed", { agentId: done.id, error: error.message })
@@ -581,8 +682,17 @@ export namespace CollabLoop {
   ) {
     if (abort.aborted) return
     const error: AgentError = { code: "CANCELED", message: reason }
-    const fresh = current(node.id, identity)
-    if (!fresh || !CollabAgentNode.isActive(fresh.status)) return
+    const currentNode = current(node.id, identity)
+    if (!currentNode || !CollabAgentNode.isActive(currentNode.status)) return
+    const fresh = CollabAgentNode.transition(currentNode.id, currentNode.status, { error })
+    if (fresh.active_children > 0) {
+      await CollabSupervisor.cancelDescendants(fresh.id, { reason, initiator: "parent" })
+      CollabAgentNode.transition(fresh.id, "blocked_on_children", {
+        phase: "awaiting_children",
+        error,
+      })
+      return
+    }
     const payload: ChildFailedPayload = {
       runId: fresh.run_id ?? undefined,
       childAgentId: fresh.id,
@@ -604,12 +714,14 @@ export namespace CollabLoop {
     if (!done) return
     ExperimentRemoteTaskListener.clear(CollabAgentNode.loadBranch(done.id).map((item) => item.id))
 
-    Bus.publish(CollabEvent.AgentFailed, {
-      agentId: done.id,
-      rootAgentId: done.root_agent_id,
-      code: "CANCELED",
-      message: reason,
-    })
+    if (fresh.initiator !== "human") {
+      Bus.publish(CollabEvent.AgentFailed, {
+        agentId: done.id,
+        rootAgentId: done.root_agent_id,
+        code: "CANCELED",
+        message: reason,
+      })
+    }
     const release = current(done.id, identity)
     if (release?.parent_agent_id && release.spec.policy?.detach_on_terminal) CollabAgentNode.release(done.id)
     log.info("canceled", { agentId: done.id })
@@ -637,6 +749,26 @@ export namespace CollabLoop {
   function truncate(text: string, max: number) {
     if (text.length <= max) return text
     return text.slice(0, max) + "\n...[truncated]"
+  }
+
+  function containsPromptParts(stored: MessageV2.Part[], drafts: SessionPrompt.PromptInput["parts"]) {
+    const used = new Set<number>()
+    return drafts.every((draft) => {
+      const index = stored.findIndex((part, index) => {
+        if (used.has(index)) return false
+        if (part.type !== draft.type) return false
+        if (draft.type === "file" && part.type === "file") {
+          return part.mime === draft.mime && part.filename === draft.filename
+        }
+        return Object.entries(draft).every(([key, value]) => {
+          if (key === "id") return true
+          return JSON.stringify((part as unknown as Record<string, unknown>)[key]) === JSON.stringify(value)
+        })
+      })
+      if (index < 0) return false
+      used.add(index)
+      return true
+    })
   }
 
   export function collapseProgress(msgs: ChildProgressPayload[], strategy: ProgressInjection): ChildProgressPayload[] {

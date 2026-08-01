@@ -16,6 +16,7 @@ export namespace CollabSupervisor {
     const toCancel = tree.filter((n) => {
       if (!CollabAgentNode.isActive(n.status)) return false
       if (n.id === agentId) return false
+      if (n.initiator === "human") return false
       return isDescendant(tree, n.id, agentId)
     })
     log.info("cancelDescendants", { agentId, count: toCancel.length })
@@ -32,12 +33,17 @@ export namespace CollabSupervisor {
     }
   }
 
-  function isDescendant(tree: { id: string; parent_agent_id: string | null }[], id: string, ancestorId: string) {
+  function isDescendant(
+    tree: { id: string; parent_agent_id: string | null; initiator?: "human" | "agent" | null }[],
+    id: string,
+    ancestorId: string,
+  ) {
     const byId = new Map(tree.map((n) => [n.id, n]))
     let cur = byId.get(id)
     while (cur && cur.parent_agent_id) {
       if (cur.parent_agent_id === ancestorId) return true
       cur = byId.get(cur.parent_agent_id)
+      if (cur?.initiator === "human") return false
     }
     return false
   }

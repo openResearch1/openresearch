@@ -5,6 +5,7 @@ import { CollabAgentNode } from "@/collab/agent-node"
 import { AgentPolicySchema, type AgentSpec } from "@/collab/types"
 import { MessageV2 } from "@/session/message-v2"
 import { PermissionNext } from "@/permission/next"
+import { ResearchSessionControl } from "@/research/session-control"
 import { Tool } from "./tool"
 import DESCRIPTION from "./spawn-agent.txt"
 
@@ -58,8 +59,12 @@ export const SpawnAgentTool = Tool.define("spawn_agent", async (ctx) => {
 
       // Make sure the current primary session is a Collab root if it is not yet.
       const parentNode = Collab.getBySession(ctx.sessionID)
-      if (parentNode?.parent_agent_id && !CollabAgentNode.isActive(parentNode.status)) {
-        throw new Error("This experiment agent is inactive. Its Atom parent must call resume_agent before it can spawn peers.")
+      const inactive = !!parentNode?.parent_agent_id && !CollabAgentNode.isActive(parentNode.status)
+      const human = inactive && ResearchSessionControl.canStartHumanRun(ctx.sessionID)
+      if (inactive && !human) {
+        throw new Error(
+          "This experiment agent is inactive. Its Atom parent must call resume_agent before it can spawn peers.",
+        )
       }
       if (!parentNode) {
         await Collab.ensureRootFromSession(ctx.sessionID, {
@@ -94,6 +99,7 @@ export const SpawnAgentTool = Tool.define("spawn_agent", async (ctx) => {
         name: params.name,
         subagentType: params.agent_type,
         spec,
+        startParent: human ? "human" : undefined,
       })
 
       ctx.metadata({

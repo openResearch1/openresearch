@@ -79,6 +79,7 @@ export namespace CollabRecovery {
 
     for (const child of children) {
       if (child.status !== "completed" && child.status !== "failed" && child.status !== "canceled") continue
+      if (child.initiator === "human") continue
 
       const already = Database.use((db) =>
         db

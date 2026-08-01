@@ -849,13 +849,13 @@ export const SessionRoutes = lazy(() =>
       validator("json", SessionPrompt.PromptInput.omit({ sessionID: true })),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
-        const release = await import("@/research/session-control").then((mod) =>
-          mod.ResearchSessionControl.claimHuman(sessionID),
-        )
+        const body = c.req.valid("json")
+        const control = await import("@/research/session-control").then((mod) => mod.ResearchSessionControl)
         c.status(204)
         c.header("Content-Type", "application/json")
+        if (control.queueHumanPrompt(sessionID, body)) return c.body(null)
+        const release = control.claimHuman(sessionID)
         return stream(c, async () => {
-          const body = c.req.valid("json")
           void SessionPrompt.prompt({ ...body, sessionID }).finally(release)
         })
       },

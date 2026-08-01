@@ -74,6 +74,7 @@ export const CollabAgentTable = sqliteTable(
       .references(() => ProjectTable.id, { onDelete: "cascade" }),
     root_agent_id: text().notNull(),
     run_id: text(),
+    initiator: text().$type<"human" | "agent">(),
     subagent_type: text().notNull(),
     status: text().$type<CollabAgentStatus>().notNull(),
     phase: text().$type<CollabAgentPhase>().notNull(),

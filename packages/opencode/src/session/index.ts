@@ -717,7 +717,11 @@ export namespace Session {
           CollabAgentNode.detach(child.id)
         }
         const parent = agent.parent_agent_id ? CollabAgentNode.tryLoad(agent.parent_agent_id) : undefined
-        const report = !!parent && CollabAgentNode.isActive(agent.status) && !removing.has(parent.session_id)
+        const report =
+          !!parent &&
+          CollabAgentNode.isActive(agent.status) &&
+          agent.initiator !== "human" &&
+          !removing.has(parent.session_id)
         if (report) {
           const { CollabMessage } = await import("@/collab/message")
           await CollabMessage.post({

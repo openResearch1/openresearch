@@ -765,6 +765,7 @@ export type CollabAgent = {
   project_id: string
   root_agent_id: string
   run_id: string | null
+  initiator: "human" | "agent" | null
   subagent_type: string
   status:
     | "idle"
@@ -810,6 +811,7 @@ export type EventCollabAgentStatus = {
       | "canceled"
     phase: "main_loop" | "awaiting_children" | "draining"
     active_children: number
+    initiator: "human" | "agent" | null
   }
 }
 

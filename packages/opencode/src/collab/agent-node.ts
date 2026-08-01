@@ -9,7 +9,15 @@ import { SessionDeletionTable } from "@/session/deletion.sql"
 import { SessionOwnershipTable } from "@/session/ownership.sql"
 import { Log } from "@/util/log"
 import { CollabAgentTable, CollabMessageTable } from "./collab.sql"
-import type { AgentError, AgentInfo, AgentResult, AgentSpec, CollabAgentPhase, CollabAgentStatus } from "./types"
+import type {
+  AgentError,
+  AgentInfo,
+  AgentResult,
+  AgentSpec,
+  CollabAgentPhase,
+  CollabAgentStatus,
+  RunInitiator,
+} from "./types"
 import { CollabEvent } from "./events"
 
 export namespace CollabAgentNode {
@@ -28,6 +36,7 @@ export namespace CollabAgentNode {
       project_id: row.project_id,
       root_agent_id: row.root_agent_id,
       run_id: row.run_id,
+      initiator: row.initiator,
       subagent_type: row.subagent_type,
       status: row.status,
       phase: row.phase,
@@ -53,6 +62,8 @@ export namespace CollabAgentNode {
     subagentType: string
     spec: AgentSpec
     status?: CollabAgentStatus
+    initiator?: RunInitiator
+    startParent?: "human"
   }
 
   export function create(input: CreateInput): AgentInfo {
@@ -60,6 +71,7 @@ export namespace CollabAgentNode {
     const parentId = input.parentAgentId ?? null
     const status = input.status ?? "pending"
     const run = parentId && isActive(status) ? randomUUID() : null
+    const initiator = isActive(status) ? (input.initiator ?? "agent") : null
 
     return Database.transaction((tx) => {
       // Serialize creators across processes through the authoritative session row.
@@ -80,6 +92,7 @@ export namespace CollabAgentNode {
           project_id: input.projectId,
           root_agent_id: input.rootAgentId,
           run_id: run,
+          initiator,
           subagent_type: input.subagentType,
           status,
           phase: "main_loop",
@@ -107,10 +120,63 @@ export namespace CollabAgentNode {
         throw new NotFoundError({ message: `Agent not inserted: ${input.id}` })
       }
 
+      const promoted =
+        input.startParent === "human"
+          ? (() => {
+              if (!parentId || !isActive(status)) {
+                throw new Error("Human promotion requires an active child and parent")
+              }
+              const parent = tx.select().from(CollabAgentTable).where(eq(CollabAgentTable.id, parentId)).get()
+              if (!parent?.parent_agent_id) throw new Error(`Parent agent ${parentId} cannot start a human run`)
+              if (parent.root_agent_id !== input.rootAgentId || parent.project_id !== input.projectId) {
+                throw new Error(`Parent agent ${parentId} changed before the human run started`)
+              }
+              const owner = tx
+                .select({ id: SessionOwnershipTable.session_id })
+                .from(SessionOwnershipTable)
+                .where(
+                  and(
+                    eq(SessionOwnershipTable.session_id, parent.session_id),
+                    eq(SessionOwnershipTable.owner, "human"),
+                    gt(SessionOwnershipTable.expires_at, now),
+                  ),
+                )
+                .get()
+              if (!owner) throw new Error(`Parent agent ${parentId} is not owned by a human turn`)
+              const ancestor = tx
+                .select({ status: CollabAgentTable.status })
+                .from(CollabAgentTable)
+                .where(eq(CollabAgentTable.id, parent.parent_agent_id))
+                .get()
+              if (!ancestor || !isActive(ancestor.status)) {
+                throw new Error(`Parent agent ${parentId} has no active Atom`)
+              }
+              if (isActive(parent.status)) {
+                if (parent.initiator === "human") return parent
+                throw new Error(`Parent agent ${parentId} cannot start a human run`)
+              }
+              if (parent.active_children > 0) throw new Error(`Parent agent ${parentId} cannot start a human run`)
+              tx.update(CollabAgentTable)
+                .set({
+                  status: "running",
+                  run_id: randomUUID(),
+                  initiator: "human",
+                  phase: "main_loop",
+                  error_json: null,
+                  time_started: now,
+                  time_ended: null,
+                  time_updated: now,
+                })
+                .where(eq(CollabAgentTable.id, parentId))
+                .run()
+              return tx.select().from(CollabAgentTable).where(eq(CollabAgentTable.id, parentId)).get()
+            })()
+          : undefined
+
       if (parentId) {
         tx.update(CollabAgentTable)
           .set({
-            active_children: sql`${CollabAgentTable.active_children} + ${isActive(status) ? 1 : 0}`,
+            active_children: sql`${CollabAgentTable.active_children} + ${isActive(status) && initiator !== "human" ? 1 : 0}`,
             spawned_total: sql`${CollabAgentTable.spawned_total} + 1`,
             time_updated: now,
           })
@@ -121,8 +187,23 @@ export namespace CollabAgentNode {
       const row = tx.select().from(CollabAgentTable).where(eq(CollabAgentTable.id, input.id)).get()
       if (!row) throw new NotFoundError({ message: `Agent not inserted: ${input.id}` })
       const info = fromRow(row)
+      const parent = promoted
+        ? tx.select().from(CollabAgentTable).where(eq(CollabAgentTable.id, promoted.id)).get()
+        : undefined
 
-      Database.effect(() => Bus.publish(CollabEvent.AgentCreated, { info }))
+      Database.effect(() => {
+        if (parent) {
+          Bus.publish(CollabEvent.AgentStatus, {
+            agentId: parent.id,
+            rootAgentId: parent.root_agent_id,
+            status: parent.status,
+            phase: parent.phase,
+            active_children: parent.active_children,
+            initiator: parent.initiator,
+          })
+        }
+        Bus.publish(CollabEvent.AgentCreated, { info })
+      })
       log.info("created", { id: input.id, parent: parentId })
       return info
     })
@@ -256,6 +337,7 @@ export namespace CollabAgentNode {
         time_updated: now,
       }
       if (status === "idle") updates.run_id = null
+      if (status === "idle") updates.initiator = null
       if (extra?.phase !== undefined) updates.phase = extra.phase
       if (extra?.result !== undefined) updates.result_json = extra.result as any
       if (extra?.error !== undefined) updates.error_json = extra.error as any
@@ -294,6 +376,7 @@ export namespace CollabAgentNode {
         status: info.status,
         phase: info.phase,
         active_children: info.active_children,
+        initiator: info.initiator,
       }),
     )
     log.info("transition", { id, status, phase: extra?.phase })
@@ -333,10 +416,34 @@ export namespace CollabAgentNode {
         if (!lease) return
       }
 
+      const pending = tx
+        .select({ id: CollabMessageTable.id })
+        .from(CollabMessageTable)
+        .where(
+          and(
+            eq(CollabMessageTable.recipient_agent_id, current.id),
+            eq(CollabMessageTable.status, "pending"),
+            inArray(CollabMessageTable.kind, [
+              "child_done",
+              "child_failed",
+              "child_waiting",
+              "remote_task_terminal",
+              "cancel",
+              "user_input",
+            ]),
+          ),
+        )
+        .limit(1)
+        .get()
+      if (pending) return
+
+      const human = current.initiator === "human"
       const row = tx
         .update(CollabAgentTable)
         .set({
-          status: input.status,
+          status: human ? "idle" : input.status,
+          run_id: human ? null : current.run_id,
+          initiator: human ? null : current.initiator,
           phase: input.phase,
           result_json: input.result ?? null,
           error_json: input.error ?? null,
@@ -369,7 +476,7 @@ export namespace CollabAgentNode {
         .run()
 
       let message: string | undefined
-      if (input.parentId && input.report) {
+      if (!human && input.parentId && input.report) {
         const existing = tx
           .select({ id: CollabMessageTable.id })
           .from(CollabMessageTable)
@@ -429,6 +536,7 @@ export namespace CollabAgentNode {
           status: info.status,
           phase: info.phase,
           active_children: info.active_children,
+          initiator: info.initiator,
         })
         if (!message || !input.parentId || !input.report) return
         Bus.publish(CollabEvent.MessagePosted, {
@@ -438,12 +546,16 @@ export namespace CollabAgentNode {
           kind: input.report.kind,
         })
       })
-      log.info("finished", { id: input.id, status: input.status, run: input.runId })
+      log.info("finished", { id: input.id, status: info.status, run: input.runId })
       return info
     })
   }
 
-  export function activate(id: string, expected?: { runId: string | null; parentId: string | null }): AgentInfo {
+  export function activate(
+    id: string,
+    expected?: { runId: string | null; parentId: string | null },
+    initiator: RunInitiator = "agent",
+  ): AgentInfo {
     const now = Date.now()
     return Database.transaction((tx) => {
       const current = tx.select().from(CollabAgentTable).where(eq(CollabAgentTable.id, id)).get()
@@ -458,6 +570,7 @@ export namespace CollabAgentNode {
         .set({
           status: "running",
           run_id: current.parent_agent_id ? randomUUID() : null,
+          initiator,
           phase: "main_loop",
           error_json: null,
           time_ended: null,
@@ -469,7 +582,7 @@ export namespace CollabAgentNode {
         .get()
       if (!row) throw new NotFoundError({ message: `Agent not found: ${id}` })
 
-      if (current.parent_agent_id) {
+      if (current.parent_agent_id && initiator === "agent") {
         tx.update(CollabAgentTable)
           .set({
             active_children: sql`${CollabAgentTable.active_children} + 1`,
@@ -487,6 +600,7 @@ export namespace CollabAgentNode {
           status: info.status,
           phase: info.phase,
           active_children: info.active_children,
+          initiator: info.initiator,
         }),
       )
       return info
@@ -547,6 +661,21 @@ export namespace CollabAgentNode {
     return Database.transaction((tx) => {
       const current = tx.select().from(CollabAgentTable).where(eq(CollabAgentTable.id, input.id)).get()
       if (!current) throw new NotFoundError({ message: `Agent not found: ${input.id}` })
+      if (current.initiator === "human" && isActive(current.status)) {
+        throw new Error(`Cannot attach agent ${input.id}: its current run belongs to a human session`)
+      }
+      const owner = tx
+        .select({ id: SessionOwnershipTable.session_id })
+        .from(SessionOwnershipTable)
+        .where(
+          and(
+            eq(SessionOwnershipTable.session_id, current.session_id),
+            eq(SessionOwnershipTable.owner, "human"),
+            gt(SessionOwnershipTable.expires_at, now),
+          ),
+        )
+        .get()
+      if (owner) throw new Error(`Cannot attach agent ${input.id}: its session is owned by a human turn`)
       const parent = tx.select().from(CollabAgentTable).where(eq(CollabAgentTable.id, input.parentId)).get()
       if (!parent) throw new NotFoundError({ message: `Parent agent not found: ${input.parentId}` })
       if (current.parent_agent_id === input.parentId && current.root_agent_id === input.rootId) return fromRow(current)
@@ -580,6 +709,7 @@ export namespace CollabAgentNode {
         .set({
           parent_agent_id: input.parentId,
           run_id: null,
+          initiator: null,
           name: input.name,
           subagent_type: input.subagentType,
           status: "idle",
@@ -602,7 +732,7 @@ export namespace CollabAgentNode {
         .get()
       if (!row) throw new NotFoundError({ message: `Agent not found: ${input.id}` })
 
-      if (current.parent_agent_id && isActive(current.status)) {
+      if (current.parent_agent_id && isActive(current.status) && current.initiator !== "human") {
         tx.update(CollabAgentTable)
           .set({
             active_children: sql`max(${CollabAgentTable.active_children} - 1, 0)`,
@@ -700,6 +830,7 @@ export namespace CollabAgentNode {
           parent_agent_id: parent.id,
           root_agent_id: parent.root_agent_id,
           run_id: run,
+          initiator: "agent",
           status: "running",
           phase: "main_loop",
           spec_json: {
@@ -759,6 +890,7 @@ export namespace CollabAgentNode {
           status: info.status,
           phase: info.phase,
           active_children: info.active_children,
+          initiator: info.initiator,
         })
         Bus.publish(CollabEvent.MessagePosted, {
           messageId: message,
@@ -805,6 +937,7 @@ export namespace CollabAgentNode {
           parent_agent_id: null,
           root_agent_id: current.id,
           run_id: null,
+          initiator: "agent",
           status: "running",
           phase: "main_loop",
           spec_json: {
@@ -839,6 +972,7 @@ export namespace CollabAgentNode {
           status: info.status,
           phase: info.phase,
           active_children: info.active_children,
+          initiator: info.initiator,
         })
       })
       log.info("released", { id, parent: current.parent_agent_id, root: current.id })
@@ -865,7 +999,7 @@ export namespace CollabAgentNode {
     Database.transaction((tx) => {
       const current = tx.select().from(CollabAgentTable).where(eq(CollabAgentTable.id, id)).get()
       if (!current) return
-      if (current.parent_agent_id && isActive(current.status) && !reported) {
+      if (current.parent_agent_id && isActive(current.status) && current.initiator !== "human" && !reported) {
         tx.update(CollabAgentTable)
           .set({
             active_children: sql`max(${CollabAgentTable.active_children} - 1, 0)`,
@@ -908,6 +1042,7 @@ export namespace CollabAgentNode {
           parent_agent_id: null,
           root_agent_id: current.id,
           run_id: null,
+          initiator: isActive(current.status) ? "agent" : null,
           spec_json: {
             ...(current.spec_json as AgentSpec),
             policy: {
@@ -921,7 +1056,7 @@ export namespace CollabAgentNode {
         .returning()
         .get()
       if (!row) throw new NotFoundError({ message: `Agent not found: ${id}` })
-      if (isActive(current.status)) {
+      if (isActive(current.status) && current.initiator !== "human") {
         tx.update(CollabAgentTable)
           .set({
             active_children: sql`max(${CollabAgentTable.active_children} - 1, 0)`,
@@ -964,6 +1099,7 @@ export namespace CollabAgentNode {
         status: info.status,
         phase: info.phase,
         active_children: info.active_children,
+        initiator: info.initiator,
       }),
     )
     return info
@@ -1022,7 +1158,7 @@ export namespace CollabAgentNode {
 
   export function recomputeActiveChildren(parentId: string): number {
     const children = loadChildren(parentId)
-    const active = children.filter((c) => ACTIVE_STATUSES.includes(c.status)).length
+    const active = children.filter((c) => ACTIVE_STATUSES.includes(c.status) && c.initiator !== "human").length
     const now = Date.now()
     Database.use((db) =>
       db

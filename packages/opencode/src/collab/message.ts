@@ -27,6 +27,7 @@ export namespace CollabMessage {
     runId?: string | null
     expectedParentAgentId?: string | null
     expectedRunId?: string | null
+    expectedErrorCode?: string | null
     kind: CollabMsgKind
     payload: unknown
   }
@@ -36,16 +37,26 @@ export namespace CollabMessage {
     const now = Date.now()
 
     const result = Database.transaction((tx) => {
-      if (input.expectedParentAgentId !== undefined || input.expectedRunId !== undefined) {
+      if (
+        input.expectedParentAgentId !== undefined ||
+        input.expectedRunId !== undefined ||
+        input.expectedErrorCode !== undefined
+      ) {
         const recipient = tx
-          .select({ parent: CollabAgentTable.parent_agent_id, run: CollabAgentTable.run_id })
+          .select({
+            parent: CollabAgentTable.parent_agent_id,
+            run: CollabAgentTable.run_id,
+            error: CollabAgentTable.error_json,
+          })
           .from(CollabAgentTable)
           .where(eq(CollabAgentTable.id, input.recipientAgentId))
           .get()
         if (
           !recipient ||
           (input.expectedParentAgentId !== undefined && recipient.parent !== input.expectedParentAgentId) ||
-          (input.expectedRunId !== undefined && recipient.run !== input.expectedRunId)
+          (input.expectedRunId !== undefined && recipient.run !== input.expectedRunId) ||
+          (input.expectedErrorCode === null && recipient.error !== null) ||
+          (typeof input.expectedErrorCode === "string" && recipient.error?.code !== input.expectedErrorCode)
         )
           return { id: undefined, inserted: false }
       }
@@ -235,6 +246,7 @@ export namespace CollabMessage {
           status: "waiting_interaction",
           phase: "awaiting_children",
           active_children: updated.active_children,
+          initiator: updated.initiator,
         })
         Bus.publish(CollabEvent.MessagePosted, {
           messageId: id,

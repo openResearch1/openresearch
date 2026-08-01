@@ -113,6 +113,13 @@ export namespace CollabAutoWake {
     state()
   }
 
+  export function wake(sessionID: string) {
+    if (!enabled) return
+    void tryDriveBySession(sessionID, state().inflight).catch((err) =>
+      log.error("wake", { sessionID, error: String(err) }),
+    )
+  }
+
   /**
    * True while maybeWakeOrBlock is mid-flight for this session — i.e. we've
    * claimed the inflight lock and are about to or in the middle of a
@@ -273,7 +280,17 @@ export namespace CollabAutoWake {
   function maybeStartLoop(node: AgentInfo) {
     if (CollabRuntime.has(node.id)) return
     if (SessionStatus.get(node.session_id).type === "busy") return
-    if (!CollabMessage.hasPendingWakeMsg(node.id)) return
+    if (
+      node.status === "waiting_interaction" &&
+      node.error?.code === "MODEL_UNAVAILABLE" &&
+      !CollabMessage.hasPendingKind(node.id, "user_input")
+    )
+      return
+    if (
+      !CollabMessage.hasPendingWakeMsg(node.id) &&
+      !(node.initiator === "human" && node.status === "waiting_interaction")
+    )
+      return
     void CollabLoop.start(node.id)
   }
 
