@@ -22,7 +22,10 @@ export function DirectoryDataProvider(props: ParentProps<{ directory: string; re
     <DataProvider
       data={sync.data}
       directory={props.directory}
-      onNavigateToSession={(sessionID: string) => navigate(path(sessionID))}
+      onNavigateToSession={(sessionID: string) => {
+        navigate(path(sessionID))
+        return true
+      }}
       onSessionHref={path}
     >
       <LocalProvider>{props.children}</LocalProvider>

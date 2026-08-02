@@ -56,6 +56,7 @@ import { ResearchDeletionTable } from "@/research/research-deletion.sql"
 import { ControllerAgent } from "@/research/controller-agent"
 import { ResearchPath } from "@/research/research-path"
 import { ResearchResult } from "@/research/research-result"
+import { ExperimentWorkspace } from "@/session/experiment-workspace"
 
 const createSchema = z.object({
   name: z.string().min(1, "name required"),
@@ -2336,7 +2337,7 @@ export const ResearchRoutes = new Hono()
     describeRoute({
       summary: "Get experiment by session",
       description:
-        "Resolve the experiment linked to a session (walks up to parent session). Returns the experiment, its linked atom, and the atom's article. Each field is independently nullable.",
+        "Resolve the experiment linked to a session through session and collaboration ancestry. Returns the experiment, its linked atom, and the atom's article. Each field is independently nullable.",
       operationId: "research.experiment.bySession",
       responses: {
         200: {
@@ -2357,11 +2358,7 @@ export const ResearchRoutes = new Hono()
         return c.json({ success: false, message: `session not found: ${sessionId}` }, 404)
       }
 
-      const parentSessionId = (await Research.getParentSessionId(sessionId)) ?? sessionId
-
-      const experiment = Database.use((db) =>
-        db.select().from(ExperimentTable).where(eq(ExperimentTable.exp_session_id, parentSessionId)).get(),
-      )
+      const experiment = ExperimentWorkspace.resolve(sessionId)
       if (!experiment) {
         return c.json(null satisfies z.infer<typeof experimentSessionResponseSchema>)
       }

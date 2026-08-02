@@ -20,6 +20,7 @@ import { rm } from "fs/promises"
 import { Session } from "../session"
 import { git } from "../util/git"
 import { AtomLock } from "../research/atom-lock"
+import { ExperimentWorkspace } from "../session/experiment-workspace"
 
 type AtomRow = typeof AtomTable.$inferSelect
 
@@ -236,9 +237,7 @@ export const AtomQueryTool = Tool.define("atom_query", {
       }
 
       // 2. Check if current session is an experiment session → return the experiment's atom
-      const experiment = Database.use((db) =>
-        db.select().from(ExperimentTable).where(eq(ExperimentTable.exp_session_id, parentSessionId)).get(),
-      )
+      const experiment = ExperimentWorkspace.resolve(ctx.sessionID)
       if (experiment?.atom_id) {
         const expAtom = Database.use((db) =>
           db.select().from(AtomTable).where(eq(AtomTable.atom_id, experiment.atom_id!)).get(),

@@ -3,10 +3,13 @@ import { describe, expect, test } from "bun:test"
 import { CollabAgentNode } from "../../src/collab/agent-node"
 import { Identifier } from "../../src/id/id"
 import { Instance } from "../../src/project/instance"
-import { ExperimentTable, ResearchProjectTable } from "../../src/research/research.sql"
+import { AtomTable, ExperimentTable, ResearchProjectTable } from "../../src/research/research.sql"
+import { ResearchRoutes } from "../../src/server/routes/research"
 import { ExperimentWorkspace } from "../../src/session/experiment-workspace"
 import { SessionTable } from "../../src/session/session.sql"
 import { Database } from "../../src/storage/db"
+import { AtomQueryTool } from "../../src/tool/atom"
+import type { Tool } from "../../src/tool/tool"
 import { tmpdir } from "../fixture/fixture"
 
 describe("session.experiment-workspace", () => {
@@ -20,6 +23,7 @@ describe("session.experiment-workspace", () => {
         const peer = Identifier.descending("session")
         const nested = Identifier.descending("session")
         const research = crypto.randomUUID()
+        const atom = crypto.randomUUID()
         const exp = crypto.randomUUID()
         const code = path.join(tmp.path, ".openresearch_worktrees", exp)
         const now = Date.now()
@@ -82,12 +86,25 @@ describe("session.experiment-workspace", () => {
         )
         Database.use((db) =>
           db
+            .insert(AtomTable)
+            .values({
+              atom_id: atom,
+              research_project_id: research,
+              atom_name: "workspace atom",
+              atom_type: "verification",
+              atom_evidence_type: "experiment",
+            })
+            .run(),
+        )
+        Database.use((db) =>
+          db
             .insert(ExperimentTable)
             .values({
               exp_id: exp,
               research_project_id: research,
               exp_name: "workspace test",
               exp_session_id: root,
+              atom_id: atom,
               code_path: code,
               remote_code_path: "/remote/experiments/workspace-test",
             })
@@ -126,6 +143,29 @@ describe("session.experiment-workspace", () => {
           exp_id: exp,
           remote_code_path: "/remote/experiments/workspace-test",
         })
+
+        for (const id of [root, child, peer, nested]) {
+          const response = await ResearchRoutes.request(`/experiment/session/${id}`)
+          expect(response.status).toBe(200)
+          expect(await response.json()).toMatchObject({ exp_id: exp, atom: { atom_id: atom } })
+        }
+
+        const tool = await AtomQueryTool.init()
+        const result = await tool.execute(
+          {},
+          {
+            sessionID: nested,
+            messageID: "message-1",
+            callID: "call-1",
+            agent: "general",
+            abort: AbortSignal.any([]),
+            messages: [],
+            metadata: () => {},
+            ask: async () => {},
+          } satisfies Tool.Context,
+        )
+        expect(result.metadata).toMatchObject({ count: 1 })
+        expect(result.output).toContain(`atom_id: ${atom}`)
       },
     })
   })
