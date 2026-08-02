@@ -4,6 +4,7 @@ import { and, Database, eq } from "@/storage/db"
 import { git } from "@/util/git"
 
 import { ExperimentTable } from "./research.sql"
+import { ExperimentExecutionWatch } from "./experiment-execution-watch"
 
 export namespace CodeBranch {
   export async function list(dir: string) {
@@ -79,7 +80,7 @@ export namespace CodeBranch {
           displayName: exp.exp_name,
           experimentId: exp.exp_id,
           experimentName: exp.exp_name,
-          experimentStatus: exp.status,
+          experimentStatus: ExperimentExecutionWatch.resolve(exp.exp_id, exp.status),
         }
       }),
     }

@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test"
 import { CollabAgentNode } from "../../src/collab/agent-node"
 import { Identifier } from "../../src/id/id"
 import { Instance } from "../../src/project/instance"
+import { ExperimentExecutionWatch } from "../../src/research/experiment-execution-watch"
 import { AtomTable, ExperimentTable, ResearchProjectTable } from "../../src/research/research.sql"
 import { ResearchRoutes } from "../../src/server/routes/research"
 import { ExperimentWorkspace } from "../../src/session/experiment-workspace"
@@ -110,6 +111,8 @@ describe("session.experiment-workspace", () => {
             })
             .run(),
         )
+        ExperimentExecutionWatch.createOrGet(exp, "workspace test")
+        ExperimentExecutionWatch.update({ expId: exp, status: "finished" })
 
         const rootID = Identifier.ascending("collab_agent")
         CollabAgentNode.create({
@@ -147,7 +150,7 @@ describe("session.experiment-workspace", () => {
         for (const id of [root, child, peer, nested]) {
           const response = await ResearchRoutes.request(`/experiment/session/${id}`)
           expect(response.status).toBe(200)
-          expect(await response.json()).toMatchObject({ exp_id: exp, atom: { atom_id: atom } })
+          expect(await response.json()).toMatchObject({ exp_id: exp, status: "done", atom: { atom_id: atom } })
         }
 
         const tool = await AtomQueryTool.init()

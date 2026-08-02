@@ -1,9 +1,18 @@
-import { and, Database, eq } from "../storage/db"
+import { and, Database, desc, eq } from "../storage/db"
 import { ExperimentExecutionWatchTable, ExperimentTable, ExperimentWatchTable, RemoteTaskTable } from "./research.sql"
 
 type ExecutionStatus = typeof ExperimentExecutionWatchTable.$inferSelect.status
 type ExecutionStage = typeof ExperimentExecutionWatchTable.$inferSelect.stage
+type ExperimentStatus = typeof ExperimentTable.$inferSelect.status
 type Task = typeof RemoteTaskTable.$inferSelect
+
+const states: Record<ExecutionStatus, ExperimentStatus> = {
+  pending: "pending",
+  running: "running",
+  finished: "done",
+  failed: "failed",
+  canceled: "idle",
+}
 
 interface UpdateInput {
   expId?: string
@@ -36,7 +45,12 @@ function row(input: { expId?: string; watchId?: string }) {
   }
   if (!input.expId) return
   return Database.use((db) =>
-    db.select().from(ExperimentExecutionWatchTable).where(eq(ExperimentExecutionWatchTable.exp_id, input.expId!)).get(),
+    db
+      .select()
+      .from(ExperimentExecutionWatchTable)
+      .where(eq(ExperimentExecutionWatchTable.exp_id, input.expId!))
+      .orderBy(desc(ExperimentExecutionWatchTable.time_updated))
+      .get(),
   )
 }
 
@@ -76,6 +90,11 @@ function finished(task: Task) {
 }
 
 export namespace ExperimentExecutionWatch {
+  export function resolve(expId: string, fallback: ExperimentStatus) {
+    const watch = row({ expId })
+    return watch ? states[watch.status] : fallback
+  }
+
   export function createOrGet(expId: string, title: string, stage: ExecutionStage = "planning") {
     const existing = row({ expId })
     if (existing) return existing

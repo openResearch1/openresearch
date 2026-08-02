@@ -1447,6 +1447,44 @@ ToolRegistry.register({
 })
 
 ToolRegistry.register({
+  name: "experiment_remote_task_start",
+  render(props) {
+    const pending = createMemo(() => busy(props.status))
+    const reveal = useToolReveal(pending, () => props.reveal !== false)
+    const title = () => (typeof props.input.title === "string" ? props.input.title : undefined)
+    const command = () => (typeof props.input.command === "string" ? props.input.command : "")
+
+    return (
+      <ToolCall
+        variant="panel"
+        {...props}
+        icon="mcp"
+        animate
+        springContent
+        defaultOpen={props.defaultOpen ?? false}
+        trigger={
+          <div data-slot="basic-tool-tool-info-structured">
+            <div data-slot="basic-tool-tool-info-main">
+              <span data-slot="basic-tool-tool-title">
+                <TextShimmer text="Start remote task" active={pending()} />
+              </span>
+              <Show when={title()}>{(text) => <ToolText text={text()} animate={reveal()} />}</Show>
+            </div>
+          </div>
+        }
+      >
+        <div data-component="tool-output" data-scrollable>
+          <div class="text-11-regular text-text-weak pb-1">Command</div>
+          <pre class="text-11-regular text-text-base whitespace-pre-wrap break-words">
+            <code>{command()}</code>
+          </pre>
+        </div>
+      </ToolCall>
+    )
+  },
+})
+
+ToolRegistry.register({
   name: "experiment_remote_task_get",
   render(props) {
     const pending = createMemo(() => busy(props.status))

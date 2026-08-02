@@ -36,6 +36,7 @@ export function legacyTask(watch: WatchRow): RemoteTaskRow | undefined {
     status: watch.remote_task_status,
     resource_key: null,
     target_path: watch.remote_task_target_path,
+    command: null,
     screen_name: watch.remote_task_screen_name ?? "",
     log_path: watch.remote_task_log_path,
     error_message: watch.remote_task_error_message,
@@ -77,6 +78,16 @@ export function RemoteTaskPanel(props: {
             </div>
             <Show when={showTarget(props.task) && props.task.target_path}>
               <span class="font-mono break-all">Target: {props.task.target_path}</span>
+            </Show>
+            <Show when={props.task.command}>
+              {(command) => (
+                <div class="flex flex-col gap-1">
+                  <span>Command:</span>
+                  <pre class="rounded bg-background-base px-2 py-1 font-mono whitespace-pre-wrap break-words text-text-base">
+                    <code>{command()}</code>
+                  </pre>
+                </div>
+              )}
             </Show>
             <Show when={props.task.screen_name}>
               <span class="font-mono break-all">Screen: {props.task.screen_name}</span>

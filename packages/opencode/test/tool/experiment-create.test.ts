@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test"
 
 import { Instance } from "../../src/project/instance"
 import { CodeBranch } from "../../src/research/code-branch"
+import { ExperimentExecutionWatch } from "../../src/research/experiment-execution-watch"
 import { AtomTable, ExperimentTable, ResearchProjectTable } from "../../src/research/research.sql"
 import { Session } from "../../src/session"
 import { Database, eq } from "../../src/storage/db"
@@ -99,6 +100,17 @@ test("experiment creation locks and persists the selected branch head", async ()
         experimentName: "locked baseline",
         experimentStatus: "pending",
       })
+
+      ExperimentExecutionWatch.update({ expId: row.exp_id, status: "finished" })
+      const finished = await query.execute({ codeRoot: tmp.path }, ctx)
+      expect(finished.metadata.branches.find((branch) => branch.branch === row.exp_branch_name)).toMatchObject({
+        experimentId: row.exp_id,
+        experimentStatus: "done",
+      })
+      expect(
+        Database.use((db) => db.select().from(ExperimentTable).where(eq(ExperimentTable.exp_id, row.exp_id)).get())
+          ?.status,
+      ).toBe("pending")
     },
   })
 })

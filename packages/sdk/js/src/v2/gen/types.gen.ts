@@ -6456,6 +6456,7 @@ export type ResearchExperimentWatchListResponses = {
       status: "pending" | "running" | "finished" | "failed" | "crashed" | "canceled"
       resource_key: string | null
       target_path: string | null
+      command: string
       screen_name: string
       log_path: string | null
       error_message: string | null

@@ -100,6 +100,7 @@ function taskJson(task: RemoteTaskRow) {
     status: task.status,
     resource_key: task.resource_key,
     target_path: task.target_path,
+    command: task.command,
     screen_name: task.screen_name,
     log_path: task.log_path,
     error_message: task.error_message,
@@ -164,6 +165,7 @@ const remoteTaskListItemSchema = z.object({
   status: z.enum(["pending", "running", "finished", "failed", "crashed", "canceled"]),
   resource_key: z.string().nullable(),
   target_path: z.string().nullable(),
+  command: z.string(),
   screen_name: z.string(),
   log_path: z.string().nullable(),
   error_message: z.string().nullable(),
@@ -2363,24 +2365,6 @@ export const ResearchRoutes = new Hono()
         return c.json(null satisfies z.infer<typeof experimentSessionResponseSchema>)
       }
 
-      // Resolve status from experiment_execution_watch if available
-      const executionWatch = Database.use((db) =>
-        db
-          .select()
-          .from(ExperimentExecutionWatchTable)
-          .where(eq(ExperimentExecutionWatchTable.exp_id, experiment.exp_id))
-          .orderBy(desc(ExperimentExecutionWatchTable.time_updated))
-          .get(),
-      )
-      const executionStatusMap: Record<string, "pending" | "running" | "done" | "idle" | "failed"> = {
-        pending: "pending",
-        running: "running",
-        finished: "done",
-        failed: "failed",
-        canceled: "idle",
-      }
-      const resolvedStatus = executionWatch ? (executionStatusMap[executionWatch.status] ?? "pending") : "pending"
-
       const atom = experiment.atom_id
         ? (Database.use((db) => db.select().from(AtomTable).where(eq(AtomTable.atom_id, experiment.atom_id!)).get()) ??
           null)
@@ -2394,7 +2378,7 @@ export const ResearchRoutes = new Hono()
 
       return c.json({
         ...withRemoteServerConfig(experiment),
-        status: resolvedStatus,
+        status: ExperimentExecutionWatch.resolve(experiment.exp_id, experiment.status),
         atom,
         article,
       } satisfies z.infer<typeof experimentSessionResponseSchema>)
