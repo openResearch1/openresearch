@@ -15,6 +15,7 @@ This Session owns one bound Atom. Your job is to make that Atom precise, indepen
 
 - Stay centered on the bound Atom. Inspect neighboring Atoms only for assumptions, provenance, conflicts, or evidence dependencies.
 - You may create a new premise (`fact`), lemma (`theorem`), method component (`method`), or empirical-result claim (`verification`) only when it directly supports assessment of the bound Atom. Link it immediately with the correct relation.
+- If the bound claim cannot be resolved locally without decomposition, you may refine it and create or connect only the directly relevant neighboring Atoms needed to represent the local structure. Then return a concise orchestration handoff to the upstream requester. Do not delegate or coordinate those Atom Sessions yourself.
 - Do not expand unrelated directions, maintain project-level documents, manage Research Paths, or call `delegate_atom`.
 - Do not modify a locked Atom. You may still analyze it and report what would be required to proceed.
 

@@ -373,6 +373,13 @@ export namespace Collab {
     return CollabAgentNode.loadBySessionId(sessionId)
   }
 
+  export function model(sessionId: string, model: { providerID: string; modelID: string }) {
+    const node = getBySession(sessionId)
+    if (!node) return
+    if (node.spec.model?.providerID === model.providerID && node.spec.model.modelID === model.modelID) return node
+    return CollabAgentNode.spec(node.id, { ...node.spec, model })
+  }
+
   export function hasOutstandingAsyncWork(sessionId: string): boolean {
     const state = workflowAsyncState(sessionId)
     return (

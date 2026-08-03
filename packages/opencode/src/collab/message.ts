@@ -360,6 +360,61 @@ export namespace CollabMessage {
     })
   }
 
+  export function redeliver(claims: Claim[], messageId: string) {
+    if (!claims.length) return false
+    const now = Date.now()
+    return Database.transaction((tx) => {
+      const rows = claims.flatMap((claim) => {
+        if (!claim.claim_id) return []
+        const row = tx
+          .select({ kind: CollabMessageTable.kind, payload: CollabMessageTable.payload_json })
+          .from(CollabMessageTable)
+          .where(
+            and(
+              eq(CollabMessageTable.id, claim.id),
+              eq(CollabMessageTable.status, "processing"),
+              eq(CollabMessageTable.claim_id, claim.claim_id),
+            ),
+          )
+          .get()
+        if (!row || typeof row.payload !== "object" || row.payload === null) return []
+        return [
+          {
+            id: claim.id,
+            claimId: claim.claim_id,
+            kind: row.kind,
+            payload: row.payload as Record<string, unknown>,
+          },
+        ]
+      })
+      if (rows.length !== claims.length) return false
+      const updated = rows.flatMap((row) => {
+        const stale = row.kind === "user_input" ? row.payload.messageId : row.payload.deliveryMessageId
+        const payload =
+          row.kind === "user_input"
+            ? { ...row.payload, messageId, ...(typeof stale === "string" ? { staleDeliveryMessageId: stale } : {}) }
+            : {
+                ...row.payload,
+                deliveryMessageId: messageId,
+                ...(typeof stale === "string" ? { staleDeliveryMessageId: stale } : {}),
+              }
+        return tx
+          .update(CollabMessageTable)
+          .set({ payload_json: payload, time_updated: now })
+          .where(
+            and(
+              eq(CollabMessageTable.id, row.id),
+              eq(CollabMessageTable.status, "processing"),
+              eq(CollabMessageTable.claim_id, row.claimId),
+            ),
+          )
+          .returning({ id: CollabMessageTable.id })
+          .all()
+      })
+      return updated.length === claims.length
+    })
+  }
+
   export function drop(claims: Claim[]) {
     if (!claims.length) return
     const now = Date.now()

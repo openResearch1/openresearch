@@ -1,5 +1,6 @@
 import { describe, expect, spyOn, test } from "bun:test"
 
+import { Agent } from "../../src/agent/agent"
 import { Collab } from "../../src/collab"
 import { CollabAgentNode } from "../../src/collab/agent-node"
 import { CollabAutoWake } from "../../src/collab/auto-wake"
@@ -106,6 +107,60 @@ describe("spawned collab failures", () => {
         const root = Collab.getBySession(session.id)
         expect(root).toBeDefined()
         expect(CollabAgentNode.loadChildren(root!.id)).toHaveLength(0)
+      },
+    })
+  })
+
+  test("spawn follows the parent model ahead of the target agent model", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({ title: "spawn sender model" })
+        const message = (await Session.updateMessage({
+          id: Identifier.ascending("message"),
+          sessionID: session.id,
+          role: "assistant",
+          parentID: Identifier.ascending("message"),
+          mode: "build",
+          agent: "build",
+          modelID: "current",
+          providerID: "sender",
+          path: { cwd: tmp.path, root: tmp.path },
+          cost: 0,
+          tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+          time: { created: Date.now() },
+        })) as MessageV2.Assistant
+        const target = await Agent.get("general")
+        if (!target) throw new Error("general agent is unavailable")
+        const original = Agent.get
+        const get = spyOn(Agent, "get").mockImplementation(async (name) =>
+          name === "general" ? { ...target, model: { providerID: "target", modelID: "configured" } } : original(name),
+        )
+        const model = spyOn(Provider, "getModel").mockResolvedValue({} as never)
+        const start = spyOn(CollabLoop, "start").mockResolvedValue()
+        try {
+          const tool = await SpawnAgentTool.init()
+          await tool.execute(
+            { agent_type: "general", name: "sender model", prompt: "run" },
+            {
+              sessionID: session.id,
+              messageID: message.id,
+              agent: "build",
+              abort: new AbortController().signal,
+              messages: [],
+              metadata: () => {},
+              ask: async () => {},
+            },
+          )
+          const root = Collab.getBySession(session.id)
+          const child = CollabAgentNode.loadChildren(root!.id)[0]
+          expect(child.spec.model).toEqual({ providerID: "sender", modelID: "current" })
+        } finally {
+          start.mockRestore()
+          model.mockRestore()
+          get.mockRestore()
+        }
       },
     })
   })

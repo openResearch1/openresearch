@@ -85,6 +85,7 @@ describe("research.atom-agent", () => {
             sourceSessionId: source.id,
             agent: "research",
             prompt: "check the evidence",
+            model: { providerID: "sender", modelID: "flash" },
             runId: "stable-run",
           })
           const target = CollabAgentNode.load(first.agentId)
@@ -101,10 +102,14 @@ describe("research.atom-agent", () => {
             sourceSessionId: source.id,
             agent: "research",
             prompt: "check the evidence",
+            model: { providerID: "sender", modelID: "flash" },
             runId: "stable-run",
           })
           expect(duplicate).toEqual(first)
           expect(CollabMessage.list(target.id, { kind: "user_input" })).toHaveLength(1)
+          expect(CollabMessage.list(target.id, { kind: "user_input" })[0].payload_json).toMatchObject({
+            model: { providerID: "sender", modelID: "flash" },
+          })
           expect(CollabAgentNode.load(first.parentAgentId).active_children).toBe(1)
 
           CollabAgentNode.transition(target.id, "waiting_interaction")

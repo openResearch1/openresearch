@@ -4,6 +4,7 @@ import { Collab } from "@/collab"
 import { CollabAgentNode } from "@/collab/agent-node"
 import { AgentPolicySchema, type AgentSpec } from "@/collab/types"
 import { MessageV2 } from "@/session/message-v2"
+import { SessionPrompt } from "@/session/prompt"
 import { PermissionNext } from "@/permission/next"
 import { Provider } from "@/provider/provider"
 import { ResearchSessionControl } from "@/research/session-control"
@@ -77,10 +78,8 @@ export const SpawnAgentTool = Tool.define("spawn_agent", async (ctx) => {
 
       // Model resolution order (mirrors the `task` tool):
       //   1. explicit params.model from the LLM
-      //   2. target agent's configured agent.model
-      //   3. parent turn's model (read off the current assistant message)
-      // Never fall through to Provider.defaultModel() — that's what caused the
-      // bug where Opus parents spawned GPT children.
+      //   2. parent turn's model (read off the current assistant message)
+      //   3. target agent's configured agent.model
       const parentMsg = await MessageV2.get({ sessionID: ctx.sessionID, messageID: ctx.messageID })
       if (parentMsg.info.role !== "assistant") throw new Error("spawn_agent called outside an assistant turn")
       const inheritedModel = {
@@ -88,7 +87,13 @@ export const SpawnAgentTool = Tool.define("spawn_agent", async (ctx) => {
         modelID: parentMsg.info.modelID,
       }
       if (params.model) await Provider.getModel(params.model.providerID, params.model.modelID)
-      const resolvedModel = params.model ?? agent.model ?? inheritedModel
+      const resolvedModel =
+        params.model ??
+        (await SessionPrompt.resolveModel({
+          sessionID: ctx.sessionID,
+          agent: params.agent_type,
+          sender: inheritedModel,
+        }))
 
       const spec: AgentSpec = {
         initialPrompt: params.prompt,

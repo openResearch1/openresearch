@@ -232,6 +232,7 @@ export namespace SessionPrompt {
     }
 
     const message = await createUserMessage(input)
+    Collab.model(input.sessionID, message.info.model)
     const text = input.parts
       .filter((part) => part.type === "text")
       .map((part) => part.text)
@@ -621,6 +622,16 @@ export namespace SessionPrompt {
             text: "Summarize the task tool output above and continue with your task.",
             synthetic: true,
           } satisfies MessageV2.TextPart)
+          await Session.updatePart({
+            id: Identifier.ascending("part"),
+            messageID: summaryUserMsg.id,
+            sessionID,
+            type: "text",
+            text: "",
+            synthetic: true,
+            ignored: true,
+            metadata: { originMessageID: lastUser.id },
+          } satisfies MessageV2.TextPart)
         }
 
         continue
@@ -651,6 +662,7 @@ export namespace SessionPrompt {
           agent: lastUser.agent,
           model: lastUser.model,
           auto: true,
+          origin: lastUser.id,
         })
         continue
       }
@@ -861,6 +873,7 @@ export namespace SessionPrompt {
             model: lastUser.model,
             auto: true,
             overflow: !processor.message.finish,
+            origin: lastUser.id,
           })
         }
         continue
@@ -886,6 +899,7 @@ export namespace SessionPrompt {
           model: lastUser.model,
           auto: true,
           overflow: !processor.message.finish,
+          origin: lastUser.id,
         })
       }
       continue
@@ -915,11 +929,11 @@ export namespace SessionPrompt {
   export async function resolveModel(input: {
     sessionID: string
     agent: string
-    preferred?: { providerID: string; modelID: string }
-    fallback?: { providerID: string; modelID: string }
+    sender?: { providerID: string; modelID: string }
+    current?: { providerID: string; modelID: string }
   }) {
     const agent = await Agent.get(input.agent)
-    const candidates = [input.preferred, agent?.model, await recentModel(input.sessionID), input.fallback]
+    const candidates = [input.sender, input.current, agent?.model, await recentModel(input.sessionID)]
     candidates.push(await Provider.defaultModel().catch(() => undefined))
     const providers = await Provider.list()
     candidates.push(

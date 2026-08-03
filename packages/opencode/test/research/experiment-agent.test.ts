@@ -559,14 +559,66 @@ describe("research.experiment-agent", () => {
             await SessionPrompt.resolveModel({
               sessionID: (await Session.create({ title: "model recovery" })).id,
               agent: "experiment",
-              preferred: { providerID: "removed", modelID: "old" },
-              fallback: { providerID: "atom", modelID: "current" },
+              sender: { providerID: "atom", modelID: "current" },
+              current: { providerID: "removed", modelID: "old" },
             }),
           ).toEqual({ providerID: "atom", modelID: "current" })
         } finally {
           get.mockRestore()
           fallback.mockRestore()
           list.mockRestore()
+        }
+      },
+    })
+  })
+
+  test("prefers the Atom sender model over the current experiment model", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const get = spyOn(Provider, "getModel").mockResolvedValue({} as never)
+        try {
+          expect(
+            await SessionPrompt.resolveModel({
+              sessionID: (await Session.create({ title: "sender model" })).id,
+              agent: "experiment",
+              sender: { providerID: "atom", modelID: "current" },
+              current: { providerID: "experiment", modelID: "old" },
+            }),
+          ).toEqual({ providerID: "atom", modelID: "current" })
+          expect(get.mock.calls[0]).toEqual(["atom", "current"])
+        } finally {
+          get.mockRestore()
+        }
+      },
+    })
+  })
+
+  test("falls back to the current experiment model when the sender model is unavailable", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const get = spyOn(Provider, "getModel").mockImplementation(async (providerID, modelID) => {
+          if (providerID === "experiment" && modelID === "old") return {} as never
+          throw new Provider.ModelNotFoundError({ providerID, modelID, suggestions: [] })
+        })
+        try {
+          expect(
+            await SessionPrompt.resolveModel({
+              sessionID: (await Session.create({ title: "sender fallback" })).id,
+              agent: "experiment",
+              sender: { providerID: "removed", modelID: "sender" },
+              current: { providerID: "experiment", modelID: "old" },
+            }),
+          ).toEqual({ providerID: "experiment", modelID: "old" })
+          expect(get.mock.calls.slice(0, 2)).toEqual([
+            ["removed", "sender"],
+            ["experiment", "old"],
+          ])
+        } finally {
+          get.mockRestore()
         }
       },
     })
@@ -599,6 +651,10 @@ describe("research.experiment-agent", () => {
           expect(CollabAgentNode.load(child.id).spec.model).toEqual({
             providerID: "atom",
             modelID: "current",
+          })
+          expect(resolve.mock.calls[0]?.[0]).toMatchObject({
+            sender: { providerID: "atom", modelID: "current" },
+            current: { providerID: "removed", modelID: "old" },
           })
           expect(prompt.mock.calls[0]?.[0]?.model).toEqual({ providerID: "atom", modelID: "current" })
         } finally {

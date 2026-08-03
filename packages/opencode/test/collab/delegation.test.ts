@@ -11,6 +11,7 @@ import { CollabMessage } from "../../src/collab/message"
 import { CollabRecovery } from "../../src/collab/recovery"
 import { Identifier } from "../../src/id/id"
 import { Instance } from "../../src/project/instance"
+import { Provider } from "../../src/provider/provider"
 import { Session } from "../../src/session"
 import { SessionPrompt } from "../../src/session/prompt"
 import { Log } from "../../src/util/log"
@@ -424,6 +425,83 @@ describe("Collab durable inbox", () => {
     })
   })
 
+  test("active input follows and persists the sender model", async () => {
+    await Instance.provide({
+      directory: root,
+      fn: async () => {
+        const parent = await node({ name: "sender-model-parent" })
+        const child = await node({ name: "sender-model-child", parent: parent.id, root: parent.id })
+        CollabAgentNode.spec(child.id, {
+          ...child.spec,
+          model: { providerID: "recipient", modelID: "old" },
+        })
+        CollabMessage.post({
+          recipientAgentId: child.id,
+          runId: child.run_id,
+          kind: "user_input",
+          payload: { text: "use sender", model: { providerID: "sender", modelID: "current" } },
+        })
+        const get = spyOn(Provider, "getModel").mockResolvedValue({} as never)
+        const prompt = spyOn(SessionPrompt, "prompt").mockResolvedValue(undefined as never)
+        try {
+          await CollabLoop.start(child.id)
+          expect(prompt.mock.calls[0]?.[0]?.model).toEqual({ providerID: "sender", modelID: "current" })
+          expect(CollabAgentNode.load(child.id).spec.model).toEqual({
+            providerID: "sender",
+            modelID: "current",
+          })
+          expect(get.mock.calls[0]).toEqual(["sender", "current"])
+        } finally {
+          prompt.mockRestore()
+          get.mockRestore()
+        }
+      },
+    })
+  })
+
+  test("child callbacks keep the recipient model", async () => {
+    await Instance.provide({
+      directory: root,
+      fn: async () => {
+        const top = await node({ name: "callback-root" })
+        const parent = await node({ name: "callback-parent", parent: top.id, root: top.id })
+        const child = await node({ name: "callback-child", parent: parent.id, root: top.id })
+        CollabAgentNode.spec(parent.id, {
+          ...parent.spec,
+          model: { providerID: "recipient", modelID: "flash" },
+        })
+        CollabAgentNode.spec(child.id, {
+          ...child.spec,
+          model: { providerID: "child", modelID: "pro" },
+        })
+        CollabAgentNode.finish({
+          id: child.id,
+          runId: child.run_id,
+          parentId: parent.id,
+          status: "completed",
+          phase: "main_loop",
+          result: { summary: "done" },
+          timeEnded: Date.now(),
+          report: {
+            kind: "child_done",
+            payload: { childAgentId: child.id, childName: child.name, summary: "done" },
+          },
+        })
+        const prompt = spyOn(SessionPrompt, "prompt").mockResolvedValue(undefined as never)
+        try {
+          await CollabLoop.start(parent.id)
+          expect(prompt.mock.calls[0]?.[0]?.model).toEqual({ providerID: "recipient", modelID: "flash" })
+          expect(CollabAgentNode.load(parent.id).spec.model).toEqual({
+            providerID: "recipient",
+            modelID: "flash",
+          })
+        } finally {
+          prompt.mockRestore()
+        }
+      },
+    })
+  })
+
   test("claims retry and acknowledge explicitly", async () => {
     await Instance.provide({
       directory: root,
@@ -488,14 +566,16 @@ describe("Collab durable inbox", () => {
           parts: [{ type: "text", text: payload.text }],
           noReply: true,
         })
+        expect(CollabAgentNode.load(child.id).spec.model).toEqual({
+          providerID: "opencode",
+          modelID: "kimi-k2.5-free",
+        })
         CollabMessage.retry(claimed)
 
         const prompt = spyOn(SessionPrompt, "prompt").mockResolvedValue(
           {} as Awaited<ReturnType<typeof SessionPrompt.prompt>>,
         )
-        const loop = spyOn(SessionPrompt, "loop").mockResolvedValue(
-          {} as Awaited<ReturnType<typeof SessionPrompt.loop>>,
-        )
+        const loop = spyOn(SessionPrompt, "loop").mockResolvedValue(undefined as never)
         try {
           await CollabLoop.start(child.id)
           expect(loop).toHaveBeenCalledTimes(1)

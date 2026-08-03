@@ -269,6 +269,16 @@ When constructing the summary, try to stick to this template:
             sessionID: input.sessionID,
           })
         }
+        await Session.updatePart({
+          id: Identifier.ascending("part"),
+          messageID: replayMsg.id,
+          sessionID: input.sessionID,
+          type: "text",
+          text: "",
+          synthetic: true,
+          ignored: true,
+          metadata: { originMessageID: input.parentID },
+        })
       } else {
         const continueMsg = await Session.updateMessage({
           id: Identifier.ascending("message"),
@@ -295,6 +305,16 @@ When constructing the summary, try to stick to this template:
             end: Date.now(),
           },
         })
+        await Session.updatePart({
+          id: Identifier.ascending("part"),
+          messageID: continueMsg.id,
+          sessionID: input.sessionID,
+          type: "text",
+          text: "",
+          synthetic: true,
+          ignored: true,
+          metadata: { originMessageID: input.parentID },
+        })
       }
     }
     if (processor.message.error) return "stop"
@@ -312,6 +332,7 @@ When constructing the summary, try to stick to this template:
       }),
       auto: z.boolean(),
       overflow: z.boolean().optional(),
+      origin: z.string().optional(),
     }),
     async (input) => {
       const msg = await Session.updateMessage({
@@ -332,6 +353,18 @@ When constructing the summary, try to stick to this template:
         auto: input.auto,
         overflow: input.overflow,
       })
+      if (input.origin) {
+        await Session.updatePart({
+          id: Identifier.ascending("part"),
+          messageID: msg.id,
+          sessionID: msg.sessionID,
+          type: "text",
+          text: "",
+          synthetic: true,
+          ignored: true,
+          metadata: { originMessageID: input.origin },
+        })
+      }
     },
   )
 }

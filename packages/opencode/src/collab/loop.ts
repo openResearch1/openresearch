@@ -393,7 +393,7 @@ export namespace CollabLoop {
       const injections: PromptPartDraft[] = []
       const progressMsgs: ChildProgressPayload[] = []
       let failFastTrigger: ChildFailedPayload | undefined
-      let fallback: UserInputPayload["model"]
+      let sender: UserInputPayload["model"]
       let messageID: string | undefined
       let prompt: UserInputPayload["prompt"]
 
@@ -434,7 +434,7 @@ export namespace CollabLoop {
           }
           case "user_input": {
             const p = payload as UserInputPayload
-            fallback = p.model ?? fallback
+            sender = p.model ?? sender
             messageID = p.messageId ?? messageID
             prompt = p.prompt ?? prompt
             if (p.prompt) break
@@ -524,7 +524,7 @@ export namespace CollabLoop {
             node,
             {
               parts: [...(prompt?.parts ?? []), ...finalizeParts(injections)],
-              fallback,
+              sender,
               messageID,
               prompt,
             },
@@ -627,7 +627,7 @@ export namespace CollabLoop {
     node: AgentInfo,
     input: {
       parts: SessionPrompt.PromptInput["parts"]
-      fallback?: { providerID: string; modelID: string }
+      sender?: { providerID: string; modelID: string }
       messageID?: string
       prompt?: Omit<SessionPrompt.PromptInput, "sessionID">
     },
@@ -635,16 +635,16 @@ export namespace CollabLoop {
   ) {
     const model =
       input.prompt?.model ??
-      (input.fallback
+      (input.sender
         ? await SessionPrompt.resolveModel({
             sessionID: node.session_id,
             agent: node.subagent_type,
-            preferred: node.spec.model,
-            fallback: input.fallback,
+            sender: input.sender,
+            current: node.spec.model,
           })
         : node.spec.model)
     if (abort.aborted) throw new PromptAbort("Prompt aborted before model resolution")
-    if (input.fallback && model) {
+    if ((input.sender || input.prompt?.model) && model) {
       CollabAgentNode.spec(node.id, { ...node.spec, model })
     }
     if (abort.aborted) throw new PromptAbort("Prompt aborted before delivery")
