@@ -97,20 +97,6 @@ export async function ensureRepoInitialized(codePath: string): Promise<{ ok: tru
   return { ok: true }
 }
 
-export async function setExperimentStatus(
-  sessionID: string,
-  status: "pending" | "running" | "done" | "idle" | "failed",
-): Promise<void> {
-  const parentSessionId = (await Research.getParentSessionId(sessionID)) ?? sessionID
-  const experiment = Database.use((db) =>
-    db.select().from(ExperimentTable).where(eq(ExperimentTable.exp_session_id, parentSessionId)).get(),
-  )
-  if (!experiment) return
-  Database.use((db) =>
-    db.update(ExperimentTable).set({ status }).where(eq(ExperimentTable.exp_id, experiment.exp_id)).run(),
-  )
-}
-
 export type ExperimentReadyResult =
   | { ready: true }
   | { ready: false; reason: "not_found"; message: string }

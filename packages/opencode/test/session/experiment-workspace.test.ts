@@ -113,6 +113,11 @@ describe("session.experiment-workspace", () => {
         )
         ExperimentExecutionWatch.createOrGet(exp, "workspace test")
         ExperimentExecutionWatch.update({ expId: exp, status: "finished" })
+        expect(Database.use((db) => db.select().from(ExperimentTable).all())[0]).toMatchObject({
+          exp_id: exp,
+          status: "done",
+          finished_at: expect.any(Number),
+        })
 
         const rootID = Identifier.ascending("collab_agent")
         CollabAgentNode.create({

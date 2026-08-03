@@ -97,11 +97,9 @@ export const ExperimentWatchTool = Tool.define("experiment_watch", {
         .get(),
     )
     if (existing) {
-      const status = existing.status === "finished" ? "finished" : existing.status === "running" ? "running" : "failed"
-      ExperimentExecutionWatch.createOrGet(params.expId, ExperimentExecutionWatch.title(params.expId))
+      const status = ExperimentExecutionWatch.syncWatch(params.expId, existing)
       ExperimentExecutionWatch.update({
         expId: params.expId,
-        status,
         stage: "watching_wandb",
         wandbEntity: existing.wandb_entity,
         wandbProject: existing.wandb_project,
@@ -161,11 +159,12 @@ export const ExperimentWatchTool = Tool.define("experiment_watch", {
         .run(),
     )
 
-    ExperimentExecutionWatch.createOrGet(params.expId, ExperimentExecutionWatch.title(params.expId))
-    const status = check.state === "finished" ? "finished" : check.state === "running" ? "running" : "failed"
+    const watch = Database.use((db) =>
+      db.select().from(ExperimentWatchTable).where(eq(ExperimentWatchTable.watch_id, watchId)).get(),
+    )!
+    const status = ExperimentExecutionWatch.syncWatch(params.expId, watch)
     ExperimentExecutionWatch.update({
       expId: params.expId,
-      status,
       stage: "watching_wandb",
       wandbEntity: viewer.entity,
       wandbProject: params.wandbProject,
@@ -178,15 +177,6 @@ export const ExperimentWatchTool = Tool.define("experiment_watch", {
             : "Monitoring W&B run",
       errorMessage: null,
     })
-
-    // Update experiment status to running
-    Database.use((db) =>
-      db
-        .update(ExperimentTable)
-        .set({ status: "running", started_at: now, time_updated: now })
-        .where(eq(ExperimentTable.exp_id, params.expId))
-        .run(),
-    )
 
     log.info("experiment watch registered", {
       watchId,

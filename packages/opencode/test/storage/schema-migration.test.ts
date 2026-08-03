@@ -113,3 +113,41 @@ test("normalizes legacy Atom relation names", async () => {
     sqlite.close()
   }
 })
+
+test("backfills experiment status from the latest execution watch", async () => {
+  const journal = await Promise.all(
+    entries().map(async (entry) => ({
+      ...entry,
+      sql: await entry.sql,
+    })),
+  )
+  const migration = journal.findIndex((entry) => entry.name === "20260803022416_experiment_status_projection")
+  expect(migration).toBeGreaterThan(-1)
+
+  const sqlite = new Database(":memory:")
+  try {
+    const db = drizzle({ client: sqlite })
+    migrate(db, journal.slice(0, migration))
+    sqlite.run("PRAGMA foreign_keys = OFF")
+    sqlite.run(
+      "INSERT INTO experiment (exp_id, research_project_id, exp_name, code_path, status, time_created, time_updated) VALUES ('exp-1', 'research-1', 'experiment', '/tmp/experiment', 'pending', 1, 1)",
+    )
+    sqlite.run(
+      "INSERT INTO experiment_execution_watch (watch_id, exp_id, status, stage, title, started_at, finished_at, time_created, time_updated) VALUES ('watch-1', 'exp-1', 'running', 'running_experiment', 'old', 10, NULL, 10, 10)",
+    )
+    sqlite.run(
+      "INSERT INTO experiment_execution_watch (watch_id, exp_id, status, stage, title, started_at, finished_at, time_created, time_updated) VALUES ('watch-2', 'exp-1', 'finished', 'running_experiment', 'latest', 20, 30, 20, 30)",
+    )
+
+    migrate(db, journal)
+
+    expect(sqlite.query("SELECT status, started_at, finished_at, time_updated FROM experiment").get()).toEqual({
+      status: "done",
+      started_at: 20,
+      finished_at: 30,
+      time_updated: 30,
+    })
+  } finally {
+    sqlite.close()
+  }
+})

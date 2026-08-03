@@ -3996,11 +3996,12 @@ export const ResearchRoutes = new Hono()
             for (const w of metadata.watches.experiment_execution_watches ?? []) {
               const newExpId = oldToNewExpId.get(w.exp_id)
               if (!newExpId) continue
+              const watchId = uniqueID()
               Database.use((db) =>
                 db
                   .insert(ExperimentExecutionWatchTable)
                   .values({
-                    watch_id: uniqueID(),
+                    watch_id: watchId,
                     exp_id: newExpId,
                     status: w.status,
                     stage: w.stage,
@@ -4017,6 +4018,7 @@ export const ResearchRoutes = new Hono()
                   })
                   .run(),
               )
+              ExperimentExecutionWatch.update({ watchId })
             }
 
             for (const w of metadata.watches.remote_tasks ?? []) {

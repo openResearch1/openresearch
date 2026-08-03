@@ -46,7 +46,7 @@ import { LLM } from "./llm"
 import { iife } from "@/util/iife"
 import { Shell } from "@/shell/shell"
 import { Truncate } from "@/tool/truncation"
-import { assertExperimentReady, setExperimentStatus } from "./experiment-guard"
+import { assertExperimentReady } from "./experiment-guard"
 import { Workflow } from "@/workflow"
 import { Collab } from "@/collab"
 import { SshTool } from "@/tool/ssh"
@@ -346,7 +346,6 @@ export namespace SessionPrompt {
     match.abort.abort()
     delete s[sessionID]
     SessionStatus.set(sessionID, { type: "idle" })
-    setExperimentStatus(sessionID, "pending")
     return
   }
 
@@ -366,8 +365,6 @@ export namespace SessionPrompt {
     }
 
     using _ = defer(() => cancel(sessionID))
-
-    await setExperimentStatus(sessionID, "running")
 
     // Structured output state
     // Note: On session resumption, state is reset but outputFormat is preserved

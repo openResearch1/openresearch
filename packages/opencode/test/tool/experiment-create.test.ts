@@ -110,7 +110,11 @@ test("experiment creation locks and persists the selected branch head", async ()
       expect(
         Database.use((db) => db.select().from(ExperimentTable).where(eq(ExperimentTable.exp_id, row.exp_id)).get())
           ?.status,
-      ).toBe("pending")
+      ).toBe("done")
+
+      const expQuery = await import("../../src/tool/experiment-query").then((mod) => mod.ExperimentQueryTool.init())
+      const queried = await expQuery.execute({ expId: row.exp_id }, ctx)
+      expect(queried.output).toContain("status: done")
     },
   })
 })
