@@ -20,6 +20,8 @@ import type {
   CollabAgentGetResponses,
   CollabAgentMessagesErrors,
   CollabAgentMessagesResponses,
+  CollabAgentStopErrors,
+  CollabAgentStopResponses,
   CollabPeerSessionsListResponses,
   CollabReturnPartInput,
   CollabSessionAgentGetResponses,
@@ -3873,7 +3875,7 @@ export class Experiment extends HeyApiClient {
   /**
    * Get experiment by session
    *
-   * Resolve the experiment linked to a session (walks up to parent session). Returns the experiment, its linked atom, and the atom's article. Each field is independently nullable.
+   * Resolve the experiment linked to a session through session and collaboration ancestry. Returns the experiment, its linked atom, and the atom's article. Each field is independently nullable.
    */
   public bySession<ThrowOnError extends boolean = false>(
     parameters: {
@@ -4940,6 +4942,38 @@ export class Agent extends HeyApiClient {
         ...options?.headers,
         ...params.headers,
       },
+    })
+  }
+
+  /**
+   * Stop a Collab root
+   *
+   * Durably stop this Controller/root and its automatic descendants. Human-controlled runs and remote processes continue.
+   */
+  public stop<ThrowOnError extends boolean = false>(
+    parameters: {
+      agentId: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "agentId" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<CollabAgentStopResponses, CollabAgentStopErrors, ThrowOnError>({
+      url: "/collab/agent/{agentId}/stop",
+      ...options,
+      ...params,
     })
   }
 }

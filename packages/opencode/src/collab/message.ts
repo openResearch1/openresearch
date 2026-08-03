@@ -17,6 +17,7 @@ export namespace CollabMessage {
 
   const CHILD_TERMINAL_KINDS = new Set<CollabMsgKind>(["child_done", "child_failed"])
   const CHILD_REPORT_KINDS = new Set<CollabMsgKind>(["child_done", "child_failed", "child_waiting", "child_progress"])
+  const ACTIVE_AGENT_STATUSES = new Set(["pending", "running", "blocked_on_children", "waiting_interaction"])
 
   export type Row = typeof CollabMessageTable.$inferSelect
   export type Claim = Pick<Row, "id" | "claim_id">
@@ -37,26 +38,35 @@ export namespace CollabMessage {
     const now = Date.now()
 
     const result = Database.transaction((tx) => {
-      if (
+      const guarded =
         input.expectedParentAgentId !== undefined ||
         input.expectedRunId !== undefined ||
-        input.expectedErrorCode !== undefined
-      ) {
-        const recipient = tx
+        input.expectedErrorCode !== undefined ||
+        CHILD_REPORT_KINDS.has(input.kind) ||
+        input.kind === "session_remote_task_terminal"
+      const recipient = guarded
+        ? tx
           .select({
             parent: CollabAgentTable.parent_agent_id,
             run: CollabAgentTable.run_id,
             error: CollabAgentTable.error_json,
+            status: CollabAgentTable.status,
+            spec: CollabAgentTable.spec_json,
           })
           .from(CollabAgentTable)
           .where(eq(CollabAgentTable.id, input.recipientAgentId))
           .get()
+        : undefined
+      if (guarded) {
         if (
           !recipient ||
           (input.expectedParentAgentId !== undefined && recipient.parent !== input.expectedParentAgentId) ||
           (input.expectedRunId !== undefined && recipient.run !== input.expectedRunId) ||
           (input.expectedErrorCode === null && recipient.error !== null) ||
-          (typeof input.expectedErrorCode === "string" && recipient.error?.code !== input.expectedErrorCode)
+          (typeof input.expectedErrorCode === "string" && recipient.error?.code !== input.expectedErrorCode) ||
+          (CHILD_REPORT_KINDS.has(input.kind) && !ACTIVE_AGENT_STATUSES.has(recipient.status)) ||
+          (input.kind === "session_remote_task_terminal" &&
+            (recipient.spec as { metadata?: { stoppedByUser?: unknown } }).metadata?.stoppedByUser === true)
         )
           return { id: undefined, inserted: false }
       }
@@ -64,6 +74,12 @@ export namespace CollabMessage {
         CHILD_REPORT_KINDS.has(input.kind) && input.senderAgentId
           ? tx.select().from(CollabAgentTable).where(eq(CollabAgentTable.id, input.senderAgentId)).get()
           : undefined
+      if (
+        sender &&
+        ((sender.spec_json as { metadata?: { stoppedByUser?: unknown } }).metadata?.stoppedByUser === true)
+      ) {
+        return { id: undefined, inserted: false }
+      }
       const value =
         typeof input.payload === "object" && input.payload !== null && "runId" in input.payload
           ? (input.payload as { runId?: unknown }).runId
@@ -205,7 +221,17 @@ export namespace CollabMessage {
     const posted = Database.transaction((tx) => {
       const current = tx.select().from(CollabAgentTable).where(eq(CollabAgentTable.id, input.agentId)).get()
       const run = input.payload.runId ?? current?.run_id ?? null
-      if (!current || current.parent_agent_id !== input.recipientAgentId || current.run_id !== run) return false
+      const parent = tx.select().from(CollabAgentTable).where(eq(CollabAgentTable.id, input.recipientAgentId)).get()
+      if (
+        !current ||
+        !parent ||
+        !ACTIVE_AGENT_STATUSES.has(current.status) ||
+        !ACTIVE_AGENT_STATUSES.has(parent.status) ||
+        (current.spec_json as { metadata?: { stoppedByUser?: unknown } }).metadata?.stoppedByUser === true ||
+        current.parent_agent_id !== input.recipientAgentId ||
+        current.run_id !== run
+      )
+        return false
 
       const updated = tx
         .update(CollabAgentTable)
@@ -214,7 +240,14 @@ export namespace CollabMessage {
           phase: "awaiting_children",
           time_updated: now,
         })
-        .where(eq(CollabAgentTable.id, input.agentId))
+        .where(
+          and(
+            eq(CollabAgentTable.id, input.agentId),
+            eq(CollabAgentTable.parent_agent_id, input.recipientAgentId),
+            run ? eq(CollabAgentTable.run_id, run) : isNull(CollabAgentTable.run_id),
+            eq(CollabAgentTable.status, current.status),
+          ),
+        )
         .returning()
         .get()
       if (!updated) throw new Error(`Agent not found: ${input.agentId}`)

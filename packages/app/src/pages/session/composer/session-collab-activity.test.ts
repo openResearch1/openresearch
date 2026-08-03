@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { CollabAgent } from "@opencode-ai/sdk/v2/client"
-import { isAgentControlled } from "./session-collab-control"
+import { canStopController, hasCollabActivity, isAgentControlled } from "./session-collab-control"
 
 function agent(input?: Partial<CollabAgent>): CollabAgent {
   return {
@@ -45,5 +45,22 @@ describe("session Collab control", () => {
         }),
       ),
     ).toBe(true)
+  })
+
+  test("only active dedicated Controller roots can be stopped", () => {
+    const root = agent({
+      id: "controller",
+      parent_agent_id: null,
+      root_agent_id: "controller",
+      subagent_type: "controller",
+      spec: { initialPrompt: "", metadata: {} },
+    })
+
+    expect(canStopController(root, true)).toBe(true)
+    expect(canStopController(root, false)).toBe(false)
+    expect(canStopController(agent({ status: "completed" }), true)).toBe(false)
+    expect(hasCollabActivity(root, true, 0)).toBe(true)
+    expect(hasCollabActivity(agent({ status: "completed" }), true, 1)).toBe(true)
+    expect(hasCollabActivity(agent({ status: "completed" }), true, 0)).toBe(false)
   })
 })

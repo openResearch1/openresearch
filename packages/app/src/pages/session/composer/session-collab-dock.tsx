@@ -1,11 +1,19 @@
 import { DockTray } from "@opencode-ai/ui/dock-surface"
+import { Button } from "@opencode-ai/ui/button"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { Dialog } from "@opencode-ai/ui/dialog"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { useSpring } from "@opencode-ai/ui/motion-spring"
 import { TextReveal } from "@opencode-ai/ui/text-reveal"
+import { showToast } from "@opencode-ai/ui/toast"
 import { For, Show, createMemo } from "solid-js"
 import { createStore } from "solid-js/store"
 import type { CollabAgent } from "@opencode-ai/sdk/v2/client"
+import { useLanguage } from "@/context/language"
+import { useSDK } from "@/context/sdk"
 import type { CollabActivity } from "@/pages/session/composer/session-collab-activity"
+import { canStopController } from "@/pages/session/composer/session-collab-control"
+import { formatServerError } from "@/utils/server-errors"
 
 type Props = {
   activity: CollabActivity
@@ -36,6 +44,8 @@ const STATUS_ORDER: Record<string, number> = {
   canceled: 6,
   failed: 7,
 }
+
+const stops = new Map<string, Promise<unknown>>()
 
 function badge(kind: Badge, labels: { running: string; blocked: string; pending: string }) {
   const tone = kind === "running" ? "var(--text-strong)" : kind === "blocked" ? "var(--warning)" : "var(--text-weak)"
@@ -74,7 +84,69 @@ function statusDot(status: string) {
   )
 }
 
+function DialogStopController(props: { agentId: string }) {
+  const dialog = useDialog()
+  const language = useLanguage()
+  const sdk = useSDK()
+  const [store, setStore] = createStore({ stopping: false })
+
+  const stop = async () => {
+    if (store.stopping) return
+    setStore("stopping", true)
+    const current = stops.get(props.agentId)
+    const request = current ?? sdk.client.collab.agent.stop({ agentId: props.agentId, directory: sdk.directory })
+    if (!current) stops.set(props.agentId, request)
+    await request
+      .then(() => dialog.close())
+      .catch((err) => {
+        showToast({
+          variant: "error",
+          title: language.t("session.collab.stop.failed"),
+          description: formatServerError(err, language.t, language.t("common.requestFailed")),
+        })
+      })
+      .finally(() => {
+        if (stops.get(props.agentId) === request) stops.delete(props.agentId)
+        setStore("stopping", false)
+      })
+  }
+
+  return (
+    <Dialog title={language.t("session.collab.stop.title")} fit>
+      <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
+        <div class="flex flex-col gap-1">
+          <span class="text-14-regular text-text-strong">{language.t("session.collab.stop.confirm")}</span>
+          <span class="text-12-regular text-text-weak">{language.t("session.collab.stop.description")}</span>
+        </div>
+        <div class="flex justify-end gap-2">
+          <Button variant="ghost" size="large" disabled={store.stopping} onClick={() => dialog.close()}>
+            {language.t("common.cancel")}
+          </Button>
+          <Button
+            icon="stop"
+            variant="primary"
+            size="large"
+            class="[&_[data-slot=icon-svg]]:!text-text-on-critical-strong disabled:opacity-50"
+            style={{
+              background: "var(--surface-critical-strong)",
+              "border-color": "var(--border-critical-selected)",
+              color: "var(--text-on-critical-strong)",
+            }}
+            disabled={store.stopping}
+            aria-busy={store.stopping}
+            onClick={stop}
+          >
+            {language.t(store.stopping ? "session.collab.stop.stopping" : "session.collab.stop.button")}
+          </Button>
+        </div>
+      </div>
+    </Dialog>
+  )
+}
+
 export function SessionCollabDock(props: Props) {
+  const dialog = useDialog()
+  const language = useLanguage()
   const [store, setStore] = createStore({ collapsed: true })
   const toggle = () => setStore("collapsed", (value) => !value)
 
@@ -90,16 +162,21 @@ export function SessionCollabDock(props: Props) {
       })
   })
 
+  const stoppable = createMemo(() =>
+    canStopController(props.activity.rootAgent(), props.activity.controllerRoot()),
+  )
+
   const show = createMemo(() => {
     const root = props.activity.rootAgent()
     if (!root) return false
-    return props.activity.activeChildren().length > 0
+    return props.activity.activeChildren().length > 0 || stoppable()
   })
 
   const mainBadge = createMemo<Badge>(() => {
     const root = props.activity.rootAgent()
-    if (root?.status === "blocked_on_children") return "blocked"
+    if (root?.status === "blocked_on_children" || root?.status === "waiting_interaction") return "blocked"
     if (props.activity.activeChildren().some((c) => c.status === "waiting_interaction")) return "blocked"
+    if (root?.status === "running") return "running"
     if (props.activity.activeChildren().some((c) => c.status === "running" || c.status === "blocked_on_children"))
       return "running"
     return "pending"
@@ -127,16 +204,18 @@ export function SessionCollabDock(props: Props) {
         <div>
           <div
             class="pl-3 pr-2 py-2 flex items-center gap-2 overflow-visible"
-            role="button"
-            tabIndex={0}
-            onClick={toggle}
-            onKeyDown={(event) => {
-              if (event.key !== "Enter" && event.key !== " ") return
-              event.preventDefault()
-              toggle()
-            }}
           >
-            <div class="min-w-0 flex-1 flex items-center gap-2 overflow-hidden">
+            <div
+              class="min-w-0 flex-1 flex items-center gap-2 overflow-hidden"
+              role="button"
+              tabIndex={0}
+              onClick={toggle}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" && event.key !== " ") return
+                event.preventDefault()
+                toggle()
+              }}
+            >
               <span class="text-14-regular text-text-strong shrink-0">{props.title}</span>
               {badge(mainBadge(), {
                 running: props.runningLabel,
@@ -158,7 +237,27 @@ export function SessionCollabDock(props: Props) {
                 />
               </div>
             </div>
-            <div class="ml-auto shrink-0">
+            <div class="ml-auto shrink-0 flex items-center gap-1">
+              <Show when={stoppable()}>
+                <IconButton
+                  icon="stop"
+                  size="normal"
+                  variant="ghost"
+                  class="[&_[data-slot=icon-svg]]:!text-[var(--danger)]"
+                  aria-label={language.t("session.collab.stop.button")}
+                  onMouseDown={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                  }}
+                  onClick={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    const root = props.activity.rootAgent()
+                    if (!root || !stoppable()) return
+                    dialog.show(() => <DialogStopController agentId={root.id} />)
+                  }}
+                />
+              </Show>
               <IconButton
                 icon="chevron-down"
                 size="normal"
@@ -192,29 +291,36 @@ export function SessionCollabDock(props: Props) {
               }}
             >
               <ul class="flex flex-col gap-1">
-                <For each={sortedChildren()}>
-                  {(c) => (
-                    <li
-                      class="flex items-center gap-2 px-2 py-1 rounded-md"
-                      style={{
-                        cursor: props.onOpenAgent ? "pointer" : "default",
-                        background:
-                          c.status === "running" || c.status === "blocked_on_children" || c.status === "waiting_interaction"
-                            ? "color-mix(in srgb, var(--text-strong) 6%, transparent)"
-                            : "transparent",
-                      }}
-                      onClick={() => props.onOpenAgent?.(c)}
-                    >
-                      {statusDot(c.status)}
-                      <span class="text-13-regular text-text-strong truncate min-w-0 flex-1">{c.name}</span>
-                      <span class="text-12-regular text-text-weak shrink-0">{c.subagent_type}</span>
-                      <span class="text-11-regular text-text-weak shrink-0">{c.status}</span>
-                      <Show when={c.active_children > 0}>
-                        <span class="text-11-regular text-text-weak shrink-0">+{c.active_children}</span>
-                      </Show>
-                    </li>
-                  )}
-                </For>
+                <Show
+                  when={sortedChildren().length > 0}
+                  fallback={<li class="px-2 py-1 text-13-regular text-text-weak">{props.emptyLabel}</li>}
+                >
+                  <For each={sortedChildren()}>
+                    {(c) => (
+                      <li
+                        class="flex items-center gap-2 px-2 py-1 rounded-md"
+                        style={{
+                          cursor: props.onOpenAgent ? "pointer" : "default",
+                          background:
+                            c.status === "running" ||
+                            c.status === "blocked_on_children" ||
+                            c.status === "waiting_interaction"
+                              ? "color-mix(in srgb, var(--text-strong) 6%, transparent)"
+                              : "transparent",
+                        }}
+                        onClick={() => props.onOpenAgent?.(c)}
+                      >
+                        {statusDot(c.status)}
+                        <span class="text-13-regular text-text-strong truncate min-w-0 flex-1">{c.name}</span>
+                        <span class="text-12-regular text-text-weak shrink-0">{c.subagent_type}</span>
+                        <span class="text-11-regular text-text-weak shrink-0">{c.status}</span>
+                        <Show when={c.active_children > 0}>
+                          <span class="text-11-regular text-text-weak shrink-0">+{c.active_children}</span>
+                        </Show>
+                      </li>
+                    )}
+                  </For>
+                </Show>
               </ul>
             </div>
           </div>

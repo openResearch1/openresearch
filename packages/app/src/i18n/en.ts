@@ -591,6 +591,12 @@ export const dict = {
   "session.collab.blocked": "Waiting",
   "session.collab.pending": "Idle",
   "session.collab.empty": "No subagents.",
+  "session.collab.stop.button": "Stop Controller",
+  "session.collab.stop.title": "Stop Controller",
+  "session.collab.stop.confirm": "Stop the current Controller and its automatically spawned tasks?",
+  "session.collab.stop.description": "Human-controlled runs and remote processes will continue.",
+  "session.collab.stop.stopping": "Stopping...",
+  "session.collab.stop.failed": "Failed to stop Controller",
 
   "session.new.title": "Build anything",
   "session.new.researchTitle": "Research anything",

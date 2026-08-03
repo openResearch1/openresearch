@@ -207,6 +207,7 @@ export namespace AtomAgent {
       subagentType: input.agent,
       spec: { initialPrompt: "", policy: { on_fail: "continue" } },
     })
+    if (CollabAgentNode.isStopped(parent)) throw new Error("Controller was stopped by the user")
     if (parent.parent_agent_id || parent.root_agent_id !== parent.id) {
       throw new Error("Source session is not an independent Collab root")
     }
@@ -264,6 +265,7 @@ export namespace AtomAgent {
         prompt: input.prompt,
         model: input.model,
         runId: input.runId,
+        parentGeneration: CollabAgentNode.generation(parent.spec),
       }).catch((err) => {
         const current = CollabAgentNode.load(fresh.id)
         if (current.parent_agent_id) {

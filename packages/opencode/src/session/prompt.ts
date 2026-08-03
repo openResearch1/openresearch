@@ -335,10 +335,11 @@ export namespace SessionPrompt {
     return s[sessionID].abort.signal
   }
 
-  export function cancel(sessionID: string) {
+  export function cancel(sessionID: string, signal?: AbortSignal) {
     log.info("cancel", { sessionID })
     const s = state()
     const match = s[sessionID]
+    if (signal && match?.abort.signal !== signal) return
     if (!match) {
       SessionStatus.set(sessionID, { type: "idle" })
       return
@@ -364,7 +365,7 @@ export namespace SessionPrompt {
       })
     }
 
-    using _ = defer(() => cancel(sessionID))
+    using _ = defer(() => cancel(sessionID, abort))
 
     // Structured output state
     // Note: On session resumption, state is reset but outputFormat is preserved
@@ -1756,9 +1757,11 @@ NOTE: At any point in time through this workflow you should feel free to ask the
     }
 
     using _ = defer(() => {
-      const callbacks = state()[input.sessionID]?.callbacks ?? []
+      const current = state()[input.sessionID]
+      if (current?.abort.signal !== abort) return
+      const callbacks = current.callbacks
       if (callbacks.length === 0) {
-        cancel(input.sessionID)
+        cancel(input.sessionID, abort)
         return
       }
       loop({ sessionID: input.sessionID, resume_existing: true }).catch((error) => {
@@ -1925,10 +1928,12 @@ NOTE: At any point in time through this workflow you should feel free to ask the
     }
 
     using _ = defer(() => {
+      const current = state()[input.sessionID]
+      if (current?.abort.signal !== abort) return
       // If no queued callbacks, cancel (the default)
-      const callbacks = state()[input.sessionID]?.callbacks ?? []
+      const callbacks = current.callbacks
       if (callbacks.length === 0) {
-        cancel(input.sessionID)
+        cancel(input.sessionID, abort)
       } else {
         // Otherwise, trigger the session loop to process queued items
         loop({ sessionID: input.sessionID, resume_existing: true }).catch((error) => {

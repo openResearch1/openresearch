@@ -205,6 +205,7 @@ export namespace CollabAutoWake {
   }
 
   async function maybeDriveDirect(node: AgentInfo, inflight: Set<string>) {
+    if (CollabAgentNode.isStopped(node)) return
     if (inflight.has(node.session_id)) return
     if (SessionStatus.get(node.session_id).type === "busy") {
       if (
@@ -283,7 +284,10 @@ export namespace CollabAutoWake {
       CollabMessage.ack(msgs)
     } catch (err) {
       CollabMessage.retry(msgs, false)
-      CollabRuntime.schedule(agentId, 1000, () => void tryDriveDirectById(agentId, state().inflight))
+      const fresh = CollabAgentNode.tryLoad(agentId)
+      if (fresh && !CollabAgentNode.isStopped(fresh)) {
+        CollabRuntime.schedule(agentId, 1000, () => void tryDriveDirectById(agentId, state().inflight))
+      }
       throw err
     }
   }
@@ -384,6 +388,7 @@ export namespace CollabAutoWake {
   }
 
   async function maybeWakeOrBlock(node: AgentInfo, inflight: Set<string>) {
+    if (!CollabAgentNode.isActive(node.status)) return
     if (node.parent_agent_id) {
       maybeStartLoop(node)
       return
@@ -435,7 +440,10 @@ export namespace CollabAutoWake {
         }
 
         if (!(await driveTurn(fresh.id, release.signal))) {
-          CollabRuntime.schedule(node.id, 1000, () => void tryDriveById(node.id, inflight))
+          const latest = CollabAgentNode.tryLoad(node.id)
+          if (latest && CollabAgentNode.isActive(latest.status)) {
+            CollabRuntime.schedule(node.id, 1000, () => void tryDriveById(node.id, inflight))
+          }
           return
         }
         // Loop: during driveTurn more child_done/failed may have arrived. Re-check.

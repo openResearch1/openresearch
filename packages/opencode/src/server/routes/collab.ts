@@ -3,6 +3,7 @@ import { Hono } from "hono"
 import z from "zod"
 import { Collab, CollabAgentNode } from "@/collab"
 import { Instance } from "@/project/instance"
+import { NotFoundError } from "@/storage/db"
 import { AgentInfoSchema, CollabMsgKindSchema, MessageInfoSchema } from "@/collab/types"
 import { errors } from "../error"
 
@@ -48,6 +49,13 @@ const cancelResponseSchema = z
     canceled: z.boolean(),
   })
   .meta({ ref: "CollabCancelResponse" })
+
+const stopResponseSchema = z
+  .object({
+    agent_id: z.string(),
+    stopped: z.boolean(),
+  })
+  .meta({ ref: "CollabStopResponse" })
 
 const messagesQuerySchema = z.object({
   kind: CollabMsgKindSchema.optional(),
@@ -233,5 +241,34 @@ export const CollabRoutes = new Hono()
         runId: target.run_id,
       })
       return c.json({ agent_id: agentId, canceled: true })
+    },
+  )
+  .post(
+    "/agent/:agentId/stop",
+    describeRoute({
+      summary: "Stop a Collab root",
+      description:
+        "Durably stop this Controller/root and its automatic descendants. Human-controlled runs and remote processes continue.",
+      operationId: "collab.agent.stop",
+      responses: {
+        200: {
+          description: "Controller stopped",
+          content: { "application/json": { schema: resolver(stopResponseSchema) } },
+        },
+        ...errors(400, 404),
+      },
+    }),
+    async (c) => {
+      const agentId = c.req.param("agentId")
+      const target = scoped(agentId)
+      if (!target) throw new NotFoundError({ message: `No agent ${agentId}` })
+      if (target.parent_agent_id || target.root_agent_id !== target.id) {
+        return c.json(
+          { success: false as const, data: { message: `Agent ${agentId} is not a Collab root` }, errors: [] },
+          400,
+        )
+      }
+      await Collab.stop(agentId)
+      return c.json({ agent_id: agentId, stopped: true })
     },
   )

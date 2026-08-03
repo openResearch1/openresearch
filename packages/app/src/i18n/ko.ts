@@ -3,6 +3,12 @@ import { dict as en } from "./en"
 type Keys = keyof typeof en
 
 export const dict = {
+  "session.collab.stop.button": "Controller 중지",
+  "session.collab.stop.title": "Controller 중지",
+  "session.collab.stop.confirm": "현재 Controller와 자동으로 생성된 작업을 중지하시겠습니까?",
+  "session.collab.stop.description": "사람이 제어하는 실행과 원격 프로세스는 계속됩니다.",
+  "session.collab.stop.stopping": "중지 중...",
+  "session.collab.stop.failed": "Controller 중지 실패",
   "command.category.suggested": "추천",
   "command.category.view": "보기",
   "command.category.project": "프로젝트",

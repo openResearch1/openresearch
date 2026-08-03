@@ -96,6 +96,8 @@ export namespace Collab {
           subagentType: input.subagentType,
           spec: input.spec,
           startParent: input.startParent,
+          activeParent: true,
+          parentGeneration: parent ? CollabAgentNode.generation(parent.spec) : undefined,
         }),
       )
       .catch(async (err) => {
@@ -315,6 +317,7 @@ export namespace Collab {
     prompt: string
     model?: { providerID: string; modelID: string }
     runId?: string
+    parentGeneration?: number
   }): Promise<AgentInfo> {
     CollabProgressHook.ensure()
     CollabAutoWake.ensure()
@@ -352,6 +355,16 @@ export namespace Collab {
     })
     if (!posted) throw new Error(`Cannot cancel agent ${agentId}: ownership changed before cancel.`)
     CollabSupervisor.cancelDescendants(agentId, { reason: cancelPayload.reason, initiator: "user" })
+  }
+
+  export async function stop(agentId: string) {
+    return CollabSupervisor.stop(agentId)
+  }
+
+  export function restart(sessionId: string) {
+    const node = getBySession(sessionId)
+    if (!node || !CollabAgentNode.isStopped(node)) return node
+    return CollabAgentNode.restart(node.id)
   }
 
   export async function cancelDescendants(

@@ -13,6 +13,7 @@ import { CollabRuntime } from "./runtime"
 import { CollabLoop } from "./loop"
 import { CollabProgressHook } from "./progress-hook"
 import { CollabAutoWake } from "./auto-wake"
+import { CollabSupervisor } from "./supervisor"
 import type { ChildDonePayload, ChildFailedPayload } from "./types"
 
 export namespace CollabRecovery {
@@ -20,7 +21,21 @@ export namespace CollabRecovery {
 
   const ACTIVE_STATUSES = ["pending", "running", "blocked_on_children", "waiting_interaction"] as const
 
-  export function reconcile() {
+  export async function reconcile() {
+    const initial = CollabAgentNode.loadByProject(Instance.project.id)
+    for (const node of initial) {
+      if (node.parent_agent_id || node.root_agent_id !== node.id) continue
+      if (!CollabAgentNode.isStopped(node) || node.spec.metadata?.stopReady === true) continue
+      const claimed = node.spec.metadata?.stopClaimedAt
+      const delay = typeof claimed === "number" ? claimed + CollabAgentNode.STOP_TIMEOUT - Date.now() : 0
+      if (delay > 0) {
+        CollabRuntime.schedule(node.id, delay, () => {
+          void CollabSupervisor.stop(node.id, CollabAgentNode.generation(node.spec))
+        })
+        continue
+      }
+      await CollabSupervisor.stop(node.id, CollabAgentNode.generation(node.spec))
+    }
     const nodes = CollabAgentNode.loadByProject(Instance.project.id)
     for (const node of nodes) {
       ExperimentRemoteTaskListener.reconcile(node.id)
@@ -29,7 +44,7 @@ export namespace CollabRecovery {
   }
 
   export async function scan() {
-    reconcile()
+    await reconcile()
     CollabProgressHook.ensure()
     CollabAutoWake.ensure()
 

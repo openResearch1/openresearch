@@ -268,8 +268,8 @@ describe("research.experiment-agent", () => {
           },
         })
 
-        CollabRecovery.reconcile()
-        CollabRecovery.reconcile()
+        await CollabRecovery.reconcile()
+        await CollabRecovery.reconcile()
 
         expect(ExperimentRemoteTaskListener.has(child.id)).toBeUndefined()
         expect(CollabMessage.list(child.id, { kind: "session_remote_task_terminal" })).toMatchObject([

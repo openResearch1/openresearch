@@ -897,7 +897,7 @@ function createRemoteRoutes(opts: { expose: boolean }): Hono {
                 let release: (() => void) | undefined
                 try {
                   release = await import("@/research/session-control").then((mod) =>
-                    mod.ResearchSessionControl.claimHuman(sessionID),
+                    mod.ResearchSessionControl.claimHuman(sessionID, { restart: true }),
                   )
                   SessionPrompt.assertNotBusy(sessionID)
                 } catch (err) {

@@ -2151,6 +2151,11 @@ export type CollabCancelResponse = {
   canceled: boolean
 }
 
+export type CollabStopResponse = {
+  agent_id: string
+  stopped: boolean
+}
+
 export type ProviderAuthMethod = {
   type: "oauth" | "api"
   label: string
@@ -7077,6 +7082,40 @@ export type CollabAgentCancelResponses = {
 }
 
 export type CollabAgentCancelResponse = CollabAgentCancelResponses[keyof CollabAgentCancelResponses]
+
+export type CollabAgentStopData = {
+  body?: never
+  path: {
+    agentId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/collab/agent/{agentId}/stop"
+}
+
+export type CollabAgentStopErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type CollabAgentStopError = CollabAgentStopErrors[keyof CollabAgentStopErrors]
+
+export type CollabAgentStopResponses = {
+  /**
+   * Controller stopped
+   */
+  200: CollabStopResponse
+}
+
+export type CollabAgentStopResponse = CollabAgentStopResponses[keyof CollabAgentStopResponses]
 
 export type PermissionReplyData = {
   body?: {

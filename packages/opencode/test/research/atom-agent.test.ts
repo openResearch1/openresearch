@@ -1,6 +1,7 @@
 import { describe, expect, spyOn, test } from "bun:test"
 
 import { Session } from "../../src/session"
+import { Collab } from "../../src/collab"
 import { CollabAgentNode } from "../../src/collab/agent-node"
 import { CollabAutoWake } from "../../src/collab/auto-wake"
 import { CollabLoop } from "../../src/collab/loop"
@@ -377,6 +378,75 @@ describe("research.atom-agent", () => {
         } finally {
           start.mockRestore()
         }
+      },
+    })
+  })
+
+  test("stopping the owning Controller releases the Atom and detaches remote task listeners", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const item = await seed()
+        const source = await Session.create({ title: "stopped source" })
+        const start = spyOn(CollabLoop, "start").mockResolvedValue()
+        try {
+          const result = await AtomAgent.delegate({
+            atomId: item.atomId,
+            sourceSessionId: source.id,
+            agent: "research",
+            prompt: "stop this lease",
+            runId: "stopped-parent",
+          })
+          const task = ExperimentRemoteTask.create({
+            expId: item.expId,
+            kind: "experiment_run",
+            title: "Continuing remote task",
+            server: "{}",
+            remoteRoot: "/tmp",
+            screenName: "continuing",
+            command: "python train.py",
+          })
+          ExperimentRemoteTaskListener.register({ taskId: task.task_id, agentId: result.agentId })
+
+          await Collab.stop(result.parentAgentId)
+
+          const atom = CollabAgentNode.load(result.agentId)
+          expect(atom.parent_agent_id).toBeNull()
+          expect(atom.root_agent_id).toBe(atom.id)
+          expect(CollabAgentNode.isActive(atom.status)).toBe(true)
+          expect(ExperimentRemoteTaskListener.has(atom.id)).toBeUndefined()
+          expect(ExperimentRemoteTask.get(task.task_id)?.status).toBe("pending")
+        } finally {
+          start.mockRestore()
+        }
+      },
+    })
+  })
+
+  test("a stopped Controller cannot delegate a new Atom lease", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const item = await seed({ experiment: false })
+        const source = await Session.create({ title: "stopped controller" })
+        const root = await Collab.ensureRootFromSession(source.id, {
+          name: "stopped controller",
+          subagentType: "research",
+          spec: { initialPrompt: "" },
+        })
+        await Collab.stop(root.id)
+
+        await expect(
+          AtomAgent.delegate({
+            atomId: item.atomId,
+            sourceSessionId: source.id,
+            agent: "research",
+            prompt: "must not start",
+            runId: "stopped-delegation",
+          }),
+        ).rejects.toThrow("stopped by the user")
       },
     })
   })

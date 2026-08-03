@@ -22,6 +22,7 @@ import { CollabEvent } from "./events"
 
 export namespace CollabAgentNode {
   const log = Log.create({ service: "collab.agent-node" })
+  export const STOP_TIMEOUT = 15_000
 
   export type Row = typeof CollabAgentTable.$inferSelect
 
@@ -64,6 +65,8 @@ export namespace CollabAgentNode {
     status?: CollabAgentStatus
     initiator?: RunInitiator
     startParent?: "human"
+    activeParent?: boolean
+    parentGeneration?: number
   }
 
   export function create(input: CreateInput): AgentInfo {
@@ -81,6 +84,21 @@ export namespace CollabAgentNode {
         .run()
       const current = tx.select().from(CollabAgentTable).where(eq(CollabAgentTable.session_id, input.sessionId)).get()
       if (current) return fromRow(current)
+      if (parentId && input.activeParent) {
+        const parent = tx.select().from(CollabAgentTable).where(eq(CollabAgentTable.id, parentId)).get()
+        if (!parent || (!isActive(parent.status) && input.startParent !== "human")) {
+          throw new Error(`Parent agent ${parentId} is not active`)
+        }
+        if ((parent.spec_json as AgentSpec).metadata?.stoppedByUser === true) {
+          throw new Error(`Parent agent ${parentId} was stopped by the user`)
+        }
+        if (generation(parent.spec_json as AgentSpec) !== input.parentGeneration) {
+          throw new Error(`Parent agent ${parentId} changed before child creation`)
+        }
+        if (parent.root_agent_id !== input.rootAgentId || parent.project_id !== input.projectId) {
+          throw new Error(`Parent agent ${parentId} changed before child creation`)
+        }
+      }
 
       const inserted = tx
         .insert(CollabAgentTable)
@@ -316,6 +334,263 @@ export namespace CollabAgentNode {
     return loadBranch(agentId).every((item) => item.id === anchor.id || !isActive(item.status))
   }
 
+  export function isStopped(node: AgentInfo) {
+    return node.status === "canceled" && node.spec.metadata?.stoppedByUser === true
+  }
+
+  export function generation(spec: AgentSpec) {
+    const value = spec.metadata?.collabGeneration
+    return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : 0
+  }
+
+  function clearStop(spec: AgentSpec) {
+    return {
+      ...spec,
+      metadata: Object.fromEntries(
+        Object.entries(spec.metadata ?? {}).filter(
+          ([key]) =>
+            key !== "stoppedByUser" && key !== "stopReady" && key !== "stopToken" && key !== "stopClaimedAt",
+        ),
+      ),
+    }
+  }
+
+  export function stop(agentId: string, expected?: number) {
+    const now = Date.now()
+    const token = randomUUID()
+    const result = Database.transaction((tx) => {
+      const root = tx.select().from(CollabAgentTable).where(eq(CollabAgentTable.id, agentId)).get()
+      if (!root) throw new NotFoundError({ message: `Agent not found: ${agentId}` })
+      if (root.parent_agent_id || root.root_agent_id !== root.id) {
+        throw new Error(`Agent ${agentId} is not a Collab root`)
+      }
+      const spec = root.spec_json as AgentSpec
+      const stopped = spec.metadata?.stoppedByUser === true
+      const claimed = spec.metadata?.stopClaimedAt
+      if (expected === undefined && stopped) {
+        return {
+          root,
+          rows: [],
+          valid: false,
+          generation: generation(spec),
+          token: typeof spec.metadata?.stopToken === "string" ? spec.metadata.stopToken : "",
+        }
+      }
+      if (
+        expected !== undefined &&
+        (root.status !== "canceled" ||
+          !stopped ||
+          spec.metadata?.stopReady === true ||
+          generation(spec) !== expected ||
+          (typeof claimed === "number" && claimed + STOP_TIMEOUT > now))
+      ) {
+        return {
+          root,
+          rows: [],
+          valid: false,
+          generation: expected,
+          token: typeof spec.metadata?.stopToken === "string" ? spec.metadata.stopToken : "",
+        }
+      }
+      const version = stopped ? generation(spec) : generation(spec) + 1
+
+      const tree = tx.select().from(CollabAgentTable).where(eq(CollabAgentTable.root_agent_id, root.id)).all()
+      const ids = new Set([root.id])
+      let changed = true
+      while (changed) {
+        changed = false
+        for (const item of tree) {
+          if (!item.parent_agent_id || !ids.has(item.parent_agent_id) || ids.has(item.id)) continue
+          if (item.initiator === "human") continue
+          ids.add(item.id)
+          changed = true
+        }
+      }
+      if (
+        !isActive(root.status) &&
+        !(root.status === "canceled" && spec.metadata?.stoppedByUser === true) &&
+        !tree.some((item) => ids.has(item.id) && isActive(item.status))
+      ) {
+        throw new Error(`Agent ${agentId} is not active`)
+      }
+
+      const rows = tree.flatMap((item) => {
+        if (!ids.has(item.id)) return []
+        const current = item.spec_json as AgentSpec
+        const active = item.id === root.id || isActive(item.status)
+        const next = {
+          ...current,
+          metadata: {
+            ...current.metadata,
+            stoppedByUser: true,
+            collabGeneration: item.id === root.id ? version : generation(current) + 1,
+            ...(item.id === root.id ? { stopReady: false, stopToken: token, stopClaimedAt: now } : {}),
+          },
+        }
+        const children = tree.filter(
+          (child) =>
+            child.parent_agent_id === item.id &&
+            !ids.has(child.id) &&
+            child.initiator !== "human" &&
+            isActive(child.status),
+        ).length
+        const row = tx
+          .update(CollabAgentTable)
+          .set({
+            status: active ? "canceled" : item.status,
+            spec_json: next,
+            result_json: active ? null : item.result_json,
+            error_json: active ? { code: "CANCELED", message: "Controller stopped by user" } : item.error_json,
+            active_children: children,
+            time_ended: active ? now : item.time_ended,
+            time_updated: now,
+          })
+          .where(eq(CollabAgentTable.id, item.id))
+          .returning()
+          .get()
+        return row ? [row] : []
+      })
+
+      tx.update(CollabMessageTable)
+        .set({ status: "dropped", claim_id: null, time_updated: now })
+        .where(
+          and(
+            inArray(CollabMessageTable.recipient_agent_id, [...ids]),
+            inArray(CollabMessageTable.status, ["pending", "processing"]),
+          ),
+        )
+        .run()
+
+      return {
+        root: rows.find((item) => item.id === root.id) ?? root,
+        rows,
+        valid: true,
+        generation: version,
+        token,
+      }
+    })
+    const rows = result.rows.map(fromRow)
+    Database.effect(() => {
+      for (const info of rows) {
+        Bus.publish(CollabEvent.AgentStatus, {
+          agentId: info.id,
+          rootAgentId: info.root_agent_id,
+          status: info.status,
+          phase: info.phase,
+          active_children: info.active_children,
+          initiator: info.initiator,
+        })
+      }
+    })
+    log.info("stopped", { id: agentId, count: rows.length })
+    return {
+      root: fromRow(result.root),
+      agents: rows,
+      valid: result.valid,
+      generation: result.generation,
+      token: result.token,
+    }
+  }
+
+  export function claimed(agentId: string, generation: number, token: string) {
+    const node = tryLoad(agentId)
+    return (
+      !!node &&
+      isStopped(node) &&
+      CollabAgentNode.generation(node.spec) === generation &&
+      node.spec.metadata?.stopToken === token
+    )
+  }
+
+  export function ready(agentId: string, generation: number, token: string) {
+    const row = Database.use((db) => {
+      const current = db.select().from(CollabAgentTable).where(eq(CollabAgentTable.id, agentId)).get()
+      if (!current) throw new NotFoundError({ message: `Agent not found: ${agentId}` })
+      const spec = current.spec_json as AgentSpec
+      if (
+        current.status !== "canceled" ||
+        spec.metadata?.stoppedByUser !== true ||
+        CollabAgentNode.generation(spec) !== generation ||
+        spec.metadata.stopToken !== token
+      )
+        return current
+      return db
+        .update(CollabAgentTable)
+        .set({
+          spec_json: { ...spec, metadata: { ...spec.metadata, stopReady: true } },
+          time_updated: Date.now(),
+        })
+        .where(eq(CollabAgentTable.id, current.id))
+        .returning()
+        .get()!
+    })
+    return fromRow(row)
+  }
+
+  export function restart(agentId: string) {
+    const now = Date.now()
+    const row = Database.transaction((tx) => {
+      const current = tx.select().from(CollabAgentTable).where(eq(CollabAgentTable.id, agentId)).get()
+      if (!current) throw new NotFoundError({ message: `Agent not found: ${agentId}` })
+      const spec = current.spec_json as AgentSpec
+      if (current.parent_agent_id || current.root_agent_id !== current.id || spec.metadata?.stoppedByUser !== true) {
+        return current
+      }
+      if (spec.metadata.stopReady !== true) throw new Error(`Controller ${agentId} is still stopping`)
+      const active = tx
+        .select({ id: CollabAgentTable.id })
+        .from(CollabAgentTable)
+        .where(
+          and(
+            eq(CollabAgentTable.parent_agent_id, current.id),
+            inArray(CollabAgentTable.status, ACTIVE_STATUSES),
+            ne(CollabAgentTable.initiator, "human"),
+          ),
+        )
+        .all().length
+      tx.update(CollabMessageTable)
+        .set({ status: "dropped", claim_id: null, time_updated: now })
+        .where(
+          and(
+            eq(CollabMessageTable.recipient_agent_id, current.id),
+            inArray(CollabMessageTable.status, ["pending", "processing"]),
+          ),
+        )
+        .run()
+      return tx
+        .update(CollabAgentTable)
+        .set({
+          status: "running",
+          initiator: "human",
+          phase: "main_loop",
+          spec_json: clearStop(spec),
+          result_json: null,
+          error_json: null,
+          active_children: active,
+          time_started: now,
+          time_ended: null,
+          time_updated: now,
+        })
+        .where(eq(CollabAgentTable.id, current.id))
+        .returning()
+        .get()!
+    })
+    const info = fromRow(row)
+    if (!isActive(info.status)) return info
+    Database.effect(() =>
+      Bus.publish(CollabEvent.AgentStatus, {
+        agentId: info.id,
+        rootAgentId: info.root_agent_id,
+        status: info.status,
+        phase: info.phase,
+        active_children: info.active_children,
+        initiator: info.initiator,
+      }),
+    )
+    log.info("restarted", { id: agentId })
+    return info
+  }
+
   export type TransitionExtra = {
     phase?: CollabAgentPhase
     result?: AgentResult | null
@@ -342,6 +617,7 @@ export namespace CollabAgentNode {
         status,
         time_updated: now,
       }
+      if (!isActive(status)) updates.active_children = 0
       if (status === "idle") updates.run_id = null
       if (status === "idle") updates.initiator = null
       if (extra?.phase !== undefined) updates.phase = extra.phase
@@ -486,7 +762,10 @@ export namespace CollabAgentNode {
         .run()
 
       let message: string | undefined
-      if (!human && input.parentId && input.report) {
+      const parent = input.parentId
+        ? tx.select({ status: CollabAgentTable.status }).from(CollabAgentTable).where(eq(CollabAgentTable.id, input.parentId)).get()
+        : undefined
+      if (!human && input.parentId && input.report && parent && isActive(parent.status)) {
         const existing = tx
           .select({ id: CollabMessageTable.id })
           .from(CollabMessageTable)
@@ -574,6 +853,9 @@ export namespace CollabAgentNode {
         throw new Error(`Agent ${id} ownership changed before activation`)
       }
       if (isActive(current.status)) return fromRow(current)
+      if ((current.spec_json as AgentSpec).metadata?.stoppedByUser === true) {
+        throw new Error(`Agent ${id} was stopped by the user`)
+      }
 
       const row = tx
         .update(CollabAgentTable)
@@ -647,15 +929,42 @@ export namespace CollabAgentNode {
   }
 
   export function spec(id: string, spec: AgentSpec): AgentInfo {
-    const row = Database.use((db) =>
-      db
+    const row = Database.transaction((tx) => {
+      const current = tx.select().from(CollabAgentTable).where(eq(CollabAgentTable.id, id)).get()
+      if (!current) throw new NotFoundError({ message: `Agent not found: ${id}` })
+      const prior = current.spec_json as AgentSpec
+      const metadata = Object.fromEntries(
+        Object.entries(spec.metadata ?? {}).filter(
+          ([key]) =>
+            key !== "stoppedByUser" &&
+            key !== "stopReady" &&
+            key !== "stopToken" &&
+            key !== "stopClaimedAt" &&
+            key !== "collabGeneration",
+        ),
+      )
+      const next = {
+        ...spec,
+        metadata: {
+          ...metadata,
+          ...(typeof prior.metadata?.collabGeneration === "number"
+            ? { collabGeneration: generation(prior) }
+            : {}),
+          ...(prior.metadata?.stoppedByUser === true ? { stoppedByUser: true } : {}),
+          ...(prior.metadata?.stopReady === true ? { stopReady: true } : {}),
+          ...(typeof prior.metadata?.stopToken === "string" ? { stopToken: prior.metadata.stopToken } : {}),
+          ...(typeof prior.metadata?.stopClaimedAt === "number"
+            ? { stopClaimedAt: prior.metadata.stopClaimedAt }
+            : {}),
+        },
+      }
+      return tx
         .update(CollabAgentTable)
-        .set({ spec_json: spec, time_updated: Date.now() })
+        .set({ spec_json: next, time_updated: Date.now() })
         .where(eq(CollabAgentTable.id, id))
         .returning()
-        .get(),
-    )
-    if (!row) throw new NotFoundError({ message: `Agent not found: ${id}` })
+        .get()!
+    })
     return fromRow(row)
   }
 
@@ -725,13 +1034,13 @@ export namespace CollabAgentNode {
           status: "idle",
           phase: "main_loop",
           spec_json: {
-            ...(current.spec_json as AgentSpec),
+            ...clearStop(current.spec_json as AgentSpec),
             policy: {
               ...(current.spec_json as AgentSpec).policy,
               detach_on_terminal: false,
             },
             metadata: {
-              ...(current.spec_json as AgentSpec).metadata,
+              ...clearStop(current.spec_json as AgentSpec).metadata,
               ...input.metadata,
             },
           },
@@ -782,6 +1091,7 @@ export namespace CollabAgentNode {
     prompt: string
     model?: { providerID: string; modelID: string }
     runId?: string
+    parentGeneration?: number
   }): AgentInfo {
     const run = input.runId ?? randomUUID()
     if (!run) throw new Error("Lease run id must not be empty")
@@ -817,6 +1127,12 @@ export namespace CollabAgentNode {
       if (current.parent_agent_id) throw new Error(`Agent ${input.agentId} is already parented`)
       if (current.root_agent_id !== current.id) throw new Error(`Agent ${input.agentId} is not an independent root`)
       if (!isActive(parent.status)) throw new Error(`Parent ${input.parentAgentId} is not active`)
+      if (
+        input.parentGeneration !== undefined &&
+        generation(parent.spec_json as AgentSpec) !== input.parentGeneration
+      ) {
+        throw new Error(`Parent ${input.parentAgentId} changed before lease`)
+      }
       if (parent.project_id !== current.project_id) throw new Error(`Agent ${input.agentId} project mismatch`)
 
       const tree = tx.select().from(CollabAgentTable).where(eq(CollabAgentTable.root_agent_id, current.id)).all()
@@ -844,7 +1160,7 @@ export namespace CollabAgentNode {
           status: "running",
           phase: "main_loop",
           spec_json: {
-            ...(current.spec_json as AgentSpec),
+            ...clearStop(current.spec_json as AgentSpec),
             policy: {
               ...(current.spec_json as AgentSpec).policy,
               detach_on_terminal: true,
@@ -951,7 +1267,7 @@ export namespace CollabAgentNode {
           status: "running",
           phase: "main_loop",
           spec_json: {
-            ...(current.spec_json as AgentSpec),
+            ...clearStop(current.spec_json as AgentSpec),
             policy: {
               ...(current.spec_json as AgentSpec).policy,
               detach_on_terminal: false,

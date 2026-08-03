@@ -79,6 +79,17 @@ export namespace CollabRuntime {
     state().loops.delete(agentId)
   }
 
+  export function clear(agentId: string) {
+    const s = state()
+    const entry = s.loops.get(agentId)
+    if (entry) entry.abort.abort()
+    s.loops.delete(agentId)
+    const retry = s.retries.get(agentId)
+    if (retry) clearTimeout(retry)
+    s.retries.delete(agentId)
+    return entry?.promise
+  }
+
   export function abortAll() {
     for (const entry of state().loops.values()) entry.abort.abort()
   }

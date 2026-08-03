@@ -1,4 +1,5 @@
 import { CollabAgentNode } from "@/collab/agent-node"
+import { Collab } from "@/collab"
 import { CollabAutoWake } from "@/collab/auto-wake"
 import { CollabMessage } from "@/collab/message"
 import { CollabRuntime } from "@/collab/runtime"
@@ -92,10 +93,11 @@ export namespace ResearchSessionControl {
     })
   }
 
-  export function claimHuman(sessionID: string) {
+  export function claimHuman(sessionID: string, opts?: { restart?: boolean }) {
     const release = SessionOwnership.claim(sessionID, "human")
     if (!release) throw new BusyError(sessionID, domain(sessionID))
     try {
+      if (opts?.restart) Collab.restart(sessionID)
       assertHuman(sessionID)
       const lost = () => SessionPrompt.cancel(sessionID)
       release.signal.addEventListener("abort", lost, { once: true })

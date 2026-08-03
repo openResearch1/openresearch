@@ -8,3 +8,12 @@ export function isAgentControlled(root: CollabAgent | null) {
   if (typeof metadata.expId !== "string") return true
   return ACTIVE_STATUSES.has(root.status) && root.initiator !== "human"
 }
+
+export function canStopController(root: CollabAgent | null, dedicated: boolean) {
+  if (!dedicated) return false
+  return !!root && ACTIVE_STATUSES.has(root.status)
+}
+
+export function hasCollabActivity(root: CollabAgent | null, dedicated: boolean, children: number) {
+  return children > 0 || canStopController(root, dedicated)
+}

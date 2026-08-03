@@ -2,6 +2,12 @@ import { dict as en } from "./en"
 type Keys = keyof typeof en
 
 export const dict = {
+  "session.collab.stop.button": "Stopp Controller",
+  "session.collab.stop.title": "Stopp Controller",
+  "session.collab.stop.confirm": "Stoppe gjeldende Controller og oppgavene som ble automatisk avledet fra den?",
+  "session.collab.stop.description": "Menneskestyrte kjøringer og eksterne prosesser fortsetter.",
+  "session.collab.stop.stopping": "Stopper...",
+  "session.collab.stop.failed": "Kunne ikke stoppe Controller",
   "command.category.suggested": "Foreslått",
   "command.category.view": "Visning",
   "command.category.project": "Prosjekt",
