@@ -242,6 +242,7 @@ export namespace ToolRegistry {
       modelID: string
     },
     agent?: Agent.Info,
+    sessionID?: string,
   ) {
     const tools = await all()
     const result = await Promise.all(
@@ -262,7 +263,7 @@ export namespace ToolRegistry {
         })
         .map(async (t) => {
           using _ = log.time(t.id)
-          const tool = await t.init({ agent })
+          const tool = await t.init({ agent, sessionID })
           const output = {
             description: tool.description,
             parameters: tool.parameters,

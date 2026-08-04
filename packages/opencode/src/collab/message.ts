@@ -402,7 +402,23 @@ export namespace CollabMessage {
               .limit(1)
               .get()
           : undefined
-      const found = cancel
+      const wake =
+        mode === "collab" && !cancel
+          ? tx
+              .select()
+              .from(CollabMessageTable)
+              .where(
+                and(
+                  eq(CollabMessageTable.recipient_agent_id, agentId),
+                  eq(CollabMessageTable.status, "pending"),
+                  inArray(CollabMessageTable.kind, [...WAKE_MESSAGE_KINDS]),
+                ),
+              )
+              .orderBy(asc(CollabMessageTable.id))
+              .limit(1)
+              .get()
+          : undefined
+      const found = cancel || (mode === "collab" && !wake)
         ? []
         : tx
             .select()
@@ -419,8 +435,9 @@ export namespace CollabMessage {
             .orderBy(asc(CollabMessageTable.id))
             .limit(DRAIN_BATCH)
             .all()
-      const user = mode === "collab" ? found.findIndex((row) => row.kind === "user_input") : -1
-      const rows = cancel ? [cancel] : user < 0 ? found : found.slice(0, user + 1)
+      const batch = wake && !found.some((row) => row.id === wake.id) ? [...found.slice(0, DRAIN_BATCH - 1), wake] : found
+      const user = mode === "collab" ? batch.findIndex((row) => row.kind === "user_input") : -1
+      const rows = cancel ? [cancel] : user < 0 ? batch : batch.slice(0, user + 1)
 
       if (rows.length === 0) return rows
 

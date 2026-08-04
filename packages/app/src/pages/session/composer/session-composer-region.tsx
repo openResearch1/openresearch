@@ -189,6 +189,22 @@ export function SessionComposerRegion(props: {
               </div>
             }
           >
+            <Show when={params.id}>
+              <SessionCollabDock
+                activity={props.collabActivity}
+                title={language.t("session.collab.title")}
+                collapseLabel={language.t("session.collab.collapse")}
+                expandLabel={language.t("session.collab.expand")}
+                runningLabel={language.t("session.collab.running")}
+                blockedLabel={language.t("session.collab.blocked")}
+                pendingLabel={language.t("session.collab.pending")}
+                emptyLabel={language.t("session.collab.empty")}
+                emptyActiveLabel={language.t("session.collab.emptyActive")}
+                showCompletedLabel={language.t("session.collab.showCompleted")}
+                hideCompletedLabel={language.t("session.collab.hideCompleted")}
+                onOpenAgent={(agent) => navigate(`/${params.dir}/session/${agent.session_id}`)}
+              />
+            </Show>
             <Show when={dock()}>
               <div
                 classList={{
@@ -219,21 +235,6 @@ export function SessionComposerRegion(props: {
                         />
                       </div>
                     )}
-                  </Show>
-                  <Show when={params.id}>
-                    <div class="mb-3">
-                      <SessionCollabDock
-                        activity={props.collabActivity}
-                        title={language.t("session.collab.title")}
-                        collapseLabel={language.t("session.collab.collapse")}
-                        expandLabel={language.t("session.collab.expand")}
-                        runningLabel={language.t("session.collab.running")}
-                        blockedLabel={language.t("session.collab.blocked")}
-                        pendingLabel={language.t("session.collab.pending")}
-                        emptyLabel={language.t("session.collab.empty")}
-                        onOpenAgent={(agent) => navigate(`/${params.dir}/session/${agent.session_id}`)}
-                      />
-                    </div>
                   </Show>
                   <Show when={props.state.todos().length > 0}>
                     <SessionTodoDock

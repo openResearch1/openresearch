@@ -14,6 +14,8 @@ import { base64Encode } from "@opencode-ai/util/encode"
 import { Markdown } from "@opencode-ai/ui/markdown"
 import type { ResearchSessionAtomGetResponse } from "@opencode-ai/sdk/v2"
 
+import { AtomArticleSelector } from "./atom-article-selector"
+
 type Atom = NonNullable<ResearchSessionAtomGetResponse["atom"]>
 
 export function AtomSessionTab(props: {
@@ -323,6 +325,13 @@ export function AtomSessionTab(props: {
                   {props.atom.atom_evidence_status}
                 </span>
               </div>
+              <AtomArticleSelector
+                researchProjectId={props.atom.research_project_id}
+                atomId={props.atom.atom_id}
+                articleId={props.atom.article_id}
+                locked={props.atom.locked}
+                onUpdated={props.onRefresh}
+              />
             </div>
             <div class="mt-3 pt-3 border-t border-border-weak-base">
               <Switch

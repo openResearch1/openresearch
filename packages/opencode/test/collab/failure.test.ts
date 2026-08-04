@@ -218,6 +218,159 @@ describe("spawned collab failures", () => {
     })
   })
 
+  test("an aborted parent turn stays healthy and handles a later canceled child", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const rootSession = await Session.create({ title: "abort root" })
+        const rootId = Identifier.ascending("collab_agent")
+        CollabAgentNode.create({
+          id: rootId,
+          sessionId: rootSession.id,
+          name: "root",
+          projectId: Instance.project.id,
+          rootAgentId: rootId,
+          subagentType: "general",
+          spec: { initialPrompt: "root" },
+          status: "running",
+        })
+        const parentSession = await Collab.createSubSession({ title: "abort parent" })
+        const parentId = Identifier.ascending("collab_agent")
+        CollabAgentNode.create({
+          id: parentId,
+          sessionId: parentSession.id,
+          parentAgentId: rootId,
+          name: "parent",
+          projectId: Instance.project.id,
+          rootAgentId: rootId,
+          subagentType: "general",
+          spec: { initialPrompt: "parent", policy: { on_fail: "retry_once" } },
+        })
+        const childSession = await Collab.createSubSession({ title: "abort child" })
+        const childId = Identifier.ascending("collab_agent")
+        const child = CollabAgentNode.create({
+          id: childId,
+          sessionId: childSession.id,
+          parentAgentId: parentId,
+          name: "child",
+          projectId: Instance.project.id,
+          rootAgentId: rootId,
+          subagentType: "general",
+          spec: { initialPrompt: "child" },
+        })
+        const workerSession = await Collab.createSubSession({ title: "abort concurrent child" })
+        const workerId = Identifier.ascending("collab_agent")
+        const worker = CollabAgentNode.create({
+          id: workerId,
+          sessionId: workerSession.id,
+          parentAgentId: parentId,
+          name: "concurrent child",
+          projectId: Instance.project.id,
+          rootAgentId: rootId,
+          subagentType: "general",
+          spec: { initialPrompt: "worker" },
+        })
+        CollabAgentNode.transition(parentId, "blocked_on_children", { phase: "awaiting_children" })
+        CollabMessage.post({
+          recipientAgentId: parentId,
+          senderAgentId: childId,
+          kind: "child_waiting",
+          payload: {
+            childAgentId: childId,
+            childName: child.name,
+            childSessionId: childSession.id,
+            message: "still working",
+          },
+        })
+        let turns = 0
+        const prompt = spyOn(SessionPrompt, "prompt").mockImplementation(
+          (async () => {
+            turns++
+            if (turns === 1) {
+              await Bun.sleep(0)
+              Collab.runtime().abort(parentId)
+              CollabAgentNode.finish({
+                id: workerId,
+                runId: worker.run_id,
+                parentId,
+                status: "canceled",
+                phase: "main_loop",
+                error: { code: "CANCELED", message: "concurrent cancel" },
+                timeEnded: Date.now(),
+                report: {
+                  kind: "child_failed",
+                  payload: {
+                    childAgentId: workerId,
+                    childName: worker.name,
+                    reason: "canceled",
+                    message: "concurrent cancel",
+                  },
+                },
+              })
+              return {
+                info: {
+                  role: "assistant",
+                  error: new MessageV2.AbortedError({ message: "The operation was aborted." }).toObject(),
+                },
+                parts: [],
+              } as never
+            }
+            return { info: { role: "assistant" }, parts: [] } as never
+          }) as unknown as typeof SessionPrompt.prompt,
+        )
+
+        try {
+          await CollabLoop.start(parentId)
+          const deadline = Date.now() + 1000
+          while (
+            Date.now() < deadline &&
+            CollabMessage.list(parentId, { kind: "child_failed" })[0]?.status !== "consumed"
+          ) {
+            await Bun.sleep(5)
+          }
+          expect(CollabAgentNode.load(parentId)).toMatchObject({
+            status: "blocked_on_children",
+            active_children: 1,
+            error: null,
+          })
+          expect(CollabAgentNode.load(childId).status).toBe("pending")
+          expect(CollabMessage.list(childId, { kind: "cancel" })).toHaveLength(0)
+          expect(CollabMessage.list(parentId, { kind: "child_waiting" })[0].status).toBe("consumed")
+          expect(CollabMessage.list(parentId, { kind: "child_failed" })[0].status).toBe("consumed")
+
+          CollabAgentNode.finish({
+            id: childId,
+            runId: child.run_id,
+            parentId,
+            status: "canceled",
+            phase: "main_loop",
+            error: { code: "CANCELED", message: "cancel message received" },
+            timeEnded: Date.now(),
+            report: {
+              kind: "child_failed",
+              payload: {
+                childAgentId: childId,
+                childName: child.name,
+                reason: "canceled",
+                message: "cancel message received",
+              },
+            },
+          })
+          expect(CollabAgentNode.load(parentId).active_children).toBe(0)
+
+          await CollabLoop.start(parentId)
+          expect(turns).toBe(3)
+          expect(CollabMessage.list(parentId, { kind: "child_failed" }).every((item) => item.status === "consumed")).toBe(true)
+          expect(CollabAgentNode.load(parentId).error).toBeNull()
+        } finally {
+          Collab.runtime().abort(parentId)
+          prompt.mockRestore()
+        }
+      },
+    })
+  })
+
   test("recovery fails an orphaned interaction wait", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({

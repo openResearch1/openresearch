@@ -11,6 +11,7 @@ import { defer } from "@/util/defer"
 import { Config } from "../config/config"
 import { PermissionNext } from "@/permission/next"
 import { Collab } from "@/collab"
+import { CollabAgentNode } from "@/collab/agent-node"
 
 const parameters = z.object({
   description: z.string().describe("A short (3-5 words) description of the task"),
@@ -26,7 +27,10 @@ const parameters = z.object({
 })
 
 export const TaskTool = Tool.define("task", async (ctx) => {
-  const agents = await Agent.list().then((x) => x.filter((a) => a.mode !== "primary"))
+  const targets = ctx?.sessionID ? CollabAgentNode.targets(ctx.sessionID, "task") : undefined
+  const agents = await Agent.list().then((x) =>
+    x.filter((a) => (targets === undefined ? a.mode !== "primary" : targets.includes(a.name))),
+  )
 
   // Filter agents by permissions if agent provided
   const caller = ctx?.agent
@@ -44,6 +48,7 @@ export const TaskTool = Tool.define("task", async (ctx) => {
     description,
     parameters,
     async execute(params: z.infer<typeof parameters>, ctx) {
+      CollabAgentNode.assertTask(ctx.sessionID, params.subagent_type)
       const config = await Config.get()
 
       // Skip permission check when user explicitly invoked via @ or command subtask
@@ -67,7 +72,10 @@ export const TaskTool = Tool.define("task", async (ctx) => {
       const session = await iife(async () => {
         if (params.task_id) {
           const found = await Session.get(params.task_id).catch(() => {})
-          if (found) return found
+          if (found) {
+            if (found.parentID !== ctx.sessionID) throw new Error(`Task ${params.task_id} does not belong to this session`)
+            return found
+          }
         }
 
         return await Session.create({

@@ -53,7 +53,14 @@ export namespace CollabLoop {
     }
   }
 
-  class PromptAbort extends Error {}
+  class PromptAbort extends Error {
+    constructor(
+      message: string,
+      readonly delivered = false,
+    ) {
+      super(message)
+    }
+  }
 
   class TurnError extends Error {
     constructor(readonly info: AgentError) {
@@ -251,6 +258,10 @@ export namespace CollabLoop {
     )
       .catch(async (err) => {
         const cause = err instanceof PromptRetry ? err.error : err
+        if (!expired && cause instanceof PromptAbort) {
+          if (release.valid()) interrupt(agentId, identity)
+          return
+        }
         log.error("loop crashed", { agentId, error: String(cause) })
         if (!release.valid()) return
         if (expired) {
@@ -307,6 +318,24 @@ export namespace CollabLoop {
     const node = CollabAgentNode.tryLoad(agentId)
     if (!node || !matches(node, identity)) return
     return node
+  }
+
+  function interrupt(agentId: string, identity: Identity) {
+    const node = current(agentId, identity)
+    if (!node || !CollabAgentNode.isActive(node.status) || node.error || node.active_children === 0) return
+    try {
+      CollabAgentNode.transition(
+        node.id,
+        "blocked_on_children",
+        { phase: "awaiting_children" },
+        {
+          runId: node.run_id,
+          parentId: node.parent_agent_id,
+          status: node.status,
+          timeUpdated: node.time_updated,
+        },
+      )
+    } catch {}
   }
 
   async function markLoopFailed(agentId: string, identity: Identity, err: unknown, lease: string) {
@@ -394,7 +423,9 @@ export namespace CollabLoop {
         (msg) => (msg.kind === "user_input" || msg.kind === "cancel") && msg.run_id && msg.run_id !== identity.runId,
       )
       if (stale.length) CollabMessage.drop(stale)
-      const msgs = claimed.filter((msg) => !stale.includes(msg))
+      const filtered = claimed.filter((msg) => !stale.includes(msg))
+      const msgs = filtered.some((msg) => isWakeKind(msg.kind)) ? filtered : []
+      if (filtered.length && !msgs.length) CollabMessage.retry(filtered, false)
 
       let gotCancel = false
       const injections: PromptPartDraft[] = []
@@ -544,6 +575,10 @@ export namespace CollabLoop {
             abort,
           )
         } catch (err) {
+          if (err instanceof PromptAbort) {
+            if (err.delivered) CollabMessage.ack(msgs)
+            throw err
+          }
           const fresh = CollabAgentNode.tryLoad(agentId)
           if (peer) {
             if (fresh && CollabAgentNode.isActive(fresh.status)) CollabMessage.drop(msgs)
@@ -676,7 +711,10 @@ export namespace CollabLoop {
       ) {
         if (abort.aborted) throw new PromptAbort("Prompt aborted before durable resume")
         const result = await SessionPrompt.loop({ sessionID: node.session_id })
-        if (abort.aborted) throw new PromptAbort("Prompt aborted during durable resume")
+        if (result?.info.role === "assistant" && MessageV2.AbortedError.isInstance(result.info.error)) {
+          throw new PromptAbort(result.info.error.data.message, true)
+        }
+        if (abort.aborted) throw new PromptAbort("Prompt aborted during durable resume", !!result)
         if (result?.info.role === "assistant" && result.info.error) throw new TurnError(failure(result.info.error))
         return
       }
@@ -693,9 +731,13 @@ export namespace CollabLoop {
         model,
         parts: input.parts,
       })
-      if (abort.aborted) throw new PromptAbort("Prompt aborted during delivery")
+      if (result?.info.role === "assistant" && MessageV2.AbortedError.isInstance(result.info.error)) {
+        throw new PromptAbort(result.info.error.data.message, true)
+      }
+      if (abort.aborted) throw new PromptAbort("Prompt aborted during delivery", !!result)
       if (result?.info.role === "assistant" && result.info.error) throw new TurnError(failure(result.info.error))
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") throw new PromptAbort(err.message)
       throw err
     } finally {
       abort.removeEventListener("abort", onAbort)

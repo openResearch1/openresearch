@@ -3,12 +3,14 @@ import { createStore } from "solid-js/store"
 
 import type { CollabAgent } from "@opencode-ai/sdk/v2/client"
 import type { ResearchPathsListResponse, ResearchResultsListResponse } from "@opencode-ai/sdk/v2"
+import { Button } from "@opencode-ai/ui/button"
 import { Markdown } from "@opencode-ai/ui/markdown"
 import { Select } from "@opencode-ai/ui/select"
 
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import type { CollabActivity } from "@/pages/session/composer/session-collab-activity"
+import { clock, historical, tree } from "@/pages/session/composer/session-collab-visibility"
 
 const colors: Record<string, string> = {
   pending: "bg-icon-weak",
@@ -697,11 +699,25 @@ export function ControllerResultsTab(props: {
 export function ControllerAgentsTab(props: {
   activity: CollabActivity
   empty: string
+  showCompleted: string
+  hideCompleted: string
   onOpen: (agent: CollabAgent) => void
 }) {
-  const agents = createMemo(() => {
+  const [state, setState] = createStore({ history: false })
+  const all = createMemo(() => {
     const root = props.activity.rootAgent()
     return root ? [root, ...props.activity.children()] : []
+  })
+  const now = clock(all)
+  const past = createMemo(() => props.activity.children().filter(historical))
+  const agents = createMemo(() => {
+    const root = props.activity.rootAgent()
+    return root ? tree(root, all(), now(), state.history) : []
+  })
+
+  createEffect(() => {
+    props.activity.rootAgent()?.id
+    setState("history", false)
   })
 
   return (
@@ -710,6 +726,13 @@ export function ControllerAgentsTab(props: {
         <Show when={props.activity.rootAgent()} fallback={<Empty title={props.empty} description="" />} keyed>
           {(root) => (
             <div class="max-w-3xl mx-auto">
+              <Show when={past().length > 0}>
+                <div class="mb-2 flex justify-end px-3">
+                  <Button variant="ghost" size="small" class="px-2" onClick={() => setState("history", (value) => !value)}>
+                    {state.history ? props.hideCompleted : `${props.showCompleted} (${past().length})`}
+                  </Button>
+                </div>
+              </Show>
               <AgentNode node={root} nodes={agents()} depth={0} onOpen={props.onOpen} />
             </div>
           )}

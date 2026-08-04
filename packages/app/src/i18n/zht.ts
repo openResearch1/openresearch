@@ -3,6 +3,9 @@ import { dict as en } from "./en"
 type Keys = keyof typeof en
 
 export const dict = {
+  "session.collab.emptyActive": "沒有活躍的子代理程式",
+  "session.collab.showCompleted": "顯示已完成",
+  "session.collab.hideCompleted": "隱藏已完成",
   "session.collab.stop.button": "停止 Controller",
   "session.collab.stop.title": "停止 Controller",
   "session.collab.stop.confirm": "要停止目前的 Controller 及其自動衍生工作嗎？",

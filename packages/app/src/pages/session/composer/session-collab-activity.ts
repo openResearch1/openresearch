@@ -161,11 +161,14 @@ export function useCollabActivity(sessionID: Accessor<string | undefined>): Coll
             initiator: CollabAgent["initiator"]
           }
           if (state.rootAgentId && p.rootAgentId !== state.rootAgentId) return
+          const now = Date.now()
           patchAgent(p.agentId, {
             status: p.status,
             phase: p.phase,
             active_children: p.active_children,
             initiator: p.initiator,
+            time_updated: now,
+            time_ended: ACTIVE_STATUSES.has(p.status) ? null : now,
           })
           return
         }

@@ -64,13 +64,46 @@ export namespace ResearchSessionAgent {
         .where(eq(ResearchProjectTable.project_id, session.projectID))
         .get(),
     )
-    if (project) return { kind: "main", ...policies.main }
+    if (project) {
+      if (role === "research_main") {
+        return { kind: "main", ...policies.main, agents: CollabAgentNode.targets(sessionID, "direct") ?? [] }
+      }
+      return { kind: "main", ...policies.main }
+    }
   }
 
   export async function resolve(input: { sessionID: string; agent?: string }) {
+    const context = CollabAgentNode.spawnContext(input.sessionID)
+    if (context.controller && context.role === "blocked") {
+      throw new Error("This Controller session is blocked by an invalid legacy agent topology")
+    }
+    if (context.controller && context.role !== "task" && context.role !== "controller" && input.agent) {
+      if (!CollabAgentNode.allows(input.sessionID, "direct", input.agent)) {
+        throw new Error(`${input.agent} is not available in Controller ${context.role} sessions`)
+      }
+    }
+    if (context.controller && context.role === "leaf") {
+      const name = input.agent ?? context.agent
+      if (name && CollabAgentNode.allows(input.sessionID, "direct", name)) return name
+      throw new Error(`${input.agent ?? "default agent"} is not available in Controller leaf sessions`)
+    }
+    if (context.controller && context.role === "task") {
+      const session = await Session.get(input.sessionID)
+      if (!session.parentID) throw new Error("Controller task session has no parent")
+      const bound = (await Session.messages({ sessionID: input.sessionID })).find(
+        (message) => message.info.role === "user",
+      )?.info.agent
+      const name = bound ?? input.agent
+      if (!name || !CollabAgentNode.allows(session.parentID, "task", name)) {
+        throw new Error(`${name ?? "default agent"} is not available in Controller task sessions`)
+      }
+      if (!bound || !input.agent || input.agent === bound) return name
+      throw new Error(`${input.agent} is not available in Controller task sessions`)
+    }
     const current = await policy(input.sessionID)
     if (!current) {
       if (input.agent === "controller") throw new Error("Controller prompts require a dedicated Controller session")
+      if (context.controller) return input.agent ?? context.agent
       return input.agent
     }
     if (current.pinned) return current.default
@@ -79,7 +112,7 @@ export namespace ResearchSessionAgent {
     if ((current.agents as readonly string[]).includes(name)) return name
     if (name === "controller") throw new Error("Controller prompts require a dedicated Controller session")
     const agent = await Agent.get(name)
-    if (agent?.hidden) return name
+    if (agent?.hidden && !context.controller) return name
     throw new Error(`${name} is not available in ${current.kind} sessions`)
   }
 

@@ -701,9 +701,11 @@ export function SessionSidePanel(props: {
                     <Tabs.Content value="controller-agents" class="flex flex-col h-full overflow-hidden contain-strict">
                       <Show when={activeTab() === "controller-agents"}>
                         <ControllerAgentsTab
-                          activity={props.collabActivity}
-                          empty={language.t("session.controller.agents.empty")}
-                          onOpen={(agent) => navigate(`/${params.dir}/session/${agent.session_id}`)}
+                           activity={props.collabActivity}
+                           empty={language.t("session.controller.agents.empty")}
+                           showCompleted={language.t("session.collab.showCompleted")}
+                           hideCompleted={language.t("session.collab.hideCompleted")}
+                           onOpen={(agent) => navigate(`/${params.dir}/session/${agent.session_id}`)}
                         />
                       </Show>
                     </Tabs.Content>

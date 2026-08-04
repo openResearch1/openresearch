@@ -32,9 +32,14 @@ export const SpawnAgentTool = Tool.define("spawn_agent", async (ctx) => {
   const all = await Agent.list()
   const visible = all.filter((a) => a.hidden !== true)
   const caller = ctx?.agent
+  const targets = ctx?.sessionID ? CollabAgentNode.targets(ctx.sessionID, "spawn") : undefined
   const accessible = caller
-    ? visible.filter((a) => PermissionNext.evaluate("spawn_agent", a.name, caller.permission).action !== "deny")
-    : visible
+    ? visible.filter(
+        (a) =>
+          (targets === undefined || targets.includes(a.name)) &&
+          PermissionNext.evaluate("spawn_agent", a.name, caller.permission).action !== "deny",
+      )
+    : visible.filter((a) => targets === undefined || targets.includes(a.name))
 
   const agentList = accessible
     .map((a) => `- \`${a.name}\` [${a.mode}]: ${a.description ?? "(no description)"}`)

@@ -5023,6 +5023,7 @@ export type ResearchAtomUpdateData = {
   body?: {
     evidence_status?: "pending" | "in_progress" | "proven" | "disproven"
     evidence_type?: "math" | "experiment"
+    article_id?: string | null
   }
   path: {
     researchProjectId: string

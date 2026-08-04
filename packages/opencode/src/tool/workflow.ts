@@ -2,6 +2,7 @@ import z from "zod"
 import { Tool } from "./tool"
 import { Workflow } from "@/workflow"
 import { WorkflowTemplates } from "@/workflow/templates"
+import { CollabAgentNode } from "@/collab/agent-node"
 import DESCRIPTION from "./workflow.txt"
 
 function latestUserMessageID(messages: Tool.Context["messages"]) {
@@ -180,6 +181,7 @@ export const WorkflowTool = Tool.define("workflow", {
   description: DESCRIPTION,
   parameters: action,
   async execute(params, ctx) {
+    CollabAgentNode.assertWorkflow(ctx.sessionID)
     try {
       const meta =
         params.action === "start"

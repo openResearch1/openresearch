@@ -5610,6 +5610,16 @@
                       "math",
                       "experiment"
                     ]
+                  },
+                  "article_id": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 }
               }

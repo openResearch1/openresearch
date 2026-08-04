@@ -357,6 +357,10 @@ export namespace SessionPrompt {
   })
   export const loop = fn(LoopInput, async (input) => {
     const { sessionID, resume_existing } = input
+    const context = CollabAgentNode.spawnContext(sessionID)
+    if (context.controller && context.role === "blocked") {
+      throw new Error("This Controller session is blocked by an invalid legacy agent topology")
+    }
 
     const abort = resume_existing ? resume(sessionID) : start(sessionID)
     if (!abort) {
@@ -1052,9 +1056,12 @@ export namespace SessionPrompt {
     for (const item of await ToolRegistry.tools(
       { modelID: input.model.api.id, providerID: input.model.providerID },
       input.agent,
+      input.session.id,
     )) {
       if (input.session.collabPeer && item.id === "question") continue
       if (item.id === "spawn_agent" && !CollabAgentNode.canSpawn(input.session.id)) continue
+      if (item.id === "task" && !CollabAgentNode.canTask(input.session.id)) continue
+      if (item.id === "workflow" && CollabAgentNode.spawnContext(input.session.id).controller) continue
       const schema = ProviderTransform.schema(input.model, z.toJSONSchema(item.parameters))
       tools[item.id] = tool({
         description: item.description,

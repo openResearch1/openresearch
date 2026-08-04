@@ -100,6 +100,7 @@ export const AtomCreateTool = Tool.define("atom_create", {
       }
     }
 
+    const article = params.articleId?.trim() || null
     const atomId = crypto.randomUUID()
     const atomDir = path.join(Instance.directory, "atom_list", atomId)
     const claimPath = path.join(atomDir, "claim.md")
@@ -124,7 +125,7 @@ export const AtomCreateTool = Tool.define("atom_create", {
           atom_evidence_status: "pending",
           atom_evidence_path: evidencePath,
           atom_evidence_assessment_path: evidenceAssessmentPath,
-          article_id: params.articleId ?? null,
+          article_id: article,
           time_created: now,
           time_updated: now,
         })
@@ -142,7 +143,7 @@ export const AtomCreateTool = Tool.define("atom_create", {
         `- Type: ${params.type}`,
         `- Evidence type: ${params.evidenceType ?? (params.type === "verification" ? "experiment" : "math")}`,
         `- Claim path: ${claimPath}`,
-        params.articleId ? `- Source article: ${params.articleId}` : `- Source: user created`,
+        article ? `- Source article: ${article}` : `- Source: user created`,
       ].join("\n"),
       metadata: {
         atomId: atomId as string | undefined,
@@ -512,7 +513,7 @@ export const AtomBatchCreateTool = Tool.define("atom_batch_create", {
           atom_evidence_status: "pending" as const,
           atom_evidence_path: path.join(atomDir, "evidence.md"),
           atom_evidence_assessment_path: path.join(atomDir, "evidence_assessment.md"),
-          article_id: atom.articleId ?? null,
+          article_id: atom.articleId?.trim() || null,
           time_created: now,
           time_updated: now,
         }

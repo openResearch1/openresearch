@@ -1105,6 +1105,7 @@ export const ResearchRoutes = new Hono()
       z.object({
         evidence_status: z.enum(["pending", "in_progress", "proven", "disproven"]).optional(),
         evidence_type: z.enum(["math", "experiment"]).optional(),
+        article_id: z.string().nullable().optional(),
       }),
     ),
     async (c) => {
@@ -1123,6 +1124,22 @@ export const ResearchRoutes = new Hono()
       const updates: Record<string, unknown> = { time_updated: Date.now() }
       if (body.evidence_status) updates.atom_evidence_status = body.evidence_status
       if (body.evidence_type) updates.atom_evidence_type = body.evidence_type
+      if (body.article_id !== undefined) {
+        const article = body.article_id?.trim() || null
+        if (article) {
+          const exists = Database.use((db) =>
+            db
+              .select({ id: ArticleTable.article_id })
+              .from(ArticleTable)
+              .where(and(eq(ArticleTable.article_id, article), eq(ArticleTable.research_project_id, researchProjectId)))
+              .get(),
+          )
+          if (!exists) {
+            return c.json({ success: false, message: `article not found in research project: ${article}` }, 400)
+          }
+        }
+        updates.article_id = article
+      }
 
       Database.use((db) => db.update(AtomTable).set(updates).where(eq(AtomTable.atom_id, atomId)).run())
 

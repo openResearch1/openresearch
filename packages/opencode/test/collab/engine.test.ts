@@ -2,6 +2,7 @@ import { describe, expect, spyOn, test } from "bun:test"
 import path from "path"
 import { Instance } from "../../src/project/instance"
 import { Session } from "../../src/session"
+import { SessionPrompt } from "../../src/session/prompt"
 import { Log } from "../../src/util/log"
 import { Identifier } from "../../src/id/id"
 import { CollabAgentNode } from "../../src/collab/agent-node"
@@ -171,6 +172,8 @@ describe("hasPendingWakeMsg ignores child_progress", () => {
         })
         expect(CollabMessage.hasPending(parentId)).toBe(true)
         expect(CollabMessage.hasPendingWakeMsg(parentId)).toBe(false)
+        expect(CollabMessage.drain(parentId)).toEqual([])
+        expect(CollabMessage.list(parentId, { kind: "child_progress" })[0].status).toBe("pending")
 
         await CollabMessage.post({
           recipientAgentId: parentId,
@@ -190,6 +193,217 @@ describe("hasPendingWakeMsg ignores child_progress", () => {
           payload: { childAgentId: childId, childName: "c", summary: "done" },
         })
         expect(CollabMessage.hasPendingWakeMsg(parentId)).toBe(true)
+      },
+    })
+  })
+
+  test("a wake remains in the drain batch after more than 64 progress messages", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const parentSession = await makeSession()
+        const parentId = Identifier.ascending("collab_agent")
+        CollabAgentNode.create({
+          id: parentId,
+          sessionId: parentSession.id,
+          parentAgentId: null,
+          name: "p",
+          projectId: Instance.project.id,
+          rootAgentId: parentId,
+          subagentType: "general",
+          spec: makeSpec(),
+        })
+        const childSession = await makeSession(parentSession.id)
+        const childId = Identifier.ascending("collab_agent")
+        CollabAgentNode.create({
+          id: childId,
+          sessionId: childSession.id,
+          parentAgentId: parentId,
+          name: "c",
+          projectId: Instance.project.id,
+          rootAgentId: parentId,
+          subagentType: "general",
+          spec: makeSpec(),
+        })
+
+        for (let turn = 1; turn <= 65; turn++) {
+          CollabMessage.post({
+            recipientAgentId: parentId,
+            senderAgentId: childId,
+            kind: "child_progress",
+            payload: { childAgentId: childId, childName: "c", turn, assistant_text: `${turn}`, tools: [] },
+          })
+        }
+        CollabMessage.post({
+          recipientAgentId: parentId,
+          senderAgentId: childId,
+          kind: "child_waiting",
+          payload: { childAgentId: childId, childName: "c", childSessionId: childSession.id, message: "input" },
+        })
+
+        const claimed = CollabMessage.drain(parentId)
+        expect(claimed).toHaveLength(64)
+        expect(claimed.filter((item) => item.kind === "child_progress")).toHaveLength(63)
+        expect(claimed.at(-1)?.kind).toBe("child_waiting")
+        CollabMessage.ack(claimed)
+        expect(CollabMessage.list(parentId, { kind: "child_progress" }).filter((item) => item.status === "pending")).toHaveLength(2)
+        expect(CollabMessage.drain(parentId)).toEqual([])
+      },
+    })
+  })
+
+  test("progress posted during a turn waits for a later wake", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const rootSession = await makeSession()
+        const rootId = Identifier.ascending("collab_agent")
+        CollabAgentNode.create({
+          id: rootId,
+          sessionId: rootSession.id,
+          name: "root",
+          projectId: Instance.project.id,
+          rootAgentId: rootId,
+          subagentType: "general",
+          spec: makeSpec(),
+          status: "running",
+        })
+        const parentSession = await makeSession(rootSession.id)
+        const parentId = Identifier.ascending("collab_agent")
+        CollabAgentNode.create({
+          id: parentId,
+          sessionId: parentSession.id,
+          parentAgentId: rootId,
+          name: "parent",
+          projectId: Instance.project.id,
+          rootAgentId: rootId,
+          subagentType: "general",
+          spec: makeSpec(),
+        })
+        const childSession = await makeSession(parentSession.id)
+        const childId = Identifier.ascending("collab_agent")
+        CollabAgentNode.create({
+          id: childId,
+          sessionId: childSession.id,
+          parentAgentId: parentId,
+          name: "child",
+          projectId: Instance.project.id,
+          rootAgentId: rootId,
+          subagentType: "general",
+          spec: makeSpec(),
+        })
+        let turns = 0
+        const prompt = spyOn(SessionPrompt, "prompt").mockImplementation(
+          (async () => {
+            turns++
+            CollabMessage.post({
+              recipientAgentId: parentId,
+              senderAgentId: childId,
+              kind: "child_progress",
+              payload: {
+                childAgentId: childId,
+                childName: "child",
+                turn: turns,
+                assistant_text: "working",
+                tools: [],
+              },
+            })
+            return { info: { role: "assistant" }, parts: [] } as never
+          }) as unknown as typeof SessionPrompt.prompt,
+        )
+        const loop = CollabLoop.start(parentId)
+
+        try {
+          const deadline = Date.now() + 1000
+          while (Date.now() < deadline && CollabAgentNode.load(parentId).status !== "blocked_on_children") {
+            await Bun.sleep(5)
+          }
+          expect(CollabAgentNode.load(parentId)).toMatchObject({ status: "blocked_on_children", error: null })
+          expect(turns).toBe(1)
+          expect(CollabMessage.list(parentId, { kind: "child_progress" })[0].status).toBe("pending")
+        } finally {
+          Collab.runtime().abort(parentId)
+          await loop
+          prompt.mockRestore()
+        }
+      },
+    })
+  })
+
+  test("progress remains cached when the only wake belongs to a stale run", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const rootSession = await makeSession()
+        const rootId = Identifier.ascending("collab_agent")
+        CollabAgentNode.create({
+          id: rootId,
+          sessionId: rootSession.id,
+          name: "root",
+          projectId: Instance.project.id,
+          rootAgentId: rootId,
+          subagentType: "general",
+          spec: makeSpec(),
+          status: "running",
+        })
+        const parentSession = await makeSession(rootSession.id)
+        const parentId = Identifier.ascending("collab_agent")
+        CollabAgentNode.create({
+          id: parentId,
+          sessionId: parentSession.id,
+          parentAgentId: rootId,
+          name: "parent",
+          projectId: Instance.project.id,
+          rootAgentId: rootId,
+          subagentType: "general",
+          spec: makeSpec(),
+        })
+        const childSession = await makeSession(parentSession.id)
+        const childId = Identifier.ascending("collab_agent")
+        CollabAgentNode.create({
+          id: childId,
+          sessionId: childSession.id,
+          parentAgentId: parentId,
+          name: "child",
+          projectId: Instance.project.id,
+          rootAgentId: rootId,
+          subagentType: "general",
+          spec: makeSpec(),
+        })
+        CollabAgentNode.transition(parentId, "blocked_on_children", { phase: "awaiting_children" })
+        for (let turn = 1; turn <= 65; turn++) {
+          CollabMessage.post({
+            recipientAgentId: parentId,
+            senderAgentId: childId,
+            kind: "child_progress",
+            payload: { childAgentId: childId, childName: "child", turn, assistant_text: `${turn}`, tools: [] },
+          })
+        }
+        CollabMessage.post({
+          recipientAgentId: parentId,
+          runId: "stale",
+          kind: "user_input",
+          payload: { text: "stale" },
+        })
+        const prompt = spyOn(SessionPrompt, "prompt").mockResolvedValue(undefined as never)
+        const loop = CollabLoop.start(parentId)
+
+        try {
+          const deadline = Date.now() + 1000
+          while (
+            Date.now() < deadline &&
+            CollabMessage.list(parentId, { kind: "user_input" })[0]?.status !== "dropped"
+          ) {
+            await Bun.sleep(5)
+          }
+          expect(prompt).not.toHaveBeenCalled()
+          expect(CollabAgentNode.load(parentId)).toMatchObject({ status: "blocked_on_children", error: null })
+          expect(CollabMessage.list(parentId, { kind: "child_progress" }).filter((item) => item.status === "pending")).toHaveLength(65)
+        } finally {
+          Collab.runtime().abort(parentId)
+          await loop
+          prompt.mockRestore()
+        }
       },
     })
   })

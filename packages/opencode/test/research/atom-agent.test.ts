@@ -13,6 +13,7 @@ import { ControllerAgent } from "../../src/research/controller-agent"
 import { ExperimentRemoteTask } from "../../src/research/experiment-remote-task"
 import { ExperimentRemoteTaskListener } from "../../src/research/experiment-remote-task-listener"
 import { ExperimentTable, AtomTable, ResearchProjectTable } from "../../src/research/research.sql"
+import { Identifier } from "../../src/id/id"
 import { Database, eq } from "../../src/storage/db"
 import { tmpdir } from "../fixture/fixture"
 
@@ -78,10 +79,36 @@ describe("research.atom-agent", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const item = await seed({ experiment: false })
+        const item = await seed()
         const controller = await ControllerAgent.create(item.research)
         const start = spyOn(CollabLoop, "start").mockResolvedValue()
         try {
+          const target = await AtomAgent.ensure(item.atomId)
+          const legacySession = await Session.create({ title: "legacy experiment child" })
+          const legacy = CollabAgentNode.create({
+            id: Identifier.ascending("collab_agent"),
+            sessionId: legacySession.id,
+            parentAgentId: target.agent.id,
+            name: "legacy experiment child",
+            projectId: Instance.project.id,
+            rootAgentId: target.agent.id,
+            subagentType: "experiment",
+            spec: { initialPrompt: "legacy" },
+            status: "completed",
+          })
+          const exp = CollabAgentNode.loadBySessionId(item.exp!.id)!
+          const leafSession = await Session.create({ title: "legacy experiment leaf" })
+          const leaf = CollabAgentNode.create({
+            id: Identifier.ascending("collab_agent"),
+            sessionId: leafSession.id,
+            parentAgentId: exp.id,
+            name: "legacy experiment leaf",
+            projectId: Instance.project.id,
+            rootAgentId: target.agent.id,
+            subagentType: "general",
+            spec: { initialPrompt: "legacy" },
+            status: "completed",
+          })
           const main = await Collab.spawn({
             parentAgentId: controller.agent.id,
             name: "Research Main",
@@ -99,6 +126,10 @@ describe("research.atom-agent", () => {
           expect(CollabAgentNode.role(main.id)).toBe("research_main")
           expect(result.parentAgentId).toBe(main.id)
           expect(CollabAgentNode.role(result.agentId)).toBe("atom")
+          expect(CollabAgentNode.role(exp.id)).toBe("experiment")
+          expect(CollabAgentNode.role(legacy.id)).toBe("blocked")
+          expect(CollabAgentNode.role(leaf.id)).toBe("blocked")
+          expect(CollabAgentNode.load(exp.id).root_agent_id).toBe(controller.agent.id)
         } finally {
           start.mockRestore()
         }

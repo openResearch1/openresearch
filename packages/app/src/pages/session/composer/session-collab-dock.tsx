@@ -6,13 +6,14 @@ import { IconButton } from "@opencode-ai/ui/icon-button"
 import { useSpring } from "@opencode-ai/ui/motion-spring"
 import { TextReveal } from "@opencode-ai/ui/text-reveal"
 import { showToast } from "@opencode-ai/ui/toast"
-import { For, Show, createMemo } from "solid-js"
+import { For, Show, createEffect, createMemo } from "solid-js"
 import { createStore } from "solid-js/store"
 import type { CollabAgent } from "@opencode-ai/sdk/v2/client"
 import { useLanguage } from "@/context/language"
 import { useSDK } from "@/context/sdk"
 import type { CollabActivity } from "@/pages/session/composer/session-collab-activity"
 import { canStopController } from "@/pages/session/composer/session-collab-control"
+import { clock, historical, visible } from "@/pages/session/composer/session-collab-visibility"
 import { formatServerError } from "@/utils/server-errors"
 
 type Props = {
@@ -24,6 +25,9 @@ type Props = {
   blockedLabel: string
   pendingLabel: string
   emptyLabel: string
+  emptyActiveLabel: string
+  showCompletedLabel: string
+  hideCompletedLabel: string
   onOpenAgent?: (agent: CollabAgent) => void
   /**
    * Max height for the scrollable body (px). The rest of the dock (header)
@@ -147,12 +151,22 @@ function DialogStopController(props: { agentId: string }) {
 export function SessionCollabDock(props: Props) {
   const dialog = useDialog()
   const language = useLanguage()
-  const [store, setStore] = createStore({ collapsed: true })
+  const [store, setStore] = createStore({ collapsed: true, history: false })
   const toggle = () => setStore("collapsed", (value) => !value)
+  const now = clock(() => props.activity.children())
+
+  createEffect(() => {
+    props.activity.rootAgent()?.id
+    setStore("history", false)
+  })
+
+  const past = createMemo(() => props.activity.children().filter(historical))
+  const shown = createMemo(() =>
+    props.activity.children().filter((agent) => visible(agent, now(), store.history)),
+  )
 
   const sortedChildren = createMemo(() => {
-    return props.activity
-      .children()
+    return shown()
       .slice()
       .sort((a, b) => {
         const ao = STATUS_ORDER[a.status] ?? 9
@@ -169,7 +183,7 @@ export function SessionCollabDock(props: Props) {
   const show = createMemo(() => {
     const root = props.activity.rootAgent()
     if (!root) return false
-    return props.activity.activeChildren().length > 0 || stoppable()
+    return shown().length > 0 || past().length > 0 || stoppable()
   })
 
   const mainBadge = createMemo<Badge>(() => {
@@ -200,8 +214,9 @@ export function SessionCollabDock(props: Props) {
 
   return (
     <Show when={show()}>
-      <DockTray data-component="session-collab-dock">
-        <div>
+      <div class="mb-3">
+        <DockTray data-component="session-collab-dock">
+          <div>
           <div
             class="pl-3 pr-2 py-2 flex items-center gap-2 overflow-visible"
           >
@@ -290,10 +305,30 @@ export function SessionCollabDock(props: Props) {
                 "overscroll-behavior": "contain",
               }}
             >
+              <Show when={past().length > 0}>
+                <div class="flex justify-end px-2 pb-1">
+                  <Button
+                    variant="ghost"
+                    size="small"
+                    class="px-2 whitespace-nowrap"
+                    onClick={() => {
+                      const next = !store.history
+                      setStore("history", next)
+                      if (next) setStore("collapsed", false)
+                    }}
+                  >
+                    {store.history ? props.hideCompletedLabel : `${props.showCompletedLabel} (${past().length})`}
+                  </Button>
+                </div>
+              </Show>
               <ul class="flex flex-col gap-1">
                 <Show
                   when={sortedChildren().length > 0}
-                  fallback={<li class="px-2 py-1 text-13-regular text-text-weak">{props.emptyLabel}</li>}
+                  fallback={
+                    <li class="px-2 py-1 text-13-regular text-text-weak">
+                      {store.history ? props.emptyLabel : props.emptyActiveLabel}
+                    </li>
+                  }
                 >
                   <For each={sortedChildren()}>
                     {(c) => (
@@ -324,8 +359,9 @@ export function SessionCollabDock(props: Props) {
               </ul>
             </div>
           </div>
-        </div>
-      </DockTray>
+          </div>
+        </DockTray>
+      </div>
     </Show>
   )
 }

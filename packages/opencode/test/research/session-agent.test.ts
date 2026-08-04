@@ -81,6 +81,13 @@ describe("research.session-agent", () => {
           })
           const task = await Session.create({ parentID: main.session_id, title: "Research task" })
           const research = (await Agent.get("research"))!
+          await SessionPrompt.prompt({
+            sessionID: task.id,
+            agent: "general",
+            model: { providerID: "test", modelID: "test" },
+            noReply: true,
+            parts: [{ type: "text", text: "focused task" }],
+          })
 
           expect((await Session.get(main.session_id)).collabPeer).toBe(true)
           expect(await ResearchSessionAgent.policy(main.session_id)).toMatchObject({
@@ -88,9 +95,16 @@ describe("research.session-agent", () => {
             default: "research",
           })
           expect(await ResearchSessionAgent.resolve({ sessionID: main.session_id })).toBe("research")
+          expect(await ResearchSessionAgent.resolve({ sessionID: main.session_id, agent: "plan" })).toBe("plan")
+          expect(await ResearchSessionAgent.resolve({ sessionID: main.session_id, agent: "build" })).toBe("build")
           await expect(
             ResearchSessionAgent.resolve({ sessionID: main.session_id, agent: "experiment" }),
-          ).rejects.toThrow("not available in main sessions")
+          ).rejects.toThrow("Controller research_main sessions")
+          for (const agent of ["deep_research", "research_idea", "research_project_init"]) {
+            await expect(ResearchSessionAgent.resolve({ sessionID: main.session_id, agent })).rejects.toThrow(
+              "Controller research_main sessions",
+            )
+          }
 
           const prompt = await ResearchSessionAgent.compose({ sessionID: main.session_id, agent: research })
           expect(prompt.prompt).toContain("## Main Research mode")
@@ -176,6 +190,10 @@ describe("research.session-agent", () => {
             ),
           ).rejects.toThrow()
           expect(await ResearchSessionAgent.policy(leaf.session_id)).toBeUndefined()
+          expect(await ResearchSessionAgent.resolve({ sessionID: leaf.session_id })).toBe("research")
+          await expect(
+            ResearchSessionAgent.resolve({ sessionID: leaf.session_id, agent: "deep_research" }),
+          ).rejects.toThrow("Controller leaf sessions")
           expect(
             ResearchSessionAgent.approval({
               sessionID: leaf.session_id,
@@ -187,6 +205,10 @@ describe("research.session-agent", () => {
             "## Delegated Research constraint",
           )
           expect(await ResearchSessionAgent.policy(task.id)).toBeUndefined()
+          expect(await ResearchSessionAgent.resolve({ sessionID: task.id })).toBe("general")
+          await expect(
+            ResearchSessionAgent.resolve({ sessionID: task.id, agent: "deep_research" }),
+          ).rejects.toThrow("Controller task sessions")
           expect((await ResearchSessionAgent.compose({ sessionID: task.id, agent: research })).prompt).toContain(
             "## Delegated Research constraint",
           )

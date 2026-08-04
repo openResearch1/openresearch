@@ -3207,6 +3207,7 @@ export class Atom extends HeyApiClient {
       workspace?: string
       evidence_status?: "pending" | "in_progress" | "proven" | "disproven"
       evidence_type?: "math" | "experiment"
+      article_id?: string | null
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -3221,6 +3222,7 @@ export class Atom extends HeyApiClient {
             { in: "query", key: "workspace" },
             { in: "body", key: "evidence_status" },
             { in: "body", key: "evidence_type" },
+            { in: "body", key: "article_id" },
           ],
         },
       ],

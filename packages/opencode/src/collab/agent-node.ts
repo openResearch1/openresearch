@@ -9,6 +9,7 @@ import { SessionDeletionTable } from "@/session/deletion.sql"
 import { SessionOwnershipTable } from "@/session/ownership.sql"
 import { Log } from "@/util/log"
 import { CollabAgentTable, CollabMessageTable } from "./collab.sql"
+import { ControllerPolicy } from "./controller-policy"
 import type {
   AgentError,
   AgentInfo,
@@ -23,8 +24,8 @@ import { CollabEvent } from "./events"
 export namespace CollabAgentNode {
   const log = Log.create({ service: "collab.agent-node" })
   export const STOP_TIMEOUT = 15_000
-  export const CONTROLLER_ROLES = ["controller", "research_main", "atom", "experiment", "leaf"] as const
-  export type ControllerRole = (typeof CONTROLLER_ROLES)[number]
+  export const CONTROLLER_ROLES = ControllerPolicy.Roles
+  export type ControllerRole = ControllerPolicy.Role
 
   export type Row = typeof CollabAgentTable.$inferSelect
 
@@ -35,11 +36,6 @@ export namespace CollabAgentNode {
       ...spec,
       metadata: { ...spec.metadata, collabLifecycle: randomUUID() },
     }
-  }
-
-  function stored(spec: AgentSpec) {
-    const value = spec.metadata?.controllerRole
-    return CONTROLLER_ROLES.find((item) => item === value)
   }
 
   function controller(row: Row) {
@@ -55,14 +51,83 @@ export namespace CollabAgentNode {
     return row.subagent_type === "experiment" && typeof metadata?.atomId === "string" && typeof metadata.expId === "string"
   }
 
-  function infer(row: Row, root: Row): ControllerRole {
-    const role = stored(row.spec_json as AgentSpec)
-    if (role) return role
+  function structural(rows: Row[], row: Row, root: Row): ControllerRole | "blocked" {
     if (row.id === root.id) return "controller"
-    if (experiment(row)) return "experiment"
-    if (atom(row)) return "atom"
-    if (row.parent_agent_id === root.id && row.subagent_type === "research") return "research_main"
-    return "leaf"
+    const index = new Map(rows.map((item) => [item.id, item]))
+    const path: Row[] = []
+    const seen = new Set<string>()
+    let current: Row | undefined = row
+    while (current && current.id !== root.id && !seen.has(current.id)) {
+      seen.add(current.id)
+      path.unshift(current)
+      current = current.parent_agent_id ? index.get(current.parent_agent_id) : undefined
+    }
+    if (current?.id !== root.id) return "blocked"
+
+    let role: ControllerRole | "blocked" = "controller"
+    for (const child of path) {
+      if (role === "controller") {
+        role = child.subagent_type === "research" ? "research_main" : "blocked"
+        continue
+      }
+      if (role === "research_main" && atom(child) && (child.spec_json as AgentSpec).policy?.detach_on_terminal) {
+        role = "atom"
+        continue
+      }
+      if (role === "atom" && experiment(child)) {
+        role = "experiment"
+        continue
+      }
+      role = ControllerPolicy.allows({ role, channel: "spawn", target: child.subagent_type }) ? "leaf" : "blocked"
+    }
+    return role
+  }
+
+  function context(db: Database.TxOrDb, row: Row) {
+    const fallback = () => {
+      const root = db.select().from(CollabAgentTable).where(eq(CollabAgentTable.id, row.root_agent_id)).get()
+      return root && controller(root) ? { root, role: "blocked" as const } : undefined
+    }
+    const rows = [row]
+    const seen = new Set([row.id])
+    let current = row
+    while (current.parent_agent_id && !seen.has(current.parent_agent_id)) {
+      const parent = db.select().from(CollabAgentTable).where(eq(CollabAgentTable.id, current.parent_agent_id)).get()
+      if (!parent) return fallback()
+      rows.unshift(parent)
+      seen.add(parent.id)
+      current = parent
+    }
+    const root = rows[0]
+    if (current.parent_agent_id) return fallback()
+    if (!controller(root)) return fallback()
+    if (rows.some((item) => item.root_agent_id !== root.id)) {
+      return { root, role: "blocked" as const }
+    }
+    return { root, role: structural(rows, row, root) }
+  }
+
+  function topology(rows: Row[], id: string, initial: ControllerRole) {
+    const roles = new Map<string, ControllerRole>([[id, initial]])
+    const pending = [id]
+    while (pending.length) {
+      const parent = pending.shift()!
+      const role = roles.get(parent)!
+      for (const row of rows) {
+        if (row.parent_agent_id !== parent || roles.has(row.id)) continue
+        const next =
+          role === "atom" && experiment(row)
+            ? "experiment"
+            : ControllerPolicy.allows({ role, channel: "spawn", target: row.subagent_type })
+              ? "leaf"
+              : undefined
+        if (!next) throw new Error(`Controller topology denied: ${role} cannot contain ${row.subagent_type}`)
+        roles.set(row.id, next)
+        pending.push(row.id)
+      }
+    }
+    if (roles.size !== rows.length) throw new Error("Controller topology denied: imported branch is disconnected")
+    return roles
   }
 
   export function tag(spec: AgentSpec, role: ControllerRole): AgentSpec {
@@ -76,9 +141,7 @@ export namespace CollabAgentNode {
     return Database.use((db) => {
       const row = db.select().from(CollabAgentTable).where(eq(CollabAgentTable.id, id)).get()
       if (!row) throw new NotFoundError({ message: `Agent not found: ${id}` })
-      const root = db.select().from(CollabAgentTable).where(eq(CollabAgentTable.id, row.root_agent_id)).get()
-      if (!root || !controller(root)) return
-      return infer(row, root)
+      return context(db, row)?.role
     })
   }
 
@@ -93,40 +156,68 @@ export namespace CollabAgentNode {
         if (!session) break
         const row = db.select().from(CollabAgentTable).where(eq(CollabAgentTable.session_id, id)).get()
         if (row) {
-          const root = db.select().from(CollabAgentTable).where(eq(CollabAgentTable.id, row.root_agent_id)).get()
-          if (root && controller(root)) {
-            if (task || session.parent_id) return { controller: true as const, role: "task" as const, allowed: false }
-            const role = infer(row, root)
+          const resolved = context(db, row)
+          if (resolved) {
+            if (resolved.role === "blocked") {
+              return { controller: true as const, role: resolved.role, agent: row.subagent_type }
+            }
+            if (task || session.parent_id) {
+              return { controller: true as const, role: "task" as const, agent: undefined }
+            }
             return {
               controller: true as const,
-              role,
-              allowed: role !== "leaf",
+              role: resolved.role,
+              agent: row.subagent_type,
             }
           }
         }
         task = true
         id = session.parent_id
       }
-      return { controller: false as const, allowed: true }
+      return { controller: false as const }
     })
   }
 
+  export function targets(sessionId: string, channel: ControllerPolicy.Channel) {
+    const context = spawnContext(sessionId)
+    if (!context.controller) return
+    return ControllerPolicy.targets({ role: context.role, channel, agent: context.agent })
+  }
+
+  export function allows(sessionId: string, channel: ControllerPolicy.Channel, target: string) {
+    const context = spawnContext(sessionId)
+    if (!context.controller) return true
+    return ControllerPolicy.allows({ role: context.role, channel, target, agent: context.agent })
+  }
+
   export function canSpawn(sessionId: string) {
-    return spawnContext(sessionId).allowed
+    const targets = CollabAgentNode.targets(sessionId, "spawn")
+    return targets === undefined || targets.length > 0
+  }
+
+  export function canTask(sessionId: string) {
+    const targets = CollabAgentNode.targets(sessionId, "task")
+    return targets === undefined || targets.length > 0
   }
 
   export function assertSpawn(sessionId: string, type: string) {
     const context = spawnContext(sessionId)
     if (!context.controller) return
-    if (context.role === "task") {
-      throw new Error("Controller spawn denied: task subagents cannot spawn agents")
-    }
-    if (context.role === "leaf") {
-      throw new Error("Controller spawn denied: agents created by spawn_agent cannot spawn additional agents")
-    }
-    if (context.role === "controller" && type !== "research") {
-      throw new Error("Controller spawn denied: Controller may only spawn research agents")
-    }
+    if (ControllerPolicy.allows({ role: context.role, channel: "spawn", target: type, agent: context.agent })) return
+    throw new Error(`Controller spawn denied: ${context.role} cannot spawn ${type}`)
+  }
+
+  export function assertTask(sessionId: string, type: string) {
+    const context = spawnContext(sessionId)
+    if (!context.controller) return
+    if (ControllerPolicy.allows({ role: context.role, channel: "task", target: type, agent: context.agent })) return
+    throw new Error(`Controller task denied: ${context.role} cannot invoke ${type}`)
+  }
+
+  export function assertWorkflow(sessionId: string) {
+    const context = spawnContext(sessionId)
+    if (!context.controller) return
+    throw new Error(`Controller workflow denied: workflows are unavailable to ${context.role}`)
   }
 
   export function lifecycle(spec: AgentSpec) {
@@ -226,8 +317,14 @@ export namespace CollabAgentNode {
       const parent = parentId
         ? tx.select().from(CollabAgentTable).where(eq(CollabAgentTable.id, parentId)).get()
         : undefined
-      if (parentId && input.activeParent) {
-        if (!parent || (!isActive(parent.status) && input.startParent !== "human")) {
+      if (parentId && !parent) throw new Error(`Parent agent ${parentId} does not exist`)
+      const scope = parent ? context(tx, parent) : undefined
+      if (scope?.role === "blocked") throw new Error(`Controller topology denied: parent ${parentId} is blocked`)
+      if (parent && (parent.root_agent_id !== input.rootAgentId || parent.project_id !== input.projectId)) {
+        throw new Error(`Parent agent ${parentId} does not match the requested root and project`)
+      }
+      if (parent && input.activeParent) {
+        if (!isActive(parent.status) && input.startParent !== "human") {
           throw new Error(`Parent agent ${parentId} is not active`)
         }
         if ((parent.spec_json as AgentSpec).metadata?.stoppedByUser === true) {
@@ -237,25 +334,17 @@ export namespace CollabAgentNode {
         if (generation(parent.spec_json as AgentSpec) !== input.parentGeneration) {
           throw new Error(`Parent agent ${parentId} changed before child creation`)
         }
-        if (parent.root_agent_id !== input.rootAgentId || parent.project_id !== input.projectId) {
-          throw new Error(`Parent agent ${parentId} changed before child creation`)
-        }
       }
       const saved = (() => {
-        if (!parent) return spec
-        const root = tx.select().from(CollabAgentTable).where(eq(CollabAgentTable.id, parent.root_agent_id)).get()
-        if (!root || !controller(root)) return spec
-        const role = infer(parent, root)
+        if (!parent || !scope) return spec
+        const role = scope.role
         if (!isActive(status)) {
           const row = { subagent_type: input.subagentType, spec_json: spec }
           if (role === "atom" && experiment(row)) return tag(spec, "experiment")
           throw new Error("Controller topology denied: only Experiment domain nodes may be created inactive")
         }
-        if (role === "leaf") {
-          throw new Error("Controller spawn denied: agents created by spawn_agent cannot spawn additional agents")
-        }
-        if (role === "controller" && input.subagentType !== "research") {
-          throw new Error("Controller spawn denied: Controller may only spawn research agents")
+        if (!ControllerPolicy.allows({ role, channel: "spawn", target: input.subagentType, agent: parent.subagent_type })) {
+          throw new Error(`Controller spawn denied: ${role} cannot spawn ${input.subagentType}`)
         }
         return tag(spec, role === "controller" ? "research_main" : "leaf")
       })()
@@ -1108,7 +1197,11 @@ export namespace CollabAgentNode {
       if (!current) throw new NotFoundError({ message: `Agent not found: ${id}` })
       const prior = current.spec_json as AgentSpec
       const root = tx.select().from(CollabAgentTable).where(eq(CollabAgentTable.id, current.root_agent_id)).get()
-      const role = stored(prior) ?? (root && controller(root) ? infer(current, root) : undefined)
+      const tree = root
+        ? tx.select().from(CollabAgentTable).where(eq(CollabAgentTable.root_agent_id, root.id)).all()
+        : []
+      const resolved = root && controller(root) ? structural(tree, current, root) : undefined
+      const role = resolved && resolved !== "blocked" ? resolved : undefined
       const metadata = Object.fromEntries(
         Object.entries(spec.metadata ?? {}).filter(
           ([key]) =>
@@ -1186,12 +1279,12 @@ export namespace CollabAgentNode {
       if ((parent.spec_json as AgentSpec).metadata?.stoppedByUser === true) {
         throw new Error(`Parent ${input.parentId} was stopped by the user`)
       }
-      const root = tx.select().from(CollabAgentTable).where(eq(CollabAgentTable.id, parent.root_agent_id)).get()
+      const scope = context(tx, parent)
+      if (scope?.role === "blocked") throw new Error(`Controller topology denied: parent ${parent.id} is blocked`)
       const metadata = { ...(current.spec_json as AgentSpec).metadata, ...input.metadata }
       if (
-        root &&
-        controller(root) &&
-        (infer(parent, root) !== "atom" ||
+        scope &&
+        (scope.role !== "atom" ||
           input.subagentType !== "experiment" ||
           typeof metadata.atomId !== "string" ||
           typeof metadata.expId !== "string")
@@ -1207,10 +1300,10 @@ export namespace CollabAgentNode {
         },
         metadata,
       }
-      const saved = root && controller(root) ? tag(next, "experiment") : next
+      const saved = scope ? tag(next, "experiment") : next
 
       const tree = tx
-        .select({ id: CollabAgentTable.id, parent: CollabAgentTable.parent_agent_id })
+        .select()
         .from(CollabAgentTable)
         .where(eq(CollabAgentTable.root_agent_id, current.root_agent_id))
         .all()
@@ -1219,17 +1312,32 @@ export namespace CollabAgentNode {
       while (changed) {
         changed = false
         for (const item of tree) {
-          if (!item.parent || !ids.has(item.parent) || ids.has(item.id)) continue
+          if (!item.parent_agent_id || !ids.has(item.parent_agent_id) || ids.has(item.id)) continue
           ids.add(item.id)
           changed = true
         }
       }
       if (ids.has(parent.id)) throw new Error(`Attaching ${input.id} would create a cycle`)
 
-      tx.update(CollabAgentTable)
-        .set({ root_agent_id: input.rootId, time_updated: now })
-        .where(inArray(CollabAgentTable.id, [...ids]))
-        .run()
+      const branch = tree.filter((item) => ids.has(item.id))
+      const roles = scope ? topology(branch, current.id, "experiment") : undefined
+      if (roles) {
+        for (const item of branch) {
+          tx.update(CollabAgentTable)
+            .set({
+              root_agent_id: input.rootId,
+              spec_json: tag(item.spec_json as AgentSpec, roles.get(item.id)!),
+              time_updated: now,
+            })
+            .where(eq(CollabAgentTable.id, item.id))
+            .run()
+        }
+      } else {
+        tx.update(CollabAgentTable)
+          .set({ root_agent_id: input.rootId, time_updated: now })
+          .where(inArray(CollabAgentTable.id, [...ids]))
+          .run()
+      }
       const row = tx
         .update(CollabAgentTable)
         .set({
@@ -1299,8 +1407,9 @@ export namespace CollabAgentNode {
       if (!current) throw new NotFoundError({ message: `Agent not found: ${input.agentId}` })
       const parent = tx.select().from(CollabAgentTable).where(eq(CollabAgentTable.id, input.parentAgentId)).get()
       if (!parent) throw new NotFoundError({ message: `Parent agent not found: ${input.parentAgentId}` })
-      const root = tx.select().from(CollabAgentTable).where(eq(CollabAgentTable.id, parent.root_agent_id)).get()
-      if (root && controller(root) && (infer(parent, root) !== "research_main" || !atom(current))) {
+      const scope = context(tx, parent)
+      if (scope?.role === "blocked") throw new Error(`Controller topology denied: parent ${parent.id} is blocked`)
+      if (scope && (scope.role !== "research_main" || !atom(current))) {
         throw new Error("Controller topology denied: only Research Main may lease Atom agents")
       }
       const deleting = tx
@@ -1352,7 +1461,7 @@ export namespace CollabAgentNode {
           detach_on_terminal: true,
         },
       }
-      const saved = root && controller(root) ? tag(next, "atom") : next
+      const saved = scope ? tag(next, "atom") : next
 
       tx.update(CollabAgentTable)
         .set({ root_agent_id: parent.root_agent_id, time_updated: now })

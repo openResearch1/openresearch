@@ -14,6 +14,8 @@ import { Markdown } from "@opencode-ai/ui/markdown"
 import { Switch } from "@opencode-ai/ui/switch"
 import type { ResearchAtomsListResponse } from "@opencode-ai/sdk/v2"
 
+import { AtomArticleSelector } from "./atom-article-selector"
+
 type Atom = ResearchAtomsListResponse["atoms"][number]
 
 const TYPE_COLORS: Record<string, string> = {
@@ -479,6 +481,12 @@ export function AtomDetailPanel(props: {
             <span class="text-[11px] px-2 py-0.5 rounded bg-background-stronger text-text-weak">
               {props.atom.atom_evidence_type}
             </span>
+            <AtomArticleSelector
+              researchProjectId={props.atom.research_project_id}
+              atomId={props.atom.atom_id}
+              articleId={props.atom.article_id}
+              locked={props.atom.locked}
+            />
             <Switch checked={props.atom.locked} disabled={updatingLock()} onChange={handleUpdateLock}>
               {updatingLock() ? "Updating..." : "Locked"}
             </Switch>
