@@ -1116,6 +1116,9 @@ describe("research.experiment-agent", () => {
         const settled = CollabAgentNode.load(parent.id)
         expect(settled.status).toBe("idle")
         expect(settled.initiator).toBeNull()
+        expect(CollabMessage.list(parent.id, { kind: "cancel" })).toHaveLength(1)
+        expect(CollabMessage.list(child.id, { kind: "cancel" })).toHaveLength(1)
+        expect(CollabMessage.list(grandchild.id, { kind: "cancel" })).toHaveLength(1)
         expect(CollabMessage.list(settled.parent_agent_id!, { kind: "child_failed" })).toHaveLength(0)
       },
     })

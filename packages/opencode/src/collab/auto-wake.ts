@@ -531,19 +531,66 @@ export namespace CollabAutoWake {
       }
 
       if (gotCancel) {
-        await CollabSupervisor.cancelDescendants(agentId, { reason: "root canceled", initiator: "user" })
+        const errorInfo: AgentError = { code: "CANCELED", message: "cancel message received" }
+        const latched = (() => {
+          try {
+            return CollabAgentNode.transition(node.id, node.status, { error: errorInfo }, {
+              runId: node.run_id,
+              parentId: node.parent_agent_id,
+              status: node.status,
+              timeUpdated: node.time_updated,
+            })
+          } catch {
+            return
+          }
+        })()
+        if (!latched) {
+          CollabMessage.retry(msgs, false)
+          return false
+        }
+        await CollabSupervisor.cancelChildren(agentId, { reason: "root canceled", initiator: "user" })
         if (abort.aborted) {
           CollabMessage.retry(msgs, false)
           return false
         }
-        const errorInfo: AgentError = { code: "CANCELED", message: "cancel message received" }
-        CollabAgentNode.transition(node.id, "canceled", { phase: "main_loop", error: errorInfo, timeEnded: Date.now() })
+        CollabAgentNode.transition(
+          node.id,
+          "canceled",
+          { phase: "main_loop", error: errorInfo, timeEnded: Date.now() },
+          {
+            runId: latched.run_id,
+            parentId: latched.parent_agent_id,
+            status: latched.status,
+            timeUpdated: latched.time_updated,
+          },
+        )
         CollabMessage.closeInbox(node.id)
         return true
       }
 
       if (failFastTrigger) {
-        await CollabSupervisor.cancelDescendants(agentId, {
+        const errorInfo: AgentError = {
+          code: "CHILD_FAILED_FAIL_FAST",
+          message: `Child ${failFastTrigger.childAgentId} failed: ${failFastTrigger.message}`,
+          detail: failFastTrigger.detail,
+        }
+        const latched = (() => {
+          try {
+            return CollabAgentNode.transition(node.id, node.status, { error: errorInfo }, {
+              runId: node.run_id,
+              parentId: node.parent_agent_id,
+              status: node.status,
+              timeUpdated: node.time_updated,
+            })
+          } catch {
+            return
+          }
+        })()
+        if (!latched) {
+          CollabMessage.retry(msgs, false)
+          return false
+        }
+        await CollabSupervisor.cancelChildren(agentId, {
           reason: "sibling failed (fail_fast)",
           initiator: "sibling",
         })
@@ -551,12 +598,17 @@ export namespace CollabAutoWake {
           CollabMessage.retry(msgs, false)
           return false
         }
-        const errorInfo: AgentError = {
-          code: "CHILD_FAILED_FAIL_FAST",
-          message: `Child ${failFastTrigger.childAgentId} failed: ${failFastTrigger.message}`,
-          detail: failFastTrigger.detail,
-        }
-        CollabAgentNode.transition(node.id, "failed", { phase: "main_loop", error: errorInfo, timeEnded: Date.now() })
+        CollabAgentNode.transition(
+          node.id,
+          "failed",
+          { phase: "main_loop", error: errorInfo, timeEnded: Date.now() },
+          {
+            runId: latched.run_id,
+            parentId: latched.parent_agent_id,
+            status: latched.status,
+            timeUpdated: latched.time_updated,
+          },
+        )
         CollabMessage.closeInbox(node.id)
         return true
       }

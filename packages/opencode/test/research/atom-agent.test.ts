@@ -9,6 +9,7 @@ import { CollabMessage } from "../../src/collab/message"
 import { CollabRecovery } from "../../src/collab/recovery"
 import { Instance } from "../../src/project/instance"
 import { AtomAgent } from "../../src/research/atom-agent"
+import { ControllerAgent } from "../../src/research/controller-agent"
 import { ExperimentRemoteTask } from "../../src/research/experiment-remote-task"
 import { ExperimentRemoteTaskListener } from "../../src/research/experiment-remote-task-listener"
 import { ExperimentTable, AtomTable, ResearchProjectTable } from "../../src/research/research.sql"
@@ -72,6 +73,39 @@ async function seed(input?: { experiment?: boolean; research?: string }) {
 }
 
 describe("research.atom-agent", () => {
+  test("allows a Controller Research Main to delegate an Atom", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const item = await seed({ experiment: false })
+        const controller = await ControllerAgent.create(item.research)
+        const start = spyOn(CollabLoop, "start").mockResolvedValue()
+        try {
+          const main = await Collab.spawn({
+            parentAgentId: controller.agent.id,
+            name: "Research Main",
+            subagentType: "research",
+            spec: { initialPrompt: "research" },
+          })
+          const result = await AtomAgent.delegate({
+            atomId: item.atomId,
+            sourceSessionId: main.session_id,
+            agent: "research",
+            prompt: "validate the claim",
+            runId: "controller-atom-run",
+          })
+
+          expect(CollabAgentNode.role(main.id)).toBe("research_main")
+          expect(result.parentAgentId).toBe(main.id)
+          expect(CollabAgentNode.role(result.agentId)).toBe("atom")
+        } finally {
+          start.mockRestore()
+        }
+      },
+    })
+  })
+
   test("leases an Atom subtree idempotently and keeps waiting attached", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({

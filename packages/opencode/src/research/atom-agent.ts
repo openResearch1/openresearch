@@ -177,7 +177,10 @@ export namespace AtomAgent {
     const { Session } = await import("@/session")
     const atom = scoped(input.atomId)
     const source = await Session.get(input.sourceSessionId)
-    if (source.projectID !== Instance.project.id || source.parentID || source.collabPeer) {
+    const existing = CollabAgentNode.loadBySessionId(source.id)
+    const role = existing ? CollabAgentNode.role(existing.id) : undefined
+    const main = role === "research_main"
+    if (source.projectID !== Instance.project.id || source.parentID || (source.collabPeer && !main) || (role && !main)) {
       throw new Error("Only an ordinary root session in the current project may delegate to an Atom")
     }
     const research = Database.use((db) =>
@@ -208,7 +211,7 @@ export namespace AtomAgent {
       spec: { initialPrompt: "", policy: { on_fail: "continue" } },
     })
     if (CollabAgentNode.isStopped(parent)) throw new Error("Controller was stopped by the user")
-    if (parent.parent_agent_id || parent.root_agent_id !== parent.id) {
+    if (main ? parent.id !== existing?.id : parent.parent_agent_id || parent.root_agent_id !== parent.id) {
       throw new Error("Source session is not an independent Collab root")
     }
     parent = CollabAgentNode.spec(parent.id, {

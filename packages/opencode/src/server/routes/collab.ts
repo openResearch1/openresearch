@@ -239,6 +239,7 @@ export const CollabRoutes = new Hono()
       await Collab.cancel(agentId, body.reason, {
         parentAgentId: target.parent_agent_id,
         runId: target.run_id,
+        lifecycle: CollabAgentNode.lifecycle(target.spec),
       })
       return c.json({ agent_id: agentId, canceled: true })
     },

@@ -267,6 +267,142 @@ describe("spawned collab failures", () => {
     })
   })
 
+  test("a live non-Controller peer still enforces its lifecycle timeout", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const item = await tree()
+        const child = CollabAgentNode.load(item.id)
+        CollabAgentNode.spec(item.id, {
+          ...child.spec,
+          policy: { ...child.spec.policy, timeout_ms: 1 },
+        })
+        CollabAgentNode.transition(item.id, "running", { timeStarted: Date.now() - 10 })
+        const prompt = spyOn(SessionPrompt, "prompt").mockResolvedValue({
+          info: { role: "assistant" },
+          parts: [],
+        } as never)
+
+        try {
+          await CollabLoop.start(item.id)
+          expect(prompt).not.toHaveBeenCalled()
+          expect(CollabAgentNode.load(item.id)).toMatchObject({ status: "failed", error: { code: "TIMEOUT" } })
+        } finally {
+          prompt.mockRestore()
+        }
+      },
+    })
+  })
+
+  test("Controller trees ignore lifecycle timeouts during recovery", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const controllerSession = await Session.create({ title: "Controller" })
+        const controllerId = Identifier.ascending("collab_agent")
+        const controller = CollabAgentNode.create({
+          id: controllerId,
+          sessionId: controllerSession.id,
+          name: "Controller",
+          projectId: Instance.project.id,
+          rootAgentId: controllerId,
+          subagentType: "controller",
+          spec: { initialPrompt: "", metadata: { controllerRole: "controller" } },
+          status: "running",
+        })
+        const mainSession = await Collab.createSubSession({ title: "Research Main" })
+        const main = CollabAgentNode.create({
+          id: Identifier.ascending("collab_agent"),
+          sessionId: mainSession.id,
+          parentAgentId: controller.id,
+          name: "Research Main",
+          projectId: Instance.project.id,
+          rootAgentId: controller.id,
+          subagentType: "research",
+          spec: { initialPrompt: "research", policy: { timeout_ms: 1 } },
+          status: "running",
+        })
+        const leafSession = await Collab.createSubSession({ title: "Research leaf" })
+        const leaf = CollabAgentNode.create({
+          id: Identifier.ascending("collab_agent"),
+          sessionId: leafSession.id,
+          parentAgentId: main.id,
+          name: "Research leaf",
+          projectId: Instance.project.id,
+          rootAgentId: controller.id,
+          subagentType: "general",
+          spec: { initialPrompt: "work", policy: { timeout_ms: 1 } },
+          status: "running",
+        })
+        CollabAgentNode.transition(main.id, "running", { timeStarted: Date.now() - 10 })
+        CollabAgentNode.transition(leaf.id, "running", { timeStarted: Date.now() - 10 })
+        const start = spyOn(CollabLoop, "start").mockResolvedValue()
+
+        try {
+          expect(CollabLoop.timeout(CollabAgentNode.load(main.id))).toBeUndefined()
+          expect(CollabLoop.timeout(CollabAgentNode.load(leaf.id))).toBeUndefined()
+          await CollabRecovery.scan()
+          expect(CollabAgentNode.load(main.id)).toMatchObject({ status: "running", error: null })
+          expect(CollabAgentNode.load(leaf.id)).toMatchObject({ status: "running", error: null })
+        } finally {
+          start.mockRestore()
+        }
+      },
+    })
+  })
+
+  test("a live Controller Research Main ignores an explicit lifecycle timeout", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const controllerSession = await Session.create({ title: "Controller" })
+        const controllerId = Identifier.ascending("collab_agent")
+        CollabAgentNode.create({
+          id: controllerId,
+          sessionId: controllerSession.id,
+          name: "Controller",
+          projectId: Instance.project.id,
+          rootAgentId: controllerId,
+          subagentType: "controller",
+          spec: { initialPrompt: "", metadata: { controllerRole: "controller" } },
+          status: "running",
+        })
+        const session = await Collab.createSubSession({ title: "Research Main" })
+        const main = CollabAgentNode.create({
+          id: Identifier.ascending("collab_agent"),
+          sessionId: session.id,
+          parentAgentId: controllerId,
+          name: "Research Main",
+          projectId: Instance.project.id,
+          rootAgentId: controllerId,
+          subagentType: "research",
+          spec: { initialPrompt: "research", policy: { timeout_ms: 1 } },
+        })
+        let release: ((value: never) => void) | undefined
+        const prompt = spyOn(SessionPrompt, "prompt").mockImplementation(
+          (() => new Promise((resolve) => (release = resolve)) as never) as unknown as typeof SessionPrompt.prompt,
+        )
+
+        try {
+          const loop = CollabLoop.start(main.id)
+          const deadline = Date.now() + 1000
+          while (!release && Date.now() < deadline) await Bun.sleep(5)
+          expect(release).toBeDefined()
+          await Bun.sleep(10)
+          expect(CollabAgentNode.load(main.id)).toMatchObject({ status: "running", error: null })
+          release!({ info: { role: "assistant" }, parts: [{ type: "text", text: "done" }] } as never)
+          await loop
+          expect(CollabAgentNode.load(main.id).error?.code).not.toBe("TIMEOUT")
+        } finally {
+          prompt.mockRestore()
+        }
+      },
+    })
+  })
+
   test("a stale recovery guard cannot fail a resumed peer", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({

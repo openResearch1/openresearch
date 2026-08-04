@@ -1,4 +1,4 @@
-import { randomUUID } from "crypto"
+import { createHash, randomUUID } from "crypto"
 
 import { and, asc, eq, gte, inArray, isNull, ne, sql } from "drizzle-orm"
 import { Database } from "@/storage/db"
@@ -22,6 +22,16 @@ export namespace CollabMessage {
   export type Row = typeof CollabMessageTable.$inferSelect
   export type Claim = Pick<Row, "id" | "claim_id">
 
+  function cancelID(recipient: string, run: string | null, spec: unknown, started: number | null, created: number) {
+    const metadata = (spec as { metadata?: Record<string, unknown> }).metadata
+    const root = typeof metadata?.collabLifecycle === "string" ? metadata.collabLifecycle : String(started ?? created)
+    const hash = createHash("sha256")
+      .update(`${recipient}\0${run ?? root}`)
+      .digest("hex")
+      .slice(0, 26)
+    return `cmg_${hash}`
+  }
+
   export type PostInput = {
     recipientAgentId: string
     senderAgentId?: string | null
@@ -29,12 +39,13 @@ export namespace CollabMessage {
     expectedParentAgentId?: string | null
     expectedRunId?: string | null
     expectedErrorCode?: string | null
+    expectedLifecycle?: string
     kind: CollabMsgKind
     payload: unknown
   }
 
   export function post(input: PostInput): string | undefined {
-    const id = Identifier.ascending("collab_msg")
+    const generated = Identifier.ascending("collab_msg")
     const now = Date.now()
 
     const result = Database.transaction((tx) => {
@@ -42,34 +53,26 @@ export namespace CollabMessage {
         input.expectedParentAgentId !== undefined ||
         input.expectedRunId !== undefined ||
         input.expectedErrorCode !== undefined ||
+        input.expectedLifecycle !== undefined ||
         CHILD_REPORT_KINDS.has(input.kind) ||
+        input.kind === "cancel" ||
         input.kind === "session_remote_task_terminal"
       const recipient = guarded
         ? tx
-          .select({
-            parent: CollabAgentTable.parent_agent_id,
-            run: CollabAgentTable.run_id,
-            error: CollabAgentTable.error_json,
-            status: CollabAgentTable.status,
-            spec: CollabAgentTable.spec_json,
-          })
-          .from(CollabAgentTable)
-          .where(eq(CollabAgentTable.id, input.recipientAgentId))
-          .get()
+            .select({
+              parent: CollabAgentTable.parent_agent_id,
+              run: CollabAgentTable.run_id,
+              error: CollabAgentTable.error_json,
+              status: CollabAgentTable.status,
+              spec: CollabAgentTable.spec_json,
+              activeChildren: CollabAgentTable.active_children,
+              started: CollabAgentTable.time_started,
+              created: CollabAgentTable.time_created,
+            })
+            .from(CollabAgentTable)
+            .where(eq(CollabAgentTable.id, input.recipientAgentId))
+            .get()
         : undefined
-      if (guarded) {
-        if (
-          !recipient ||
-          (input.expectedParentAgentId !== undefined && recipient.parent !== input.expectedParentAgentId) ||
-          (input.expectedRunId !== undefined && recipient.run !== input.expectedRunId) ||
-          (input.expectedErrorCode === null && recipient.error !== null) ||
-          (typeof input.expectedErrorCode === "string" && recipient.error?.code !== input.expectedErrorCode) ||
-          (CHILD_REPORT_KINDS.has(input.kind) && !ACTIVE_AGENT_STATUSES.has(recipient.status)) ||
-          (input.kind === "session_remote_task_terminal" &&
-            (recipient.spec as { metadata?: { stoppedByUser?: unknown } }).metadata?.stoppedByUser === true)
-        )
-          return { id: undefined, inserted: false }
-      }
       const sender =
         CHILD_REPORT_KINDS.has(input.kind) && input.senderAgentId
           ? tx.select().from(CollabAgentTable).where(eq(CollabAgentTable.id, input.senderAgentId)).get()
@@ -84,7 +87,75 @@ export namespace CollabMessage {
         typeof input.payload === "object" && input.payload !== null && "runId" in input.payload
           ? (input.payload as { runId?: unknown }).runId
           : undefined
-      const run = input.runId !== undefined ? input.runId : typeof value === "string" ? value : (sender?.run_id ?? null)
+      const run =
+        input.runId !== undefined
+          ? input.runId
+          : input.kind === "cancel"
+            ? (recipient?.run ?? null)
+            : typeof value === "string"
+              ? value
+              : (sender?.run_id ?? null)
+      const id =
+        input.kind === "cancel" && recipient
+          ? cancelID(input.recipientAgentId, run, recipient.spec, recipient.started, recipient.created)
+          : generated
+
+      if (
+        guarded &&
+        (!recipient ||
+          (input.expectedParentAgentId !== undefined && recipient.parent !== input.expectedParentAgentId) ||
+          (input.expectedRunId !== undefined && recipient.run !== input.expectedRunId) ||
+          (input.expectedErrorCode === null && recipient.error !== null) ||
+          (typeof input.expectedErrorCode === "string" && recipient.error?.code !== input.expectedErrorCode) ||
+          (input.expectedLifecycle !== undefined &&
+            (recipient.spec as { metadata?: Record<string, unknown> }).metadata?.collabLifecycle !==
+              input.expectedLifecycle))
+      ) {
+        return { id: undefined, inserted: false }
+      }
+
+      if (input.kind === "cancel" && recipient) {
+        const existing = tx.select().from(CollabMessageTable).where(eq(CollabMessageTable.id, id)).get()
+        if (existing) {
+          if (
+            existing.recipient_agent_id !== input.recipientAgentId ||
+            existing.kind !== input.kind ||
+            existing.run_id !== run
+          ) {
+            throw new Error(`Cancel message id collision: ${id}`)
+          }
+          if (
+            ACTIVE_AGENT_STATUSES.has(recipient.status) &&
+            recipient.activeChildren === 0 &&
+            (existing.status === "dropped" || existing.status === "consumed")
+          ) {
+            tx.update(CollabMessageTable)
+              .set({ status: "pending", claim_id: null, time_consumed: null, time_updated: now })
+              .where(eq(CollabMessageTable.id, existing.id))
+              .run()
+            Database.effect(() =>
+              Bus.publish(CollabEvent.MessagePosted, {
+                messageId: existing.id,
+                recipientAgentId: existing.recipient_agent_id,
+                senderAgentId: existing.sender_agent_id,
+                kind: existing.kind,
+              }),
+            )
+            return { id: existing.id, inserted: true }
+          }
+          return { id: existing.id, inserted: false }
+        }
+      }
+
+      if (guarded) {
+        if (
+          ((CHILD_REPORT_KINDS.has(input.kind) || input.kind === "cancel") &&
+            !ACTIVE_AGENT_STATUSES.has(recipient!.status)) ||
+          (input.kind === "session_remote_task_terminal" &&
+            (recipient!.spec as { metadata?: { stoppedByUser?: unknown } }).metadata?.stoppedByUser === true)
+        )
+          return { id: undefined, inserted: false }
+      }
       const base =
         run && CHILD_REPORT_KINDS.has(input.kind) && typeof input.payload === "object" && input.payload !== null
           ? { ...input.payload, runId: run }
@@ -156,6 +227,17 @@ export namespace CollabMessage {
         .get()
 
       if (!inserted) {
+        const duplicate = tx.select().from(CollabMessageTable).where(eq(CollabMessageTable.id, id)).get()
+        if (duplicate) {
+          if (
+            duplicate.recipient_agent_id !== input.recipientAgentId ||
+            duplicate.kind !== input.kind ||
+            duplicate.run_id !== run
+          ) {
+            throw new Error(`Message id collision: ${id}`)
+          }
+          return { id: duplicate.id, inserted: false }
+        }
         const existing = tx
           .select({ id: CollabMessageTable.id })
           .from(CollabMessageTable)
@@ -202,7 +284,7 @@ export namespace CollabMessage {
     })
 
     log.info(result.inserted ? "posted" : result.id ? "duplicate" : "dropped", {
-      id: result.id ?? id,
+      id: result.id ?? generated,
       recipient: input.recipientAgentId,
       kind: input.kind,
     })
@@ -699,6 +781,22 @@ export namespace CollabMessage {
     })
   }
 
+  export function dropPending(agentId: string) {
+    const now = Date.now()
+    Database.use((db) => {
+      db.update(CollabMessageTable)
+        .set({ status: "dropped", claim_id: null, time_updated: now })
+        .where(
+          and(
+            eq(CollabMessageTable.recipient_agent_id, agentId),
+            eq(CollabMessageTable.status, "pending"),
+            ne(CollabMessageTable.kind, "session_remote_task_terminal"),
+          ),
+        )
+        .run()
+    })
+  }
+
   export function retry(claims: Claim[], wake = true) {
     if (!claims.length) return
     const now = Date.now()
@@ -765,7 +863,7 @@ export namespace CollabMessage {
             inArray(CollabMessageTable.status, ["pending", "processing"]),
           ),
         )
-        .orderBy(asc(CollabMessageTable.id))
+        .orderBy(asc(CollabMessageTable.time_created), asc(CollabMessageTable.id))
         .limit(1)
         .get()
       if (!row) return false
@@ -825,7 +923,13 @@ export namespace CollabMessage {
       const where = opts?.kind
         ? and(eq(CollabMessageTable.recipient_agent_id, agentId), eq(CollabMessageTable.kind, opts.kind))
         : eq(CollabMessageTable.recipient_agent_id, agentId)
-      return db.select().from(CollabMessageTable).where(where).orderBy(asc(CollabMessageTable.id)).limit(limit).all()
+      return db
+        .select()
+        .from(CollabMessageTable)
+        .where(where)
+        .orderBy(asc(CollabMessageTable.time_created), asc(CollabMessageTable.id))
+        .limit(limit)
+        .all()
     })
   }
 }

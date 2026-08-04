@@ -1,6 +1,9 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, spyOn, test } from "bun:test"
 
 import { Agent } from "../../src/agent/agent"
+import { Collab } from "../../src/collab"
+import { CollabLoop } from "../../src/collab/loop"
+import { PermissionNext } from "../../src/permission/next"
 import { Instance } from "../../src/project/instance"
 import { ControllerAgent } from "../../src/research/controller-agent"
 import { AtomTable, ExperimentTable, ResearchProjectTable } from "../../src/research/research.sql"
@@ -54,6 +57,146 @@ async function seed() {
 }
 
 describe("research.session-agent", () => {
+  test("treats a Controller Research Main as an owning Main session", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const item = await seed()
+        const controller = await ControllerAgent.create(item.research)
+        const start = spyOn(CollabLoop, "start").mockResolvedValue()
+        try {
+          const main = await Collab.spawn({
+            parentAgentId: controller.agent.id,
+            name: "Research Main",
+            subagentType: "research",
+            spec: { initialPrompt: "research" },
+            permission: [{ permission: "research_doc_edit", pattern: "*", action: "ask" }],
+          })
+          const leaf = await Collab.spawn({
+            parentAgentId: main.id,
+            name: "Research leaf",
+            subagentType: "research",
+            spec: { initialPrompt: "focused work" },
+          })
+          const task = await Session.create({ parentID: main.session_id, title: "Research task" })
+          const research = (await Agent.get("research"))!
+
+          expect((await Session.get(main.session_id)).collabPeer).toBe(true)
+          expect(await ResearchSessionAgent.policy(main.session_id)).toMatchObject({
+            kind: "main",
+            default: "research",
+          })
+          expect(await ResearchSessionAgent.resolve({ sessionID: main.session_id })).toBe("research")
+          await expect(
+            ResearchSessionAgent.resolve({ sessionID: main.session_id, agent: "experiment" }),
+          ).rejects.toThrow("not available in main sessions")
+
+          const prompt = await ResearchSessionAgent.compose({ sessionID: main.session_id, agent: research })
+          expect(prompt.prompt).toContain("## Main Research mode")
+          expect(prompt.prompt).not.toContain("## Delegated Research constraint")
+          expect(
+            ResearchSessionAgent.approval({
+              sessionID: main.session_id,
+              permission: "research_doc_edit",
+              actions: ["ask"],
+            }),
+          ).toBe("allow")
+          expect(
+            ResearchSessionAgent.approval({
+              sessionID: main.session_id,
+              permission: "research_doc_edit",
+              actions: ["deny"],
+            }),
+          ).toBe("deny")
+          expect(
+            ResearchSessionAgent.approval({
+              sessionID: main.session_id,
+              permission: "bash",
+              actions: ["ask"],
+            }),
+          ).toBeUndefined()
+          const tools = await SessionPrompt.resolveTools({
+            agent: research,
+            model: { providerID: "test", api: { id: "test" } } as never,
+            session: await Session.get(main.session_id),
+            processor: { message: { id: "message" } } as never,
+            bypassAgentCheck: false,
+            messages: [],
+          })
+          const goal = tools.research_goal_edit
+          expect(goal?.execute).toBeDefined()
+          expect(tools.question).toBeUndefined()
+          expect(
+            await goal.execute!(
+              { oldString: "", newString: "# Controller Research Goal" },
+              {
+                toolCallId: "goal-allow",
+                abortSignal: new AbortController().signal,
+                messages: [],
+              } as never,
+            ),
+          ).toMatchObject({ output: "goal file created successfully." })
+
+          const approval = PermissionNext.ask({
+            id: "permission_controller_research_doc",
+            sessionID: main.session_id,
+            permission: "research_doc_edit",
+            patterns: ["goal.md"],
+            always: ["*"],
+            metadata: {},
+            ruleset: [],
+          })
+          await PermissionNext.reply({ requestID: "permission_controller_research_doc", reply: "always" })
+          await approval
+
+          const denied = await Collab.spawn({
+            parentAgentId: controller.agent.id,
+            name: "Denied Research Main",
+            subagentType: "research",
+            spec: { initialPrompt: "research" },
+            permission: [{ permission: "research_doc_edit", pattern: "*", action: "deny" }],
+          })
+          const deniedTools = await SessionPrompt.resolveTools({
+            agent: research,
+            model: { providerID: "test", api: { id: "test" } } as never,
+            session: await Session.get(denied.session_id),
+            processor: { message: { id: "message" } } as never,
+            bypassAgentCheck: false,
+            messages: [],
+          })
+          await expect(
+            deniedTools.research_goal_edit.execute!(
+              { oldString: "", newString: "# Denied Goal" },
+              {
+                toolCallId: "goal-deny",
+                abortSignal: new AbortController().signal,
+                messages: [],
+              } as never,
+            ),
+          ).rejects.toThrow()
+          expect(await ResearchSessionAgent.policy(leaf.session_id)).toBeUndefined()
+          expect(
+            ResearchSessionAgent.approval({
+              sessionID: leaf.session_id,
+              permission: "research_doc_edit",
+              actions: ["ask"],
+            }),
+          ).toBeUndefined()
+          expect((await ResearchSessionAgent.compose({ sessionID: leaf.session_id, agent: research })).prompt).toContain(
+            "## Delegated Research constraint",
+          )
+          expect(await ResearchSessionAgent.policy(task.id)).toBeUndefined()
+          expect((await ResearchSessionAgent.compose({ sessionID: task.id, agent: research })).prompt).toContain(
+            "## Delegated Research constraint",
+          )
+        } finally {
+          start.mockRestore()
+        }
+      },
+    })
+  })
+
   test("classifies research sessions with exact selectable agents", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({

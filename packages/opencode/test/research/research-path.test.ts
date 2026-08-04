@@ -1,7 +1,10 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, spyOn, test } from "bun:test"
 
+import { Collab } from "../../src/collab"
+import { CollabLoop } from "../../src/collab/loop"
 import { ProjectTable } from "../../src/project/project.sql"
 import { Instance } from "../../src/project/instance"
+import { ControllerAgent } from "../../src/research/controller-agent"
 import { ResearchPath } from "../../src/research/research-path"
 import { AtomRelationTable, AtomTable, ResearchProjectTable } from "../../src/research/research.sql"
 import { ResearchRoutes } from "../../src/server/routes/research"
@@ -95,6 +98,72 @@ async function seed() {
 }
 
 describe("research.path", () => {
+  test("allows a Controller Research Main to own Paths but rejects its descendants", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const item = await seed()
+        const controller = await ControllerAgent.create(item.research)
+        const start = spyOn(CollabLoop, "start").mockResolvedValue()
+        try {
+          const main = await Collab.spawn({
+            parentAgentId: controller.agent.id,
+            name: "Research Main",
+            subagentType: "research",
+            spec: { initialPrompt: "research" },
+          })
+          const leaf = await Collab.spawn({
+            parentAgentId: main.id,
+            name: "Research leaf",
+            subagentType: "research",
+            spec: { initialPrompt: "focused work" },
+          })
+          const task = await Session.create({ parentID: main.session_id, title: "Research task" })
+          const path = await ResearchPath.create({
+            sessionID: main.session_id,
+            agent: "research",
+            title: "Controller direction",
+            brief: "Maintain this direction from the Controller Research Main.",
+            atoms: [],
+          })
+
+          expect(path.creator_session_id).toBe(main.session_id)
+          expect(
+            await ResearchPath.update({
+              sessionID: main.session_id,
+              agent: "research",
+              researchPathID: path.research_path_id,
+              summary: "Main-owned progress",
+              add: [],
+              remove: [],
+            }),
+          ).toMatchObject({ summary: "Main-owned progress" })
+          await expect(
+            ResearchPath.create({
+              sessionID: leaf.session_id,
+              agent: "research",
+              title: "Denied leaf",
+              brief: "Leaf agents cannot own Paths.",
+              atoms: [],
+            }),
+          ).rejects.toThrow("main Research session")
+          await expect(
+            ResearchPath.create({
+              sessionID: task.id,
+              agent: "research",
+              title: "Denied task",
+              brief: "Task agents cannot own Paths.",
+              atoms: [],
+            }),
+          ).rejects.toThrow("main Research session")
+        } finally {
+          start.mockRestore()
+        }
+      },
+    })
+  })
+
   test("persists multiple attention subgraphs with Atom state and relations", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({

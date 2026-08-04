@@ -747,9 +747,6 @@ function AgentNode(props: {
             <span class="text-11-regular text-text-weak shrink-0">{props.node.subagent_type}</span>
           </span>
           <span class="block text-11-regular text-text-weak capitalize">{props.node.status.replaceAll("_", " ")}</span>
-          <Show when={props.node.result?.summary}>
-            <span class="mt-1 block text-12-regular text-text-base line-clamp-2">{props.node.result?.summary}</span>
-          </Show>
           <Show when={props.node.error?.message}>
             <span class="mt-1 block text-12-regular text-text-critical-base line-clamp-2">
               {props.node.error?.message}

@@ -49,6 +49,7 @@ import { Truncate } from "@/tool/truncation"
 import { assertExperimentReady } from "./experiment-guard"
 import { Workflow } from "@/workflow"
 import { Collab } from "@/collab"
+import { CollabAgentNode } from "@/collab/agent-node"
 import { SshTool } from "@/tool/ssh"
 import { ExperimentRemoteTaskStartTool } from "@/tool/experiment-remote-task"
 import { Database } from "@/storage/db"
@@ -1005,9 +1006,23 @@ export namespace SessionPrompt {
       },
       async ask(req) {
         const ruleset = PermissionNext.merge(input.agent.permission, input.session.permission ?? [])
+        const actions = req.patterns.map((pattern) => PermissionNext.evaluate(req.permission, pattern, ruleset).action)
+        const approval = input.session.collabPeer
+          ? ResearchSessionAgent.approval({
+              sessionID: input.session.id,
+              permission: req.permission,
+              actions,
+            })
+          : undefined
+        if (approval === "allow") return
+        if (approval === "deny") {
+          throw new PermissionNext.DeniedError(
+            ruleset.filter((rule) => rule.permission === req.permission || rule.permission === "*"),
+          )
+        }
         if (
           input.session.collabPeer &&
-          req.patterns.some((pattern) => PermissionNext.evaluate(req.permission, pattern, ruleset).action === "ask")
+          actions.some((action) => action === "ask")
         ) {
           throw new PermissionNext.DeniedError(
             ruleset.filter((rule) => rule.permission === req.permission || rule.permission === "*"),
@@ -1039,6 +1054,7 @@ export namespace SessionPrompt {
       input.agent,
     )) {
       if (input.session.collabPeer && item.id === "question") continue
+      if (item.id === "spawn_agent" && !CollabAgentNode.canSpawn(input.session.id)) continue
       const schema = ProviderTransform.schema(input.model, z.toJSONSchema(item.parameters))
       tools[item.id] = tool({
         description: item.description,

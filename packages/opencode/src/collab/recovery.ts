@@ -92,8 +92,8 @@ export namespace CollabRecovery {
         )
         continue
       }
-      const timeout = node.spec.policy?.timeout_ms ?? CollabLoop.DEFAULT_TIMEOUT
-      if (Date.now() >= (node.time_started ?? node.time_created) + timeout) {
+      const timeout = CollabLoop.timeout(node)
+      if (timeout !== undefined && Date.now() >= (node.time_started ?? node.time_created) + timeout) {
         await CollabLoop.fail(
           node.id,
           {

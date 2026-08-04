@@ -15,6 +15,7 @@ import { Collab } from "../../src/collab"
 import { CollabAutoWake } from "../../src/collab/auto-wake"
 import { CollabEvent } from "../../src/collab/events"
 import { CollabLoop } from "../../src/collab/loop"
+import { CollabSupervisor } from "../../src/collab/supervisor"
 import { buildChildDonePart, finalizeParts } from "../../src/collab/return-parts"
 
 const projectRoot = path.join(__dirname, "../..")
@@ -290,6 +291,56 @@ describe("CollabAutoWake blocks root on active children", () => {
 })
 
 describe("CollabAutoWake confirms callback delivery", () => {
+  test("latches root cancellation before scanning children", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        CollabAutoWake.ensure()
+        const item = await tree("cancel-latch")
+        const session = await Session.create({ title: "late child" })
+        const original = CollabSupervisor.cancelChildren
+        let failure: unknown
+        const cancel = spyOn(CollabSupervisor, "cancelChildren").mockImplementation((agentId, payload) => {
+          if (agentId === item.root) {
+            try {
+              CollabAgentNode.create({
+                id: Identifier.ascending("collab_agent"),
+                sessionId: session.id,
+                parentAgentId: item.root,
+                name: "late child",
+                projectId: Instance.project.id,
+                rootAgentId: item.root,
+                subagentType: "general",
+                spec: { initialPrompt: "late" },
+                activeParent: true,
+                parentGeneration: CollabAgentNode.generation(CollabAgentNode.load(item.root).spec),
+              })
+            } catch (error) {
+              failure = error
+            }
+          }
+          return original(agentId, payload)
+        })
+
+        try {
+          CollabMessage.post({
+            recipientAgentId: item.root,
+            kind: "cancel",
+            payload: { reason: "stop", initiator: "user" },
+          })
+          for (let i = 0; i < 100 && CollabAgentNode.load(item.root).status !== "canceled"; i++) await Bun.sleep(10)
+
+          expect(CollabAgentNode.load(item.root).status).toBe("canceled")
+          expect(failure).toBeInstanceOf(Error)
+          expect((failure as Error).message).toContain("terminating")
+          expect(CollabAgentNode.loadBySessionId(session.id)).toBeUndefined()
+        } finally {
+          cancel.mockRestore()
+        }
+      },
+    })
+  })
+
   for (const kind of ["error", "stale"] as const) {
     test(`retries a callback after an ${kind} assistant result`, async () => {
       await Instance.provide({

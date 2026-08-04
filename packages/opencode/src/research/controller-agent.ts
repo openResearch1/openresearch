@@ -28,7 +28,7 @@ export namespace ControllerAgent {
       spec: {
         initialPrompt: "",
         policy: { on_fail: "continue" },
-        metadata: { researchProjectId },
+        metadata: { researchProjectId, controllerRole: "controller" },
       },
     }).catch(async (error) => {
       await Session.remove(session.id).catch(() => {})

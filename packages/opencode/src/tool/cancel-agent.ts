@@ -1,5 +1,6 @@
 import z from "zod"
 import { Collab } from "@/collab"
+import { CollabAgentNode } from "@/collab/agent-node"
 import { Tool } from "./tool"
 import DESCRIPTION from "./cancel-agent.txt"
 
@@ -58,6 +59,7 @@ export const CancelAgentTool = Tool.define("cancel_agent", async () => {
       await Collab.cancel(params.agent_id, params.reason, {
         parentAgentId: target.parent_agent_id,
         runId: target.run_id,
+        lifecycle: CollabAgentNode.lifecycle(target.spec),
       })
 
       return {

@@ -19,10 +19,23 @@ export namespace ResearchSessionAgent {
   export type Kind = keyof typeof policies
   export type Policy = { kind: Kind; agents: readonly string[]; default: string; pinned?: boolean }
 
+  export function approval(input: {
+    sessionID: string
+    permission: string
+    actions: ("allow" | "deny" | "ask")[]
+  }) {
+    if (input.permission !== "research_doc_edit") return
+    const node = CollabAgentNode.loadBySessionId(input.sessionID)
+    if (!node || CollabAgentNode.role(node.id) !== "research_main") return
+    if (input.actions.some((action) => action === "deny")) return "deny" as const
+    if (input.actions.some((action) => action === "ask")) return "allow" as const
+  }
+
   export async function policy(sessionID: string): Promise<Policy | undefined> {
     const session = await Session.get(sessionID)
     if (ControllerAgent.get(sessionID)) return { kind: "controller", ...policies.controller }
-    if (CollabAgentNode.loadBySessionId(sessionID)?.subagent_type === "reviewer") {
+    const node = CollabAgentNode.loadBySessionId(sessionID)
+    if (node?.subagent_type === "reviewer") {
       return { kind: "reviewer", ...policies.reviewer }
     }
 
@@ -40,7 +53,10 @@ export namespace ResearchSessionAgent {
     )
     if (atom) return { kind: "atom", ...policies.atom }
 
-    if (session.parentID || session.collabPeer) return
+    const role = node ? CollabAgentNode.role(node.id) : undefined
+    if (session.parentID || (role && role !== "research_main") || (session.collabPeer && role !== "research_main")) {
+      return
+    }
     const project = Database.use((db) =>
       db
         .select({ id: ResearchProjectTable.research_project_id })
@@ -82,7 +98,7 @@ export namespace ResearchSessionAgent {
     const kind = current?.kind ?? (project ? "main" : undefined)
     if (kind !== "atom" && kind !== "main") return input.agent
     const delegated =
-      kind === "main" && (session.parentID || session.collabPeer)
+      kind === "main" && current?.kind !== "main"
         ? [
             "## Delegated Research constraint",
             "You are an independent Research peer, not the owning Main Session. Read project Paths for context, but do not create, update, complete, or cancel them. Return durable Atom and evidence changes plus a concise handoff to your parent.",

@@ -30,6 +30,7 @@ import type {
   AgentError,
   AgentInfo,
   AgentResult,
+  CancelPayload,
   ChildDonePayload,
   ChildFailedPayload,
   ChildProgressPayload,
@@ -103,17 +104,21 @@ export namespace CollabLoop {
     for (const wake of [...(waiters.get(props.recipientAgentId) ?? [])]) wake()
   })
 
-  function deadline(node: AgentInfo) {
-    return (node.time_started ?? node.time_created) + (node.spec.policy?.timeout_ms ?? DEFAULT_TIMEOUT)
+  export function timeout(node: AgentInfo) {
+    if (CollabAgentNode.role(node.id)) return
+    return node.spec.policy?.timeout_ms ?? DEFAULT_TIMEOUT
   }
 
   function schedule(node: AgentInfo, identity: Identity) {
-    CollabRuntime.schedule(node.id, Math.max(deadline(node) - Date.now(), 0), () => {
+    const duration = timeout(node)
+    if (duration === undefined) return
+    const deadline = (node.time_started ?? node.time_created) + duration
+    CollabRuntime.schedule(node.id, Math.max(deadline - Date.now(), 0), () => {
       void fail(
         node.id,
         {
           code: "TIMEOUT",
-          message: `Agent exceeded its ${node.spec.policy?.timeout_ms ?? DEFAULT_TIMEOUT}ms timeout.`,
+          message: `Agent exceeded its ${duration}ms timeout.`,
         },
         identity,
       )
@@ -190,12 +195,14 @@ export namespace CollabLoop {
     }
     const current = CollabAgentNode.tryLoad(agentId)
     if (!current || !matches(current, identity)) return
-    if (session.collabPeer && Date.now() >= deadline(current)) {
+    const duration = timeout(current)
+    const deadline = duration === undefined ? undefined : (current.time_started ?? current.time_created) + duration
+    if (session.collabPeer && deadline !== undefined && Date.now() >= deadline) {
       await fail(
         agentId,
         {
           code: "TIMEOUT",
-          message: `Agent exceeded its ${current.spec.policy?.timeout_ms ?? DEFAULT_TIMEOUT}ms timeout.`,
+          message: `Agent exceeded its ${duration}ms timeout.`,
         },
         identity,
       )
@@ -221,7 +228,7 @@ export namespace CollabLoop {
     const abort = new AbortController()
     const peer = session.collabPeer === true
     let expired = false
-    const timeout = peer
+    const deadlineTimer = peer && deadline !== undefined
       ? setTimeout(() => {
           expired = true
           abort.abort()
@@ -229,13 +236,13 @@ export namespace CollabLoop {
             agentId,
             {
               code: "TIMEOUT",
-              message: `Agent exceeded its ${current.spec.policy?.timeout_ms ?? DEFAULT_TIMEOUT}ms timeout.`,
+              message: `Agent exceeded its ${duration}ms timeout.`,
             },
             identity,
           )
-        }, Math.max(deadline(current) - Date.now(), 0))
+        }, Math.max(deadline - Date.now(), 0))
       : undefined
-    timeout?.unref?.()
+    deadlineTimer?.unref?.()
     const lost = () => abort.abort()
     release.signal.addEventListener("abort", lost, { once: true })
     const promise = (expired
@@ -252,7 +259,7 @@ export namespace CollabLoop {
             identity,
             new TurnError({
               code: "TIMEOUT",
-              message: `Agent exceeded its ${current.spec.policy?.timeout_ms ?? DEFAULT_TIMEOUT}ms timeout.`,
+              message: `Agent exceeded its ${duration}ms timeout.`,
             }),
             release.token,
           )
@@ -270,7 +277,7 @@ export namespace CollabLoop {
         await markLoopFailed(agentId, identity, cause, release.token)
       })
       .finally(() => {
-        if (timeout) clearTimeout(timeout)
+        if (deadlineTimer) clearTimeout(deadlineTimer)
         release.signal.removeEventListener("abort", lost)
         release()
         const timer = setTimeout(() => {
@@ -460,10 +467,18 @@ export namespace CollabLoop {
         } catch {
           return
         }
-        await CollabSupervisor.cancelDescendants(agentId, { reason: "parent canceled", initiator: "parent" })
+        await CollabSupervisor.cancelChildren(agentId, { reason: "parent canceled", initiator: "parent" })
+        if (abort.aborted) {
+          CollabMessage.retry(msgs, false)
+          return
+        }
+        CollabMessage.dropPending(agentId)
+        const finalized = await finalizeCanceled(node, identity, error.message, abort, lease)
+        if (!finalized) {
+          CollabMessage.retry(msgs, false)
+          return
+        }
         CollabMessage.drop(msgs)
-        CollabMessage.closeInbox(agentId)
-        await finalizeCanceled(node, identity, error.message, abort, lease)
         return
       }
 
@@ -472,7 +487,6 @@ export namespace CollabLoop {
         const fresh = current(agentId, identity)
         if (!fresh) return
         if (fresh.active_children > 0) {
-          await CollabSupervisor.cancelDescendants(fresh.id, { reason: node.error.message, initiator: "parent" })
           try {
             CollabAgentNode.transition(
               fresh.id,
@@ -498,16 +512,15 @@ export namespace CollabLoop {
 
       if (failFastTrigger) {
         log.info("loop.fail_fast", { agentId, childId: failFastTrigger.childAgentId })
-        await CollabSupervisor.cancelDescendants(agentId, {
-          reason: "sibling failed (fail_fast)",
-          initiator: "sibling",
-        })
         const error: AgentError = {
           code: "CHILD_FAILED_FAIL_FAST",
           message: `Child ${failFastTrigger.childAgentId} failed: ${failFastTrigger.message}`,
           detail: failFastTrigger.detail,
         }
-        await finalizeFailed(node, identity, error, abort, lease)
+        await finalizeFailed(node, identity, error, abort, lease, {
+          reason: "sibling failed (fail_fast)",
+          initiator: "sibling",
+        })
         return
       }
 
@@ -814,6 +827,7 @@ export namespace CollabLoop {
     error: AgentError,
     abort?: AbortSignal,
     lease?: string,
+    cancel?: { reason: string; initiator: CancelPayload["initiator"] },
   ) {
     if (abort?.aborted) return
     const currentNode = current(node.id, identity)
@@ -832,7 +846,10 @@ export namespace CollabLoop {
     })()
     if (!fresh) return
     if (fresh.active_children > 0) {
-      await CollabSupervisor.cancelDescendants(fresh.id, { reason: error.message, initiator: "parent" })
+      await CollabSupervisor.cancelChildren(
+        fresh.id,
+        cancel ?? { reason: error.message, initiator: "parent" },
+      )
       try {
         CollabAgentNode.transition(
           fresh.id,
@@ -890,10 +907,10 @@ export namespace CollabLoop {
     abort: AbortSignal,
     lease: string,
   ) {
-    if (abort.aborted) return
+    if (abort.aborted) return false
     const error: AgentError = { code: "CANCELED", message: reason }
     const currentNode = current(node.id, identity)
-    if (!currentNode || !CollabAgentNode.isActive(currentNode.status)) return
+    if (!currentNode || !CollabAgentNode.isActive(currentNode.status)) return false
     const fresh = (() => {
       try {
         return CollabAgentNode.transition(currentNode.id, currentNode.status, { error }, {
@@ -903,12 +920,11 @@ export namespace CollabLoop {
           timeUpdated: currentNode.time_updated,
         })
       } catch {
-        return
+        return false
       }
     })()
-    if (!fresh) return
+    if (!fresh) return false
     if (fresh.active_children > 0) {
-      await CollabSupervisor.cancelDescendants(fresh.id, { reason, initiator: "parent" })
       try {
         CollabAgentNode.transition(
           fresh.id,
@@ -921,8 +937,10 @@ export namespace CollabLoop {
             timeUpdated: fresh.time_updated,
           },
         )
-      } catch {}
-      return
+      } catch {
+        return false
+      }
+      return true
     }
     const payload: ChildFailedPayload = {
       runId: fresh.run_id ?? undefined,
@@ -942,7 +960,7 @@ export namespace CollabLoop {
       leaseToken: lease,
       report: fresh.parent_agent_id ? { kind: "child_failed", payload } : undefined,
     })
-    if (!done) return
+    if (!done) return false
     ExperimentRemoteTaskListener.clear(CollabAgentNode.loadBranch(done.id).map((item) => item.id))
 
     if (fresh.initiator !== "human") {
@@ -956,6 +974,7 @@ export namespace CollabLoop {
     const release = current(done.id, identity)
     if (release?.parent_agent_id && release.spec.policy?.detach_on_terminal) CollabAgentNode.release(done.id)
     log.info("canceled", { agentId: done.id })
+    return true
   }
 
   async function extractSessionSummary(sessionID: string): Promise<string | null> {

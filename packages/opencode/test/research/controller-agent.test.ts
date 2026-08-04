@@ -52,6 +52,7 @@ describe("research.controller-agent", () => {
         expect(first.agent.subagent_type).toBe("controller")
         expect(first.agent.parent_agent_id).toBeNull()
         expect(first.agent.root_agent_id).toBe(first.agent.id)
+        expect(first.agent.spec.metadata?.controllerRole).toBe("controller")
         expect(ControllerAgent.list().map((agent) => agent.session_id)).toEqual([
           first.session.id,
           second.session.id,

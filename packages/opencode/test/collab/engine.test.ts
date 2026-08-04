@@ -518,7 +518,7 @@ describe("progress_injection strategies", () => {
 })
 
 describe("cancel propagation via supervisor", () => {
-  test("cancelDescendants posts cancel to every active descendant", async () => {
+  test("cancelChildren posts cancel only to active direct children", async () => {
     await Instance.provide({
       directory: projectRoot,
       fn: async () => {
@@ -561,16 +561,14 @@ describe("cancel propagation via supervisor", () => {
           spec: makeSpec(),
         })
 
-        // Request cancel on root's descendants.
-        await CollabSupervisor.cancelDescendants(rootId, { reason: "test", initiator: "user" })
+        await CollabSupervisor.cancelChildren(rootId, { reason: "test", initiator: "user" })
 
-        // A and A1 should both get a cancel message; root should not.
         const aMsgs = CollabMessage.list(aId)
         const a1Msgs = CollabMessage.list(a1Id)
         const rootMsgs = CollabMessage.list(rootId)
 
         expect(aMsgs.some((m) => m.kind === "cancel")).toBe(true)
-        expect(a1Msgs.some((m) => m.kind === "cancel")).toBe(true)
+        expect(a1Msgs.some((m) => m.kind === "cancel")).toBe(false)
         expect(rootMsgs.some((m) => m.kind === "cancel")).toBe(false)
       },
     })

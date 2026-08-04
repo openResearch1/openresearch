@@ -46,6 +46,7 @@ export const SpawnAgentTool = Tool.define("spawn_agent", async (ctx) => {
     description,
     parameters,
     async execute(params: z.infer<typeof parameters>, ctx) {
+      CollabAgentNode.assertSpawn(ctx.sessionID, params.agent_type)
       await ctx.ask({
         permission: "spawn_agent",
         patterns: [params.agent_type],

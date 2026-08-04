@@ -47,11 +47,16 @@ export namespace Collab {
   export async function spawn(input: SpawnInput): Promise<AgentInfo> {
     CollabProgressHook.ensure()
     CollabAutoWake.ensure()
+    if (input.parentAgentId && input.parentSessionId) {
+      throw new Error("Collab.spawn accepts only one parent selector")
+    }
 
     const agent = await Agent.get(input.subagentType)
     if (!agent) throw new Error(`Unknown agent type: ${input.subagentType}`)
 
     const parent = resolveParent(input)
+    if (input.parentSessionId) CollabAgentNode.assertSpawn(input.parentSessionId, input.subagentType)
+    if (!input.parentSessionId && parent) CollabAgentNode.assertSpawn(parent.session_id, input.subagentType)
 
     const maxChildren = parent?.spec.policy?.maxChildren
     if (parent && maxChildren !== undefined) {
@@ -236,9 +241,13 @@ export namespace Collab {
 
       if (node.parent_agent_id) {
         const parent = CollabAgentNode.tryLoad(node.parent_agent_id)
-        if (!parent || !CollabAgentNode.isActive(parent.status)) {
+        if (
+          !parent ||
+          !CollabAgentNode.isActive(parent.status) ||
+          (parent.error && parent.error.code !== "MODEL_UNAVAILABLE")
+        ) {
           throw new Error(
-            `Cannot resume agent ${node.id}: parent ${node.parent_agent_id} is not active (parent status=${parent?.status ?? "missing"}).`,
+            `Cannot resume agent ${node.id}: parent ${node.parent_agent_id} is not available (parent status=${parent?.status ?? "missing"}).`,
           )
         }
       }
@@ -337,9 +346,19 @@ export namespace Collab {
   export async function cancel(
     agentId: string,
     reason?: string,
-    expected?: { parentAgentId: string | null; runId: string | null },
+    expected?: { parentAgentId: string | null; runId: string | null; lifecycle?: string },
   ): Promise<void> {
-    const node = CollabAgentNode.tryLoad(agentId)
+    let node = CollabAgentNode.tryLoad(agentId)
+    if (node && !node.parent_agent_id && !CollabAgentNode.lifecycle(node.spec)) {
+      node = CollabAgentNode.ensureLifecycle(node.id)
+    }
+    const lifecycle = node && !node.parent_agent_id ? CollabAgentNode.lifecycle(node.spec) : undefined
+    const identity = expected ?? {
+      parentAgentId: node?.parent_agent_id ?? null,
+      runId: node?.run_id ?? null,
+      lifecycle,
+    }
+    if (!identity.lifecycle && lifecycle) identity.lifecycle = lifecycle
     const cancelPayload: CancelPayload = {
       reason: reason ?? "canceled by request",
       initiator: "user",
@@ -348,13 +367,14 @@ export namespace Collab {
       recipientAgentId: agentId,
       senderAgentId: null,
       runId: node?.run_id,
-      expectedParentAgentId: expected?.parentAgentId,
-      expectedRunId: expected?.runId,
+      expectedParentAgentId: identity.parentAgentId,
+      expectedRunId: identity.runId,
+      expectedLifecycle: identity.lifecycle,
       kind: "cancel",
       payload: cancelPayload,
     })
     if (!posted) throw new Error(`Cannot cancel agent ${agentId}: ownership changed before cancel.`)
-    CollabSupervisor.cancelDescendants(agentId, { reason: cancelPayload.reason, initiator: "user" })
+    CollabSupervisor.cancelChildren(agentId, { reason: cancelPayload.reason, initiator: "user" })
   }
 
   export async function stop(agentId: string) {
@@ -367,11 +387,11 @@ export namespace Collab {
     return CollabAgentNode.restart(node.id)
   }
 
-  export async function cancelDescendants(
+  export async function cancelChildren(
     agentId: string,
     opts: { reason: string; initiator: CancelPayload["initiator"] },
   ) {
-    await CollabSupervisor.cancelDescendants(agentId, opts)
+    await CollabSupervisor.cancelChildren(agentId, opts)
   }
 
   export function get(agentId: string): AgentInfo {

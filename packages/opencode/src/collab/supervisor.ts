@@ -10,27 +10,21 @@ import type { CancelPayload } from "./types"
 export namespace CollabSupervisor {
   const log = Log.create({ service: "collab.supervisor" })
 
-  export function cancelDescendants(
+  export function cancelChildren(
     agentId: string,
     cancel: { reason: string; initiator: CancelPayload["initiator"] },
   ) {
-    const root = CollabAgentNode.tryLoad(agentId)
-    if (!root) return
-    const tree = CollabAgentNode.loadTree(root.root_agent_id)
-    const toCancel = tree.filter((n) => {
-      if (!CollabAgentNode.isActive(n.status)) return false
-      if (n.id === agentId) return false
-      if (n.initiator === "human") return false
-      return isDescendant(tree, n.id, agentId)
-    })
-    log.info("cancelDescendants", { agentId, count: toCancel.length })
-    for (const n of toCancel) {
+    const children = CollabAgentNode.loadChildren(agentId).filter(
+      (item) => CollabAgentNode.isActive(item.status) && item.initiator !== "human",
+    )
+    log.info("cancelChildren", { agentId, count: children.length })
+    for (const child of children) {
       CollabMessage.post({
-        recipientAgentId: n.id,
+        recipientAgentId: child.id,
         senderAgentId: agentId,
-        runId: n.run_id,
-        expectedParentAgentId: n.parent_agent_id,
-        expectedRunId: n.run_id,
+        runId: child.run_id,
+        expectedParentAgentId: agentId,
+        expectedRunId: child.run_id,
         kind: "cancel",
         payload: { reason: cancel.reason, initiator: cancel.initiator } satisfies CancelPayload,
       })
@@ -62,20 +56,5 @@ export namespace CollabSupervisor {
     const root = CollabAgentNode.ready(agentId, result.generation, result.token)
     log.info("stop", { agentId, count: ids.length })
     return root
-  }
-
-  function isDescendant(
-    tree: { id: string; parent_agent_id: string | null; initiator?: "human" | "agent" | null }[],
-    id: string,
-    ancestorId: string,
-  ) {
-    const byId = new Map(tree.map((n) => [n.id, n]))
-    let cur = byId.get(id)
-    while (cur && cur.parent_agent_id) {
-      if (cur.parent_agent_id === ancestorId) return true
-      cur = byId.get(cur.parent_agent_id)
-      if (cur?.initiator === "human") return false
-    }
-    return false
   }
 }
