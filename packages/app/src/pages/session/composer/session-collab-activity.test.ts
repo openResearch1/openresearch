@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { CollabAgent } from "@opencode-ai/sdk/v2/client"
-import { canStopController, hasCollabActivity, isAgentControlled } from "./session-collab-control"
+import { canStopController, failure, hasCollabActivity, isAgentControlled } from "./session-collab-control"
 
 function agent(input?: Partial<CollabAgent>): CollabAgent {
   return {
@@ -29,6 +29,11 @@ function agent(input?: Partial<CollabAgent>): CollabAgent {
 }
 
 describe("session Collab control", () => {
+  test("projects canceled failures to canceled status", () => {
+    expect(failure("CANCELED")).toBe("canceled")
+    expect(failure("MODEL_ERROR")).toBe("failed")
+  })
+
   test("only agent-initiated active experiments are controlled", () => {
     expect(isAgentControlled(agent())).toBe(true)
     expect(isAgentControlled(agent({ initiator: "human" }))).toBe(false)

@@ -65,7 +65,10 @@ export const CancelAgentTool = Tool.define("cancel_agent", async () => {
       return {
         title: "cancel_agent",
         metadata: mk(true),
-        output: `Requested cancel for ${params.agent_id}${params.reason ? `: ${params.reason}` : ""}`,
+        output: [
+          `Requested cancel for ${params.agent_id}${params.reason ? `: ${params.reason}` : ""}`,
+          "The framework will re-invoke you with a non-fatal `child_failed{reason:\"canceled\"}` callback when cancellation finishes.",
+        ].join("\n"),
       }
     },
   }

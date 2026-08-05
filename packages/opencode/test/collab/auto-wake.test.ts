@@ -341,6 +341,58 @@ describe("CollabAutoWake confirms callback delivery", () => {
     })
   })
 
+  test("interrupts an in-flight root turn from the same lifecycle", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        CollabAutoWake.ensure()
+        const item = await tree("cancel-root-turn")
+        let finish: ((value: Awaited<ReturnType<typeof SessionPrompt.prompt>>) => void) | undefined
+        const prompt = spyOn(SessionPrompt, "prompt").mockImplementation(
+          (() => new Promise((resolve) => (finish = resolve))) as unknown as typeof SessionPrompt.prompt,
+        )
+        const cancel = spyOn(SessionPrompt, "cancel")
+
+        try {
+          CollabAgentNode.finish({
+            id: item.child.id,
+            runId: item.child.run_id,
+            parentId: item.root,
+            status: "completed",
+            phase: "main_loop",
+            result: { summary: "done" },
+            timeEnded: Date.now(),
+            report: {
+              kind: "child_done",
+              payload: { childAgentId: item.child.id, childName: item.child.name, summary: "done" },
+            },
+          })
+          for (let i = 0; i < 100 && !finish; i++) await Bun.sleep(5)
+          expect(finish).toBeDefined()
+
+          await Collab.cancel(item.root, "stop current root")
+          expect(cancel).toHaveBeenCalledWith(item.session.id)
+          finish!({
+            info: {
+              role: "assistant",
+              error: new MessageV2.AbortedError({ message: "The operation was aborted." }).toObject(),
+            },
+            parts: [],
+          } as never)
+
+          for (let i = 0; i < 300 && CollabAgentNode.load(item.root).status !== "canceled"; i++) await Bun.sleep(10)
+          expect(CollabAgentNode.load(item.root)).toMatchObject({
+            status: "canceled",
+            error: { code: "CANCELED", message: "stop current root" },
+          })
+        } finally {
+          cancel.mockRestore()
+          prompt.mockRestore()
+        }
+      },
+    })
+  })
+
   for (const kind of ["error", "stale"] as const) {
     test(`retries a callback after an ${kind} assistant result`, async () => {
       await Instance.provide({
@@ -390,6 +442,64 @@ describe("CollabAutoWake confirms callback delivery", () => {
       })
     })
   }
+
+  test("canceled child callbacks do not fail-fast the root", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        CollabAutoWake.ensure()
+        const item = await tree("callback-canceled")
+        let callback: SessionPrompt.PromptInput | undefined
+        const prompt = spyOn(SessionPrompt, "prompt").mockImplementation(
+          (async (input: SessionPrompt.PromptInput) => {
+            callback = input
+            return { info: { role: "assistant", parentID: input.messageID }, parts: [] } as never
+          }) as unknown as typeof SessionPrompt.prompt,
+        )
+
+        try {
+          CollabAgentNode.finish({
+            id: item.child.id,
+            runId: item.child.run_id,
+            parentId: item.root,
+            status: "canceled",
+            phase: "main_loop",
+            error: { code: "CANCELED", message: "no longer needed" },
+            timeEnded: Date.now(),
+            report: {
+              kind: "child_failed",
+              payload: {
+                childAgentId: item.child.id,
+                childName: item.child.name,
+                reason: "canceled",
+                message: "no longer needed",
+              },
+            },
+          })
+
+          for (let i = 0; i < 300; i++) {
+            if (CollabMessage.list(item.root, { kind: "child_failed" })[0]?.status === "consumed") break
+            await Bun.sleep(10)
+          }
+
+          const root = CollabAgentNode.load(item.root)
+          expect(root.status).not.toBe("failed")
+          expect(root.error).toBeNull()
+          expect(callback?.parts).toContainEqual(
+            expect.objectContaining({
+              type: "collab_return",
+              kind: "child_failed",
+              childAgentId: item.child.id,
+              payload: { reason: "canceled" },
+            }),
+          )
+          expect(CollabMessage.list(item.root, { kind: "child_failed" })[0]?.status).toBe("consumed")
+        } finally {
+          prompt.mockRestore()
+        }
+      },
+    })
+  })
 
   test("recovers a callback when delivery crashes after drain", async () => {
     await Instance.provide({

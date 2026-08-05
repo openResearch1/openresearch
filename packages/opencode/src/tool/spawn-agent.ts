@@ -138,7 +138,7 @@ export const SpawnAgentTool = Tool.define("spawn_agent", async (ctx) => {
           "",
           "IMPORTANT — the spawned agent is now running asynchronously in the background.",
           "YOU MUST END YOUR TURN NOW. The framework will automatically re-invoke your LLM",
-          "with a `child_done` message as soon as the peer completes — you do not need to",
+          "with a `child_done` or `child_failed` message as soon as the peer finishes — you do not need to",
           "poll, wait, or do anything else. Specifically:",
           "  - DO NOT call `list_children` to check status.",
           "  - DO NOT call `bash sleep` or any other waiting workaround.",

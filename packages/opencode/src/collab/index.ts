@@ -189,6 +189,7 @@ export namespace Collab {
     model?: { providerID: string; modelID: string }
     expectedParentAgentId?: string | null
     expectedRunId?: string | null
+    expectedGeneration?: number
   }): Promise<AgentInfo> {
     CollabProgressHook.ensure()
     CollabAutoWake.ensure()
@@ -232,6 +233,12 @@ export namespace Collab {
       }
       if (input.expectedRunId !== undefined && node.run_id !== input.expectedRunId) {
         throw new Error(`Cannot resume agent ${node.id}: run changed before resume.`)
+      }
+      if (
+        input.expectedGeneration !== undefined &&
+        CollabAgentNode.generation(node.spec) !== input.expectedGeneration
+      ) {
+        throw new Error(`Cannot resume agent ${node.id}: generation changed before resume.`)
       }
 
       const waiting = node.status === "waiting_interaction"
@@ -292,7 +299,12 @@ export namespace Collab {
           { runId: node.run_id, parentId: node.parent_agent_id, status: "waiting_interaction" },
         )
       } else {
-        node = CollabAgentNode.activate(node.id, { runId: node.run_id, parentId: node.parent_agent_id })
+        node = CollabAgentNode.activate(node.id, {
+          runId: node.run_id,
+          parentId: node.parent_agent_id,
+          generation: CollabAgentNode.generation(node.spec),
+          resume: true,
+        })
       }
 
       const resumed = waiting && CollabMessage.resumeInput(node.id, node.run_id, input.prompt, input.model)
@@ -348,6 +360,7 @@ export namespace Collab {
     reason?: string,
     expected?: { parentAgentId: string | null; runId: string | null; lifecycle?: string },
   ): Promise<void> {
+    CollabAutoWake.ensure()
     let node = CollabAgentNode.tryLoad(agentId)
     if (node && !node.parent_agent_id && !CollabAgentNode.lifecycle(node.spec)) {
       node = CollabAgentNode.ensureLifecycle(node.id)
@@ -374,6 +387,11 @@ export namespace Collab {
       payload: cancelPayload,
     })
     if (!posted) throw new Error(`Cannot cancel agent ${agentId}: ownership changed before cancel.`)
+    if (identity.parentAgentId) {
+      CollabSupervisor.interrupt(agentId, { runId: identity.runId, parentId: identity.parentAgentId })
+    } else if (identity.lifecycle) {
+      CollabAutoWake.interrupt(agentId, identity.lifecycle)
+    }
     CollabSupervisor.cancelChildren(agentId, { reason: cancelPayload.reason, initiator: "user" })
   }
 

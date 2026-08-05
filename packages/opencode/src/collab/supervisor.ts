@@ -1,6 +1,7 @@
 import { Log } from "@/util/log"
 import { SessionPrompt } from "@/session/prompt"
 import { SessionOwnership } from "@/session/ownership"
+import { SessionStatus } from "@/session/status"
 import { ExperimentRemoteTaskListener } from "@/research/experiment-remote-task-listener"
 import { CollabAgentNode } from "./agent-node"
 import { CollabMessage } from "./message"
@@ -9,6 +10,16 @@ import type { CancelPayload } from "./types"
 
 export namespace CollabSupervisor {
   const log = Log.create({ service: "collab.supervisor" })
+
+  export function interrupt(agentId: string, identity: { runId: string | null; parentId: string | null }) {
+    const node = CollabAgentNode.tryLoad(agentId)
+    if (!node?.parent_agent_id || node.run_id !== identity.runId || node.parent_agent_id !== identity.parentId) return
+    if (CollabRuntime.matches(agentId, identity)) {
+      CollabRuntime.abort(agentId)
+      return
+    }
+    if (SessionStatus.get(node.session_id).type === "busy") SessionPrompt.cancel(node.session_id)
+  }
 
   export function cancelChildren(
     agentId: string,
@@ -19,7 +30,7 @@ export namespace CollabSupervisor {
     )
     log.info("cancelChildren", { agentId, count: children.length })
     for (const child of children) {
-      CollabMessage.post({
+      const posted = CollabMessage.post({
         recipientAgentId: child.id,
         senderAgentId: agentId,
         runId: child.run_id,
@@ -28,6 +39,7 @@ export namespace CollabSupervisor {
         kind: "cancel",
         payload: { reason: cancel.reason, initiator: cancel.initiator } satisfies CancelPayload,
       })
+      if (posted) interrupt(child.id, { runId: child.run_id, parentId: agentId })
     }
   }
 

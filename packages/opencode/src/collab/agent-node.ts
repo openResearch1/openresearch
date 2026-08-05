@@ -1091,18 +1091,25 @@ export namespace CollabAgentNode {
 
   export function activate(
     id: string,
-    expected?: { runId: string | null; parentId: string | null },
+    expected?: { runId: string | null; parentId: string | null; generation?: number; resume?: boolean },
     initiator: RunInitiator = "agent",
   ): AgentInfo {
     const now = Date.now()
     return Database.transaction((tx) => {
       const current = tx.select().from(CollabAgentTable).where(eq(CollabAgentTable.id, id)).get()
       if (!current) throw new NotFoundError({ message: `Agent not found: ${id}` })
-      if (expected && (current.run_id !== expected.runId || current.parent_agent_id !== expected.parentId)) {
+      const spec = current.spec_json as AgentSpec
+      if (
+        expected &&
+        (current.run_id !== expected.runId ||
+          current.parent_agent_id !== expected.parentId ||
+          (expected.generation !== undefined && generation(spec) !== expected.generation))
+      ) {
         throw new Error(`Agent ${id} ownership changed before activation`)
       }
       if (isActive(current.status)) return fromRow(current)
-      if ((current.spec_json as AgentSpec).metadata?.stoppedByUser === true) {
+      const stopped = spec.metadata?.stoppedByUser === true
+      if (stopped && (!current.parent_agent_id || expected?.resume !== true)) {
         throw new Error(`Agent ${id} was stopped by the user`)
       }
       if (current.parent_agent_id) {
@@ -1126,7 +1133,7 @@ export namespace CollabAgentNode {
           run_id: current.parent_agent_id ? randomUUID() : null,
           initiator,
           phase: "main_loop",
-          spec_json: current.parent_agent_id ? current.spec_json : renew(current.spec_json as AgentSpec),
+          spec_json: current.parent_agent_id ? (stopped ? clearStop(spec) : spec) : renew(spec),
           error_json: null,
           time_ended: null,
           time_started: now,

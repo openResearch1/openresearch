@@ -3,7 +3,7 @@ import { createStore, produce, reconcile } from "solid-js/store"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useData } from "@opencode-ai/ui/context"
 import type { CollabAgent } from "@opencode-ai/sdk/v2/client"
-import { hasCollabActivity, isAgentControlled } from "./session-collab-control"
+import { failure, hasCollabActivity, isAgentControlled } from "./session-collab-control"
 import { descendants } from "./session-collab-scope"
 
 const ACTIVE_STATUSES = new Set(["pending", "running", "blocked_on_children", "waiting_interaction"])
@@ -188,7 +188,7 @@ export function useCollabActivity(sessionID: Accessor<string | undefined>): Coll
           const p = e.properties as { agentId: string; rootAgentId: string; code: string; message: string }
           if (state.rootAgentId && p.rootAgentId !== state.rootAgentId) return
           patchAgent(p.agentId, {
-            status: "failed",
+            status: failure(p.code),
             error: { code: p.code, message: p.message },
             time_ended: Date.now(),
           })

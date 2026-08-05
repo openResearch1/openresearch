@@ -66,14 +66,16 @@ export function buildChildDonePart(p: ChildDonePayload): ReturnPartDraft {
 
 export function buildChildFailedPart(p: ChildFailedPayload): ReturnPartDraft {
   const body = p.detail ? `${p.message}\n\n${p.detail}` : p.message
+  const canceled = p.reason === "canceled"
   return {
     type: "collab_return",
     kind: "child_failed",
     childAgentId: p.childAgentId,
     childName: p.childName,
     childSessionId: childSessionIdForAgent(p.childAgentId),
-    headline: `Child ${p.childName ?? p.childAgentId} failed (${p.reason})`,
+    headline: `Child ${p.childName ?? p.childAgentId} ${canceled ? "canceled" : `failed (${p.reason})`}`,
     body,
+    payload: { reason: p.reason },
   }
 }
 

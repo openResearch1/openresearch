@@ -26,6 +26,7 @@ import {
 import type {
   AgentError,
   AgentInfo,
+  CancelPayload,
   ChildDonePayload,
   ChildFailedPayload,
   ChildProgressPayload,
@@ -59,6 +60,7 @@ export namespace CollabAutoWake {
   const state = Instance.state(
     () => {
       const inflight = new Set<string>()
+      const turns = new Map<string, { agentId: string; lifecycle?: string; cancel: () => void }>()
 
       const unsubMsg = Bus.subscribe(CollabEvent.MessagePosted, (e) => {
         if (!enabled) return
@@ -100,13 +102,14 @@ export namespace CollabAutoWake {
         }
       })
 
-      return { inflight, unsubMsg, unsubIdle, unsubAgent }
+      return { inflight, turns, unsubMsg, unsubIdle, unsubAgent }
     },
     async (s) => {
       s.unsubMsg()
       s.unsubIdle()
       s.unsubAgent()
       s.inflight.clear()
+      s.turns.clear()
     },
   )
 
@@ -133,6 +136,27 @@ export namespace CollabAutoWake {
    */
   export function isDriving(sessionId: string): boolean {
     return state().inflight.has(sessionId)
+  }
+
+  export function interrupt(agentId: string, lifecycle: string) {
+    const node = CollabAgentNode.tryLoad(agentId)
+    if (!node || node.parent_agent_id || CollabAgentNode.lifecycle(node.spec) !== lifecycle) return false
+    const turn = state().turns.get(node.session_id)
+    if (!turn || turn.agentId !== agentId || turn.lifecycle !== lifecycle) return false
+    turn.cancel()
+    return true
+  }
+
+  function track(node: AgentInfo) {
+    const turn = {
+      agentId: node.id,
+      lifecycle: CollabAgentNode.lifecycle(node.spec),
+      cancel: () => SessionPrompt.cancel(node.session_id),
+    }
+    state().turns.set(node.session_id, turn)
+    return () => {
+      if (state().turns.get(node.session_id) === turn) state().turns.delete(node.session_id)
+    }
   }
 
   function scanExistingRoots(inflight: Set<string>) {
@@ -229,6 +253,7 @@ export namespace CollabAutoWake {
     }
     const lost = () => SessionPrompt.cancel(node.session_id)
     release.signal.addEventListener("abort", lost, { once: true })
+    const untrack = track(node)
     inflight.add(node.session_id)
     try {
       try {
@@ -246,6 +271,7 @@ export namespace CollabAutoWake {
       log.warn("maybeDriveDirect hit MAX_DRIVE_ITERATIONS cap", { agentId: node.id })
     } finally {
       inflight.delete(node.session_id)
+      untrack()
       release.signal.removeEventListener("abort", lost)
       release()
       if (
@@ -415,6 +441,7 @@ export namespace CollabAutoWake {
     }
     const lost = () => SessionPrompt.cancel(node.session_id)
     release.signal.addEventListener("abort", lost, { once: true })
+    const untrack = track(node)
     inflight.add(node.session_id)
     try {
       try {
@@ -451,6 +478,7 @@ export namespace CollabAutoWake {
       log.warn("maybeWakeOrBlock hit MAX_DRIVE_ITERATIONS cap", { agentId: node.id })
     } finally {
       inflight.delete(node.session_id)
+      untrack()
       release.signal.removeEventListener("abort", lost)
       release()
       if (
@@ -483,7 +511,7 @@ export namespace CollabAutoWake {
     const node = CollabAgentNode.load(agentId)
     const msgs = CollabMessage.drain(agentId)
     try {
-      let gotCancel = false
+      let cancel: CancelPayload | undefined
       const returnParts: PromptPartDraft[] = []
       const progressMsgs: ChildProgressPayload[] = []
       let failFastTrigger: ChildFailedPayload | undefined
@@ -495,7 +523,7 @@ export namespace CollabAutoWake {
         if (!messageID && typeof delivery === "string") messageID = delivery
         switch (m.kind) {
           case "cancel":
-            gotCancel = true
+            cancel = payload as CancelPayload
             break
           case "child_done": {
             const p = payload as ChildDonePayload
@@ -505,7 +533,7 @@ export namespace CollabAutoWake {
           case "child_failed": {
             const p = payload as ChildFailedPayload
             const policy = node.spec.policy?.on_fail ?? "fail_fast"
-            if (policy === "fail_fast") failFastTrigger = p
+            if (policy === "fail_fast" && p.reason !== "canceled") failFastTrigger = p
             else returnParts.push(buildChildFailedPart(p))
             break
           }
@@ -530,8 +558,8 @@ export namespace CollabAutoWake {
         }
       }
 
-      if (gotCancel) {
-        const errorInfo: AgentError = { code: "CANCELED", message: "cancel message received" }
+      if (cancel) {
+        const errorInfo: AgentError = { code: "CANCELED", message: cancel.reason }
         const latched = (() => {
           try {
             return CollabAgentNode.transition(node.id, node.status, { error: errorInfo }, {
@@ -548,7 +576,7 @@ export namespace CollabAutoWake {
           CollabMessage.retry(msgs, false)
           return false
         }
-        await CollabSupervisor.cancelChildren(agentId, { reason: "root canceled", initiator: "user" })
+        await CollabSupervisor.cancelChildren(agentId, { reason: cancel.reason, initiator: "parent" })
         if (abort.aborted) {
           CollabMessage.retry(msgs, false)
           return false

@@ -115,8 +115,10 @@ export namespace ResearchSessionControl {
 
   export function assertAbort(sessionID: string) {
     const node = CollabAgentNode.loadBySessionId(sessionID)
-    if (node?.initiator === "human" && CollabAgentNode.isActive(node.status)) {
-      CollabMessage.post({
+    const cancel = () => {
+      if (!node) return
+      CollabAutoWake.ensure()
+      const posted = CollabMessage.post({
         recipientAgentId: node.id,
         senderAgentId: null,
         runId: node.run_id,
@@ -125,7 +127,17 @@ export namespace ResearchSessionControl {
         kind: "cancel",
         payload: { reason: "Canceled by human", initiator: "user" },
       })
+      if (!posted) throw new Error(`Cannot cancel agent ${node.id}: ownership changed before cancel`)
+    }
+    if (node?.initiator === "human" && CollabAgentNode.isActive(node.status)) {
+      cancel()
       SessionOwnership.revoke(sessionID)
+      return
+    }
+    if (node?.parent_agent_id && CollabAgentNode.isActive(node.status)) {
+      assertHuman(sessionID)
+      cancel()
+      if (SessionOwnership.current(sessionID) === "human") SessionOwnership.revoke(sessionID)
       return
     }
     if (SessionOwnership.current(sessionID) === "human") {

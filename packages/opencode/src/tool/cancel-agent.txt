@@ -1,6 +1,8 @@
-Cancel a running child (and recursively all of its descendants).
+Cancel a running child and its automatic descendants. Human-controlled and detached branches are preserved.
 
 You may only cancel agents in your own subtree. The cancellation is asynchronous: the target receives a `cancel` message, aborts its current LLM turn, marks itself `canceled`, and posts a `child_failed{reason:"canceled"}` back to its parent.
+
+Cancellation is a non-fatal control result for the parent. The callback does not trigger `policy.on_fail`.
 
 Parameters:
 - agent_id: the agent to cancel

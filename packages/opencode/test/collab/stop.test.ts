@@ -1,8 +1,9 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, spyOn, test } from "bun:test"
 
 import { Collab } from "../../src/collab"
 import { CollabAgentNode } from "../../src/collab/agent-node"
 import { CollabAutoWake } from "../../src/collab/auto-wake"
+import { CollabLoop } from "../../src/collab/loop"
 import { CollabMessage } from "../../src/collab/message"
 import { CollabRecovery } from "../../src/collab/recovery"
 import { CollabAgentTable } from "../../src/collab/collab.sql"
@@ -23,6 +24,7 @@ async function node(input: {
   detach?: boolean
   activeParent?: boolean
   parentGeneration?: number
+  agent?: string
 }) {
   const session = await Session.create({ title: input.name })
   const id = Identifier.ascending("collab_agent")
@@ -33,7 +35,7 @@ async function node(input: {
     name: input.name,
     projectId: Instance.project.id,
     rootAgentId: input.root ?? id,
-    subagentType: "general",
+    subagentType: input.agent ?? "general",
     spec: {
       initialPrompt: input.name,
       policy: input.detach ? { detach_on_terminal: true } : undefined,
@@ -139,6 +141,74 @@ describe("Collab controller stop", () => {
           expect(restarted.spec.metadata?.stoppedByUser).toBeUndefined()
         } finally {
           release()
+        }
+      },
+    })
+  })
+
+  test("explicitly resumes a stopped Research Main after its Controller restarts", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const root = await node({ name: "resume-controller", agent: "controller" })
+        const main = await node({ name: "resume-main", parent: root.id, root: root.id, agent: "research" })
+        const run = main.run_id
+
+        expect(CollabAgentNode.role(main.id)).toBe("research_main")
+        await Collab.stop(root.id)
+        const stopped = CollabAgentNode.load(main.id)
+        const generation = CollabAgentNode.generation(stopped.spec)
+        expect(stopped.status).toBe("canceled")
+        expect(stopped.spec.metadata?.stoppedByUser).toBe(true)
+
+        await expect(Collab.resume({ agentId: main.id, prompt: "continue" })).rejects.toThrow(
+          "parent status=canceled",
+        )
+        CollabAgentNode.restart(root.id)
+        expect(() => CollabAgentNode.activate(main.id)).toThrow("stopped by the user")
+
+        await Collab.stop(root.id)
+        CollabAgentNode.restart(root.id)
+        await expect(
+          Collab.resume({
+            agentId: main.id,
+            prompt: "stale continue",
+            expectedParentAgentId: root.id,
+            expectedRunId: run,
+            expectedGeneration: generation,
+          }),
+        ).rejects.toThrow("generation changed")
+        const current = CollabAgentNode.load(main.id)
+
+        const start = spyOn(CollabLoop, "start").mockResolvedValue()
+        try {
+          const resumed = await Collab.resume({
+            agentId: main.id,
+            prompt: "continue",
+            expectedParentAgentId: root.id,
+            expectedRunId: run,
+            expectedGeneration: CollabAgentNode.generation(current.spec),
+          })
+
+          expect(resumed.status).toBe("running")
+          expect(resumed.run_id).not.toBe(run)
+          expect(resumed.error).toBeNull()
+          expect(resumed.spec.metadata?.stoppedByUser).toBeUndefined()
+          expect(CollabAgentNode.generation(resumed.spec)).toBe(CollabAgentNode.generation(current.spec))
+          expect(CollabAgentNode.load(root.id).active_children).toBe(1)
+          expect(CollabMessage.list(main.id, { kind: "user_input" })).toHaveLength(1)
+          expect(
+            CollabMessage.post({
+              recipientAgentId: root.id,
+              senderAgentId: main.id,
+              runId: run,
+              kind: "child_failed",
+              payload: { childAgentId: main.id, childName: main.name, reason: "canceled", message: "late" },
+            }),
+          ).toBeUndefined()
+        } finally {
+          start.mockRestore()
         }
       },
     })

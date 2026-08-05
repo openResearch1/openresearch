@@ -1,5 +1,6 @@
 import z from "zod"
 import { Collab } from "@/collab"
+import { CollabAgentNode } from "@/collab/agent-node"
 import { Tool } from "./tool"
 import DESCRIPTION from "./resume-agent.txt"
 
@@ -87,6 +88,7 @@ export const ResumeAgentTool = Tool.define("resume_agent", async () => {
             current?.providerID && current.id ? { providerID: current.providerID, modelID: current.id } : undefined,
           expectedParentAgentId: target.parent_agent_id,
           expectedRunId: target.run_id,
+          expectedGeneration: CollabAgentNode.generation(target.spec),
         })
         return {
           title: "resume_agent",

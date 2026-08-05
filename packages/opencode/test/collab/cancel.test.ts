@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, spyOn, test } from "bun:test"
 
 import { Bus } from "../../src/bus"
 import { Collab } from "../../src/collab"
@@ -9,7 +9,11 @@ import { CollabMessage } from "../../src/collab/message"
 import { CollabSupervisor } from "../../src/collab/supervisor"
 import { Identifier } from "../../src/id/id"
 import { Instance } from "../../src/project/instance"
+import { ResearchSessionControl } from "../../src/research/session-control"
 import { Session } from "../../src/session"
+import { MessageV2 } from "../../src/session/message-v2"
+import { SessionOwnership } from "../../src/session/ownership"
+import { SessionPrompt } from "../../src/session/prompt"
 import { tmpdir } from "../fixture/fixture"
 
 async function node(input: {
@@ -20,6 +24,8 @@ async function node(input: {
   status?: "pending" | "running" | "blocked_on_children" | "waiting_interaction" | "idle" | "completed" | "failed" | "canceled"
   activeParent?: boolean
   parentGeneration?: number
+  agent?: string
+  policy?: "fail_fast" | "continue" | "retry_once"
 }) {
   const session = await Session.create({ title: input.name })
   const id = Identifier.ascending("collab_agent")
@@ -30,8 +36,8 @@ async function node(input: {
     name: input.name,
     projectId: Instance.project.id,
     rootAgentId: input.root ?? id,
-    subagentType: "general",
-    spec: { initialPrompt: input.name },
+    subagentType: input.agent ?? "general",
+    spec: { initialPrompt: input.name, policy: input.policy ? { on_fail: input.policy } : undefined },
     status: input.status ?? "running",
     initiator: input.initiator,
     activeParent: input.activeParent,
@@ -89,6 +95,151 @@ describe("Collab cancel propagation", () => {
         })
         expect(next).not.toBe(first)
         expect(cancels(child.id)).toHaveLength(2)
+      },
+    })
+  })
+
+  test("direct human abort durably cancels an agent-initiated child", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const root = await node({ name: "human-abort-root" })
+        const child = await node({ name: "human-abort-child", parent: root.id, root: root.id })
+        const release = ResearchSessionControl.claimHuman(child.session_id)
+
+        expect(child.initiator).toBe("agent")
+        expect(SessionOwnership.current(child.session_id)).toBe("human")
+        ResearchSessionControl.assertAbort(child.session_id)
+        ResearchSessionControl.assertAbort(child.session_id)
+
+        expect(SessionOwnership.current(child.session_id)).toBeUndefined()
+        expect(cancels(child.id)).toHaveLength(1)
+        expect(cancels(child.id)[0]).toMatchObject({
+          run_id: child.run_id,
+          payload_json: { reason: "Canceled by human", initiator: "user" },
+        })
+
+        await CollabLoop.start(child.id)
+        const canceled = CollabAgentNode.load(child.id)
+        expect(canceled.status).toBe("canceled")
+        expect(canceled.error?.code).toBe("CANCELED")
+        expect(canceled.error?.message).toBe("Canceled by human")
+        expect(CollabAgentNode.load(root.id).active_children).toBe(0)
+        expect(CollabMessage.list(root.id, { kind: "child_failed" })).toHaveLength(1)
+        release()
+      },
+    })
+  })
+
+  test("cancel interrupts an in-flight turn and preserves its reason", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const root = await node({ name: "interrupt-root" })
+        const child = await node({ name: "interrupt-child", parent: root.id, root: root.id, status: "pending" })
+        let finish: ((value: Awaited<ReturnType<typeof SessionPrompt.prompt>>) => void) | undefined
+        const prompt = spyOn(SessionPrompt, "prompt").mockImplementation(
+          (() => new Promise((resolve) => (finish = resolve))) as unknown as typeof SessionPrompt.prompt,
+        )
+        const cancel = spyOn(SessionPrompt, "cancel")
+
+        try {
+          const loop = CollabLoop.start(child.id)
+          for (let i = 0; i < 100 && !finish; i++) await Bun.sleep(5)
+          expect(finish).toBeDefined()
+
+          await Collab.cancel(child.id, "no longer needed")
+          expect(cancel).toHaveBeenCalledWith(child.session_id)
+          finish!({
+            info: {
+              role: "assistant",
+              error: new MessageV2.AbortedError({ message: "The operation was aborted." }).toObject(),
+            },
+            parts: [],
+          } as never)
+          await loop
+          await CollabLoop.start(child.id)
+
+          const canceled = CollabAgentNode.load(child.id)
+          expect(canceled.status).toBe("canceled")
+          expect(canceled.error?.message).toBe("no longer needed")
+          expect(CollabMessage.list(root.id, { kind: "child_failed" })[0].payload_json).toMatchObject({
+            reason: "canceled",
+            message: "no longer needed",
+          })
+        } finally {
+          Collab.runtime().abort(child.id)
+          cancel.mockRestore()
+          prompt.mockRestore()
+        }
+      },
+    })
+  })
+
+  test("Research Main remains usable after canceling its child", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const controller = await node({ name: "cancel-controller", agent: "controller", policy: "continue" })
+        const main = await node({
+          name: "cancel-main",
+          parent: controller.id,
+          root: controller.id,
+          agent: "research",
+        })
+        const child = await node({ name: "cancel-child", parent: main.id, root: controller.id })
+        let replacement: Awaited<ReturnType<typeof node>> | undefined
+        let callback: SessionPrompt.PromptInput | undefined
+        const prompt = spyOn(SessionPrompt, "prompt").mockImplementation(
+          (async (input: SessionPrompt.PromptInput) => {
+            callback = input
+            const parent = CollabAgentNode.load(main.id)
+            replacement = await node({
+              name: "replacement-child",
+              parent: main.id,
+              root: controller.id,
+              activeParent: true,
+              parentGeneration: CollabAgentNode.generation(parent.spec),
+            })
+            return { info: { role: "assistant", parentID: input.messageID }, parts: [] } as never
+          }) as unknown as typeof SessionPrompt.prompt,
+        )
+
+        try {
+          expect(CollabAgentNode.role(main.id)).toBe("research_main")
+          await Collab.cancel(child.id, "redundant branch")
+          await CollabLoop.start(child.id)
+          void CollabLoop.start(main.id)
+          for (let i = 0; i < 200; i++) {
+            if (callback && CollabMessage.list(main.id, { kind: "child_failed" })[0]?.status === "consumed") break
+            await Bun.sleep(5)
+          }
+
+          const current = CollabAgentNode.load(main.id)
+          const report = CollabMessage.list(main.id, { kind: "child_failed" })[0]
+          expect(CollabAgentNode.load(child.id).status).toBe("canceled")
+          expect(report.status).toBe("consumed")
+          expect(report.payload_json).toMatchObject({ reason: "canceled", message: "redundant branch" })
+          expect(callback?.parts).toContainEqual(
+            expect.objectContaining({
+              type: "collab_return",
+              kind: "child_failed",
+              childAgentId: child.id,
+              payload: { reason: "canceled" },
+            }),
+          )
+          expect(current.status).not.toBe("failed")
+          expect(current.error).toBeNull()
+          expect(replacement?.parent_agent_id).toBe(main.id)
+          expect(CollabMessage.list(controller.id, { kind: "child_failed" })).toHaveLength(0)
+        } finally {
+          if (replacement) Collab.runtime().abort(replacement.id)
+          Collab.runtime().abort(main.id)
+          prompt.mockRestore()
+        }
       },
     })
   })

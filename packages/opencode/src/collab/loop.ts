@@ -427,7 +427,7 @@ export namespace CollabLoop {
       const msgs = filtered.some((msg) => isWakeKind(msg.kind)) ? filtered : []
       if (filtered.length && !msgs.length) CollabMessage.retry(filtered, false)
 
-      let gotCancel = false
+      let cancel: CancelPayload | undefined
       const injections: PromptPartDraft[] = []
       const progressMsgs: ChildProgressPayload[] = []
       let failFastTrigger: ChildFailedPayload | undefined
@@ -441,7 +441,7 @@ export namespace CollabLoop {
         if (!messageID && typeof delivery === "string") messageID = delivery
         switch (m.kind) {
           case "cancel":
-            gotCancel = true
+            cancel = payload as CancelPayload
             break
           case "child_done": {
             injections.push(buildChildDonePart(payload as ChildDonePayload))
@@ -450,7 +450,7 @@ export namespace CollabLoop {
           case "child_failed": {
             const p = payload as ChildFailedPayload
             const policy = node.spec.policy?.on_fail ?? "fail_fast"
-            if (policy === "fail_fast") {
+            if (policy === "fail_fast" && p.reason !== "canceled") {
               failFastTrigger = p
             } else {
               injections.push(buildChildFailedPart(p))
@@ -485,9 +485,9 @@ export namespace CollabLoop {
         }
       }
 
-      if (gotCancel) {
+      if (cancel) {
         log.info("loop.cancel", { agentId })
-        const error: AgentError = { code: "CANCELED", message: "cancel message received" }
+        const error: AgentError = { code: "CANCELED", message: cancel.reason }
         try {
           CollabAgentNode.transition(node.id, node.status, { error }, {
             runId: node.run_id,
@@ -498,7 +498,7 @@ export namespace CollabLoop {
         } catch {
           return
         }
-        await CollabSupervisor.cancelChildren(agentId, { reason: "parent canceled", initiator: "parent" })
+        await CollabSupervisor.cancelChildren(agentId, { reason: cancel.reason, initiator: "parent" })
         if (abort.aborted) {
           CollabMessage.retry(msgs, false)
           return
