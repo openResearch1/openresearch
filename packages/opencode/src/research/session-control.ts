@@ -129,7 +129,7 @@ export namespace ResearchSessionControl {
       })
       if (!posted) throw new Error(`Cannot cancel agent ${node.id}: ownership changed before cancel`)
     }
-    if (node?.initiator === "human" && CollabAgentNode.isActive(node.status)) {
+    if (node?.parent_agent_id && node.initiator === "human" && CollabAgentNode.isActive(node.status)) {
       cancel()
       SessionOwnership.revoke(sessionID)
       return

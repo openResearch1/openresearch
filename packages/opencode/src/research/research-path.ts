@@ -63,7 +63,15 @@ export namespace ResearchPath {
     role: Role.default("member"),
   })
 
-  const ordered = new Set(["motivates", "grounds", "formalized_by", "derives", "analyzed_by", "evaluated_by"])
+  const ordered = new Set([
+    "motivates",
+    "grounds",
+    "formalized_by",
+    "derives",
+    "analyzed_by",
+    "evaluated_by",
+    "other",
+  ])
 
   export function sequence(atoms: Member[], relations: Relation[]) {
     const data = new Map(atoms.map((atom) => [atom.atom_id, atom]))

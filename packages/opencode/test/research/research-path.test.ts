@@ -217,6 +217,16 @@ describe("research.path", () => {
         ])
         expect(
           ResearchPath.sequence(first.atoms, [
+            {
+              atom_id_source: item.first,
+              atom_id_target: item.second,
+              relation_type: "other",
+              note: "Custom dependency",
+            },
+          ]),
+        ).toEqual(first.stages)
+        expect(
+          ResearchPath.sequence(first.atoms, [
             ...first.relations,
             {
               atom_id_source: item.second,

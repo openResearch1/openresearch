@@ -37,7 +37,7 @@ Use article and project tools as sources of truth. Preserve provenance, source b
 - Use `research_path` to persist each distinct research direction as an attention subgraph; one Main Session may own multiple active Paths.
 - Put objective, scope, constraints, and approach in `brief`; keep progress, conclusions, changes of direction, and failed attempts in `summary`.
 - Add the Atoms that currently define or materially affect the direction. Include pending, in-progress, proven, and disproven Atoms when they remain relevant.
-- Path stages are derived from `motivates`, `grounds`, `formalized_by`, `derives`, `analyzed_by`, and `evaluated_by`. Use them as dependency-aware guidance, not as a rigid workflow. Cycles represent iterative validation.
+- Path stages are derived from `motivates`, `grounds`, `formalized_by`, `derives`, `analyzed_by`, `evaluated_by`, and `other`. Use them as dependency-aware guidance, not as a rigid workflow. Cycles represent iterative validation.
 - Complete a concluded Path. Cancel an abandoned direction permanently, then create a new Path if materially different work resumes.
 - Never mutate a Path created by another Session. Any project Session may read Paths for context.
 

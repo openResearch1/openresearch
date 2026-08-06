@@ -468,14 +468,7 @@ function ResultCard(props: { result: Result; selected: boolean; onSelect: () => 
       aria-pressed={props.selected}
       onClick={props.onSelect}
     >
-      <span class="flex items-center gap-2 text-11-regular text-text-weak">
-        <span class="size-1.5 rounded-full bg-icon-success-base" />
-        <span>Accepted</span>
-        <span class="ml-auto">{date.format(props.result.time_created)}</span>
-      </span>
-      <span class="mt-1.5 block text-13-semibold text-text-strong truncate">{props.result.title}</span>
-      <span class="mt-0.5 block text-11-regular text-text-weak line-clamp-2">{props.result.summary}</span>
-      <span class="mt-2 block text-10-regular text-text-weak">{props.result.atoms.length} atoms</span>
+      <span class="block text-13-semibold text-text-strong truncate">{props.result.title}</span>
     </button>
   )
 }

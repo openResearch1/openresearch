@@ -146,6 +146,89 @@ describe("Collab controller stop", () => {
     })
   })
 
+  test("manual abort keeps a restarted Controller root active", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const root = await node({ name: "abort-controller", agent: "controller" })
+        await Collab.stop(root.id)
+        const release = ResearchSessionControl.claimHuman(root.session_id, { restart: true })
+
+        try {
+          expect(CollabAgentNode.load(root.id).initiator).toBe("human")
+          ResearchSessionControl.assertAbort(root.session_id)
+
+          const current = CollabAgentNode.load(root.id)
+          expect(CollabAgentNode.isActive(current.status)).toBe(true)
+          expect(CollabMessage.list(root.id, { kind: "cancel" })).toHaveLength(0)
+
+          const main = await node({
+            name: "main-after-abort",
+            parent: root.id,
+            root: root.id,
+            agent: "research",
+            activeParent: true,
+            parentGeneration: CollabAgentNode.generation(current.spec),
+          })
+          expect(CollabAgentNode.role(main.id)).toBe("research_main")
+        } finally {
+          release()
+        }
+      },
+    })
+  })
+
+  test("the next human prompt repairs a canceled Controller root", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const root = await node({ name: "canceled-controller", agent: "controller" })
+        const main = await node({ name: "canceled-main", parent: root.id, root: root.id, agent: "research" })
+        CollabAgentNode.finish({
+          id: main.id,
+          runId: main.run_id,
+          parentId: root.id,
+          status: "canceled",
+          phase: "main_loop",
+          error: { code: "CANCELED", message: "Canceled by human" },
+          timeEnded: Date.now(),
+        })
+        CollabMessage.drop(CollabMessage.drain(root.id))
+        CollabAgentNode.transition(root.id, "canceled", {
+          error: { code: "CANCELED", message: "Canceled by human" },
+          timeEnded: Date.now(),
+        })
+
+        const release = ResearchSessionControl.claimHuman(root.session_id, { restart: true })
+        const start = spyOn(CollabLoop, "start").mockResolvedValue()
+        try {
+          const repaired = CollabAgentNode.load(root.id)
+          expect(repaired.status).toBe("running")
+          expect(repaired.initiator).toBe("human")
+          expect(repaired.error).toBeNull()
+
+          const resumed = await Collab.resume({ agentId: main.id, prompt: "continue" })
+          expect(resumed.status).toBe("running")
+
+          const replacement = await node({
+            name: "replacement-main",
+            parent: root.id,
+            root: root.id,
+            agent: "research",
+            activeParent: true,
+            parentGeneration: CollabAgentNode.generation(repaired.spec),
+          })
+          expect(CollabAgentNode.role(replacement.id)).toBe("research_main")
+        } finally {
+          start.mockRestore()
+          release()
+        }
+      },
+    })
+  })
+
   test("explicitly resumes a stopped Research Main after its Controller restarts", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({

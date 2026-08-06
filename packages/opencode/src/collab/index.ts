@@ -401,8 +401,19 @@ export namespace Collab {
 
   export function restart(sessionId: string) {
     const node = getBySession(sessionId)
-    if (!node || !CollabAgentNode.isStopped(node)) return node
-    return CollabAgentNode.restart(node.id)
+    if (!node) return
+    if (CollabAgentNode.isStopped(node)) return CollabAgentNode.restart(node.id)
+    if (node.parent_agent_id || node.root_agent_id !== node.id) return node
+    if (node.subagent_type !== "controller" || node.status !== "canceled") return node
+    return CollabAgentNode.activate(
+      node.id,
+      {
+        runId: node.run_id,
+        parentId: node.parent_agent_id,
+        generation: CollabAgentNode.generation(node.spec),
+      },
+      "human",
+    )
   }
 
   export async function cancelChildren(
