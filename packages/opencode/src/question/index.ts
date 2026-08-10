@@ -1,5 +1,6 @@
 import { Bus } from "@/bus"
 import { BusEvent } from "@/bus/bus-event"
+import { CollabAgentNode } from "@/collab/agent-node"
 import { Identifier } from "@/id/id"
 import { Instance } from "@/project/instance"
 import { Log } from "@/util/log"
@@ -100,6 +101,7 @@ export namespace Question {
     tool?: { messageID: string; callID: string }
     signal?: AbortSignal
   }): Promise<Answer[]> {
+    if (CollabAgentNode.controlled(input.sessionID)) throw new RejectedError()
     const s = await state()
     const id = Identifier.ascending("question")
 

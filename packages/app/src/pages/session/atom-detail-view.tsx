@@ -87,7 +87,11 @@ function computeLayout(atoms: Atom[], relations: Relation[]) {
   return { positions, graphHeight }
 }
 
-function atomsToNodes(atoms: Atom[], positions: Record<string, { x: number; y: number }>) {
+function atomsToNodes(
+  atoms: Atom[],
+  positions: Record<string, { x: number; y: number }>,
+  external: ReadonlySet<string>,
+) {
   return atoms.map((atom) => ({
     id: atom.atom_id,
     type: "atom" as const,
@@ -99,26 +103,32 @@ function atomsToNodes(atoms: Atom[], positions: Record<string, { x: number; y: n
       atomType: atom.atom_type,
       evidenceStatus: atom.atom_evidence_status,
       evidenceType: atom.atom_evidence_type,
+      external: external.has(atom.atom_id),
     },
   }))
 }
 
-function relationsToEdges(relations: Relation[]) {
-  return relations.map((rel) => ({
-    id: `${rel.atom_id_source}-${rel.relation_type}-${rel.atom_id_target}`,
-    type: "default" as const,
-    source: rel.atom_id_source,
-    target: rel.atom_id_target,
-    style: {
-      stroke: RELATION_COLORS[rel.relation_type] ?? "#94a3b8",
-      "stroke-width": "2px",
-    },
-    markerEnd: {
-      type: MarkerType.ArrowClosed,
-      color: RELATION_COLORS[rel.relation_type] ?? "#94a3b8",
-    },
-    data: { relationType: rel.relation_type },
-  }))
+function relationsToEdges(relations: Relation[], external: ReadonlySet<string>) {
+  return relations.map((rel) => {
+    const crossing = external.has(rel.atom_id_source) || external.has(rel.atom_id_target)
+    return {
+      id: `${rel.atom_id_source}-${rel.relation_type}-${rel.atom_id_target}`,
+      type: "default" as const,
+      source: rel.atom_id_source,
+      target: rel.atom_id_target,
+      style: {
+        stroke: RELATION_COLORS[rel.relation_type] ?? "#94a3b8",
+        "stroke-width": "2px",
+        "stroke-dasharray": crossing ? "6 4" : undefined,
+        opacity: crossing ? 0.45 : 1,
+      },
+      markerEnd: {
+        type: MarkerType.ArrowClosed,
+        color: RELATION_COLORS[rel.relation_type] ?? "#94a3b8",
+      },
+      data: { relationType: rel.relation_type, crossing },
+    }
+  })
 }
 
 function ScreenToFlowBridge(props: {
@@ -154,6 +164,8 @@ function FocusHandler(props: { focusAtomId?: string | null; nodes: Node[] }) {
 export function AtomDetailView(props: {
   atoms: Atom[]
   relations: Relation[]
+  externalAtomIds: ReadonlySet<string>
+  canCreate: boolean
   loading: boolean
   error: boolean
   focusAtomId?: string | null
@@ -171,8 +183,8 @@ export function AtomDetailView(props: {
   researchProjectId: string
 }) {
   const layoutResult = () => computeLayout(props.atoms, props.relations)
-  const initialNodes = () => atomsToNodes(props.atoms, layoutResult().positions)
-  const initialEdges = () => relationsToEdges(props.relations)
+  const initialNodes = () => atomsToNodes(props.atoms, layoutResult().positions, props.externalAtomIds)
+  const initialEdges = () => relationsToEdges(props.relations, props.externalAtomIds)
 
   const [nodes, setNodes] = createNodeStore<typeof nodeTypes>(initialNodes())
   const [edges, setEdges] = createEdgeStore(initialEdges())
@@ -184,8 +196,8 @@ export function AtomDetailView(props: {
   // Sync when atoms/relations change from outside
   createEffect(
     on(
-      () => [props.atoms, props.relations] as const,
-      ([atoms, relations]) => {
+      () => [props.atoms, props.relations, props.externalAtomIds] as const,
+      ([atoms, relations, external]) => {
         const { positions: pos } = computeLayout(atoms, relations)
 
         let mergedPositions: Record<string, { x: number; y: number }>
@@ -211,8 +223,8 @@ export function AtomDetailView(props: {
           mergedPositions = pos
         }
 
-        const newNodes = atomsToNodes(atoms, mergedPositions)
-        const newEdges = relationsToEdges(relations)
+        const newNodes = atomsToNodes(atoms, mergedPositions, external)
+        const newEdges = relationsToEdges(relations, external)
         setNodes(newNodes as any)
         setEdges(newEdges as any)
       },
@@ -324,6 +336,7 @@ export function AtomDetailView(props: {
   const handlePaneContextMenu = ({ event }: { event: MouseEvent | PointerEvent }) => {
     event.preventDefault()
     event.stopPropagation()
+    if (!props.canCreate) return
     setCreateFormPos({ x: event.clientX, y: event.clientY })
     if (screenToFlowRef) {
       setCreateFlowPos(screenToFlowRef({ x: event.clientX, y: event.clientY }))
@@ -370,6 +383,11 @@ export function AtomDetailView(props: {
   })
   onCleanup(() => {
     document.removeEventListener("keydown", handleKeyDown)
+  })
+
+  createEffect(() => {
+    if (props.canCreate) return
+    setShowCreateForm(false)
   })
 
   let containerRef!: HTMLDivElement
@@ -437,7 +455,7 @@ export function AtomDetailView(props: {
               title="Re-layout"
               onClick={() => {
                 const { positions: pos } = computeLayout(props.atoms, props.relations)
-                const newNodes = atomsToNodes(props.atoms, pos)
+                const newNodes = atomsToNodes(props.atoms, pos, props.externalAtomIds)
                 setNodes(newNodes as any)
               }}
             >
@@ -600,7 +618,7 @@ export function AtomDetailView(props: {
       </Show>
 
       {/* Create Atom Form (on right-click) */}
-      <Show when={showCreateForm()}>
+      <Show when={props.canCreate && showCreateForm()}>
         <div
           style={{
             position: "fixed",

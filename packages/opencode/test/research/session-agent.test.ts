@@ -152,17 +152,18 @@ describe("research.session-agent", () => {
             ),
           ).toMatchObject({ output: "goal file created successfully." })
 
-          const approval = PermissionNext.ask({
-            id: "permission_controller_research_doc",
-            sessionID: main.session_id,
-            permission: "research_doc_edit",
-            patterns: ["goal.md"],
-            always: ["*"],
-            metadata: {},
-            ruleset: [],
-          })
-          await PermissionNext.reply({ requestID: "permission_controller_research_doc", reply: "always" })
-          await approval
+          await expect(
+            PermissionNext.ask({
+              id: "permission_controller_research_doc",
+              sessionID: main.session_id,
+              permission: "research_doc_edit",
+              patterns: ["goal.md"],
+              always: ["*"],
+              metadata: {},
+              ruleset: [],
+            }),
+          ).rejects.toBeInstanceOf(PermissionNext.DeniedError)
+          expect((await PermissionNext.list()).filter((item) => item.sessionID === main.session_id)).toHaveLength(0)
 
           const denied = await Collab.spawn({
             parentAgentId: controller.agent.id,

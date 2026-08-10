@@ -33,6 +33,7 @@ export type AtomNodeData = {
   atomType: string
   evidenceStatus: string
   evidenceType: string
+  external: boolean
 }
 
 export function AtomNode(props: NodeProps<AtomNodeData, "atom">) {
@@ -44,7 +45,7 @@ export function AtomNode(props: NodeProps<AtomNodeData, "atom">) {
       class="atom-detail-node"
       style={{
         background: "#1e293b",
-        border: `2px solid ${borderColor()}`,
+        border: `2px ${props.data.external ? "dashed" : "solid"} ${borderColor()}`,
         "border-radius": "8px",
         padding: "10px 14px",
         width: "180px",
@@ -52,7 +53,8 @@ export function AtomNode(props: NodeProps<AtomNodeData, "atom">) {
           ? `0 0 0 2px ${borderColor()}, 0 4px 12px rgba(0,0,0,0.3)`
           : "0 2px 8px rgba(0,0,0,0.25)",
         cursor: "pointer",
-        transition: "box-shadow 0.2s, border-color 0.2s",
+        opacity: props.data.external ? 0.55 : 1,
+        transition: "box-shadow 0.2s, border-color 0.2s, opacity 0.2s",
       }}
     >
       <Handle

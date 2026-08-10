@@ -178,6 +178,11 @@ export namespace CollabAgentNode {
     })
   }
 
+  export function controlled(sessionId: string) {
+    const context = spawnContext(sessionId)
+    return context.controller && context.role !== "controller"
+  }
+
   export function targets(sessionId: string, channel: ControllerPolicy.Channel) {
     const context = spawnContext(sessionId)
     if (!context.controller) return

@@ -75,6 +75,9 @@ const relationId = (rel: Pick<Relation, "atom_id_source" | "atom_id_target" | "r
 export function AtomGraphView(props: {
   atoms: Atom[]
   relations: Relation[]
+  externalAtomIds: ReadonlySet<string>
+  scopeId?: string
+  canCreate: boolean
   loading: boolean
   error: boolean
   onAtomClick: (atomId: string) => void
@@ -319,7 +322,7 @@ export function AtomGraphView(props: {
   }
 
   const openCreateForm = (evt: MouseEvent | PointerEvent) => {
-    if (!containerRef || !graph) return
+    if (!props.canCreate || !containerRef || !graph) return
     const rect = containerRef.getBoundingClientRect()
     const x = evt.clientX - rect.left
     const y = evt.clientY - rect.top
@@ -581,13 +584,14 @@ export function AtomGraphView(props: {
       style: {
         size: (d: any) => d.data?.size ?? 40,
         fill: "#1e293b",
-        fillOpacity: 1,
+        fillOpacity: (d: any) => (d.data?.external ? 0.42 : 1),
         stroke: (d: any) => TYPE_COLORS[d.data?.type] ?? "#6366f1",
-        strokeOpacity: 1,
+        strokeOpacity: (d: any) => (d.data?.external ? 0.65 : 1),
+        lineDash: (d: any) => (d.data?.external ? [5, 4] : undefined),
         lineWidth: 2,
         cursor: "pointer",
         shadowColor: "rgba(0,0,0,0.25)",
-        shadowBlur: 8,
+        shadowBlur: (d: any) => (d.data?.external ? 0 : 8),
         shadowOffsetY: 2,
       },
       state: {
@@ -630,8 +634,9 @@ export function AtomGraphView(props: {
     edge: {
       style: {
         stroke: (d: any) => RELATION_COLORS[d.data?.type] ?? "#94a3b8",
-        fillOpacity: 1,
-        strokeOpacity: 1,
+        fillOpacity: (d: any) => (d.data?.crossing ? 0.4 : 1),
+        strokeOpacity: (d: any) => (d.data?.crossing ? 0.4 : 1),
+        lineDash: (d: any) => (d.data?.crossing ? [5, 4] : undefined),
         lineWidth: 1.5,
         endArrow: true,
         endArrowSize: 6,
@@ -666,7 +671,7 @@ export function AtomGraphView(props: {
   }
 
   onMount(() => {
-    stateManager = new GraphStateManager(props.researchProjectId)
+    stateManager = new GraphStateManager(props.researchProjectId, props.scopeId)
     if (!containerRef) return
 
     ro = new ResizeObserver(() => {
@@ -675,22 +680,12 @@ export function AtomGraphView(props: {
     ro.observe(containerRef)
   })
 
-  // Reinitialize stateManager when researchProjectId changes
+  // Keep full-project and per-path layouts independent.
   createEffect(() => {
     const projectId = props.researchProjectId
-    if (stateManager && stateManager.getProjectId() !== projectId) {
-      stateManager = new GraphStateManager(projectId)
-      if (graph) {
-        const graphState = stateManager.loadState()
-        if (graphState == null) {
-          graph.render().then(() => {
-            saveCurrentState()
-          })
-        } else {
-          applySavedPositions(graphState).then(() => {})
-        }
-      }
-    }
+    const scope = props.scopeId ?? "all"
+    if (!stateManager || (stateManager.getProjectId() === projectId && stateManager.getScope() === scope)) return
+    stateManager = new GraphStateManager(projectId, scope)
   })
 
   const toGraphData = () => {
@@ -724,6 +719,7 @@ export function AtomGraphView(props: {
         type: atom.atom_type,
         status: atom.atom_evidence_status,
         size: nodeSize(atom.atom_id),
+        external: props.externalAtomIds.has(atom.atom_id),
       },
     }))
 
@@ -736,6 +732,7 @@ export function AtomGraphView(props: {
         targetId: rel.atom_id_target,
         type: rel.relation_type,
         note: rel.note,
+        crossing: props.externalAtomIds.has(rel.atom_id_source) || props.externalAtomIds.has(rel.atom_id_target),
       },
     }))
 
@@ -792,6 +789,7 @@ export function AtomGraphView(props: {
       const statusColor = STATUS_COLORS[atom.atom_evidence_status] ?? "#64748b"
       const statusBg = STATUS_DOT_BG[atom.atom_evidence_status] ?? "rgba(100,116,139,0.15)"
       const statusLabel = EVIDENCE_STATUS_LABELS[atom.atom_evidence_status] ?? atom.atom_evidence_status
+      const external = props.externalAtomIds.has(atom.atom_id)
       const evTypeLabel =
         atom.atom_evidence_type === "math"
           ? "Math"
@@ -856,6 +854,19 @@ export function AtomGraphView(props: {
                 <span style="width:6px;height:6px;border-radius:50%;background:${statusColor};flex-shrink:0;"></span>
                 ${statusLabel}
               </span>
+              ${
+                external
+                  ? `<span style="
+                display: inline-flex; align-items: center;
+                padding: 2px 8px;
+                border: 1px dashed #64748b;
+                border-radius: 999px;
+                font-size: 11px;
+                font-weight: 500;
+                color: #94a3b8;
+              ">External</span>`
+                  : ""
+              }
             </div>
           </div>
           ${
@@ -1067,6 +1078,7 @@ export function AtomGraphView(props: {
         const e = evt.originalEvent as MouseEvent | PointerEvent | undefined
         if (!e || state.dragging || state.active || state.confirmOpen) return
         e.preventDefault()
+        if (!props.canCreate) return
         openCreateForm(e)
       })
 
@@ -1252,6 +1264,8 @@ export function AtomGraphView(props: {
   createEffect(() => {
     const atoms = props.atoms
     const relations = props.relations
+    const external = props.externalAtomIds
+    const scope = props.scopeId
     const ready = containerReady()
 
     if (!ready || !containerRef) return
@@ -1262,6 +1276,11 @@ export function AtomGraphView(props: {
     }
 
     updateGraph()
+  })
+
+  createEffect(() => {
+    if (props.canCreate) return
+    closeCreateForm()
   })
 
   createEffect(() => {
@@ -1818,6 +1837,27 @@ export function AtomGraphView(props: {
                 ))}
               </div>
             </div>
+            <Show when={props.scopeId}>
+              <div class="mt-3 border-t border-white/8 pt-2">
+                <div class="text-[10px] mb-2 font-medium tracking-wider" style={{ color: "#64748b" }}>
+                  PATH SCOPE
+                </div>
+                <div class="flex flex-col gap-1.5">
+                  <div class="flex items-center gap-2">
+                    <div class="h-2.5 w-2.5 shrink-0 rounded-full border-2 border-indigo-400 bg-slate-800" />
+                    <span class="text-xs" style={{ color: "#cbd5e1" }}>
+                      Path member
+                    </span>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <div class="h-2.5 w-2.5 shrink-0 rounded-full border border-dashed border-slate-500 bg-slate-800 opacity-60" />
+                    <span class="text-xs" style={{ color: "#94a3b8" }}>
+                      External neighbor
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </Show>
             {/* Layout picker */}
             <div class="relative mt-3">
               <button

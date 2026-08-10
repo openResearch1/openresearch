@@ -7,7 +7,9 @@ import { CollabAutoWake } from "../../src/collab/auto-wake"
 import { CollabAgentTable } from "../../src/collab/collab.sql"
 import { CollabLoop } from "../../src/collab/loop"
 import { Identifier } from "../../src/id/id"
+import { PermissionNext } from "../../src/permission/next"
 import { Instance } from "../../src/project/instance"
+import { Question } from "../../src/question"
 import { ResearchSessionAgent } from "../../src/research/session-agent"
 import { Session } from "../../src/session"
 import { SessionPrompt } from "../../src/session/prompt"
@@ -256,7 +258,7 @@ describe("Collab Controller spawn policy", () => {
     })
   })
 
-  test("Atom and Experiment roles may spawn leaves", async () => {
+  test("Controller research descendants cannot request interaction", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
       directory: tmp.path,
@@ -312,10 +314,85 @@ describe("Collab Controller spawn policy", () => {
           expect(CollabLoop.timeout(CollabAgentNode.load(atom.id))).toBeUndefined()
           expect(CollabLoop.timeout(CollabAgentNode.load(created.id))).toBeUndefined()
           expect(CollabLoop.timeout(CollabAgentNode.load(attached.id))).toBeUndefined()
-          expect(CollabAgentNode.role((await spawn(atom.id)).id)).toBe("leaf")
-          expect(CollabAgentNode.role((await spawn(created.id, "project_runtime_env_setup")).id)).toBe("leaf")
+          const atomLeaf = await spawn(atom.id)
+          const experimentLeaf = await spawn(created.id, "project_runtime_env_setup")
+          expect(CollabAgentNode.role(atomLeaf.id)).toBe("leaf")
+          expect(CollabAgentNode.role(experimentLeaf.id)).toBe("leaf")
           await expect(spawn(atom.id, "reviewer")).rejects.toThrow("atom cannot spawn reviewer")
           await expect(spawn(created.id, "general")).rejects.toThrow("experiment cannot spawn general")
+
+          expect(CollabAgentNode.controlled(controller.session_id)).toBe(false)
+          expect((await tools(controller.session_id, "controller")).question).toBeDefined()
+          const rootQuestion = Question.ask({
+            sessionID: controller.session_id,
+            questions: [{ question: "Continue?", header: "Continue", options: [{ label: "Yes", description: "Continue" }] }],
+          })
+          expect((await Question.list()).filter((item) => item.sessionID === controller.session_id)).toHaveLength(1)
+          const rejected = rootQuestion.catch((error) => expect(error).toBeInstanceOf(Question.RejectedError))
+          await Question.rejectSession(controller.session_id)
+          await rejected
+
+          const rootPermission = PermissionNext.ask({
+            sessionID: controller.session_id,
+            permission: "bash",
+            patterns: ["pwd"],
+            metadata: {},
+            always: [],
+            ruleset: [{ permission: "bash", pattern: "*", action: "ask" }],
+          })
+          const request = (await PermissionNext.list()).find((item) => item.sessionID === controller.session_id)
+          expect(request).toBeDefined()
+          await PermissionNext.reply({ requestID: request!.id, reply: "once" })
+          await rootPermission
+
+          const task = await Session.create({ parentID: attached.session_id, title: "experiment task" })
+          const nested = await Session.create({ parentID: task.id, title: "nested experiment task" })
+          const descendants = [
+            main.session_id,
+            atom.session_id,
+            created.session_id,
+            attached.session_id,
+            atomLeaf.session_id,
+            experimentLeaf.session_id,
+            task.id,
+            nested.id,
+          ]
+          await Promise.all(
+            descendants.map(async (sessionID) => {
+              expect(CollabAgentNode.controlled(sessionID)).toBe(true)
+              expect((await tools(sessionID, "build")).question).toBeUndefined()
+              await expect(
+                Question.ask({
+                  sessionID,
+                  questions: [
+                    { question: "Blocked?", header: "Blocked", options: [{ label: "Yes", description: "Wait" }] },
+                  ],
+                }),
+              ).rejects.toBeInstanceOf(Question.RejectedError)
+              await expect(
+                PermissionNext.ask({
+                  sessionID,
+                  permission: "bash",
+                  patterns: ["pwd"],
+                  metadata: {},
+                  always: [],
+                  ruleset: [{ permission: "bash", pattern: "*", action: "ask" }],
+                }),
+              ).rejects.toBeInstanceOf(PermissionNext.DeniedError)
+            }),
+          )
+          expect((await Question.list()).filter((item) => descendants.includes(item.sessionID))).toHaveLength(0)
+          expect((await PermissionNext.list()).filter((item) => descendants.includes(item.sessionID))).toHaveLength(0)
+          await expect(
+            PermissionNext.ask({
+              sessionID: main.session_id,
+              permission: "bash",
+              patterns: ["pwd"],
+              metadata: {},
+              always: [],
+              ruleset: [{ permission: "bash", pattern: "*", action: "allow" }],
+            }),
+          ).resolves.toBeUndefined()
 
           const blocked = await Session.create({ title: "blocked inactive child" })
           expect(() =>

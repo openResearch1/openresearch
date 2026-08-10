@@ -23,6 +23,9 @@ function computeInset(rect: { x: number; y: number; width: number; height: numbe
 export function AtomDetailFullscreen(props: {
   atoms: Atom[]
   relations: Relation[]
+  externalAtomIds: ReadonlySet<string>
+  pathTitle?: string
+  canCreate: boolean
   loading: boolean
   error: boolean
   onAtomClick: (atomId: string) => void
@@ -171,7 +174,7 @@ export function AtomDetailFullscreen(props: {
       >
         {/* Top bar */}
         <div class="flex items-center justify-between h-11 pl-4 pr-3 border-b border-border-base shrink-0">
-          <div class="flex items-center gap-2.5">
+          <div class="flex min-w-0 items-center gap-2.5">
             <svg
               width="18"
               height="18"
@@ -190,6 +193,13 @@ export function AtomDetailFullscreen(props: {
               <line x1="15" y1="12" x2="21" y2="12" />
             </svg>
             <span class="text-sm font-semibold text-text-base">Atom Detail</span>
+            <Show when={props.pathTitle}>
+              {(title) => (
+                <span class="max-w-[45vw] truncate rounded-full border border-border-weak-base bg-background-stronger px-2 py-0.5 text-11-regular text-text-weak">
+                  Path: {title()}
+                </span>
+              )}
+            </Show>
           </div>
           <button
             onClick={props.onClose}
@@ -259,6 +269,8 @@ export function AtomDetailFullscreen(props: {
             <AtomDetailView
               atoms={props.atoms}
               relations={props.relations}
+              externalAtomIds={props.externalAtomIds}
+              canCreate={props.canCreate}
               loading={props.loading}
               error={props.error}
               focusAtomId={props.focusAtomId}

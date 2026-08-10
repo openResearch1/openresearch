@@ -977,6 +977,7 @@ export namespace SessionPrompt {
   }) {
     using _ = log.time("resolveTools")
     const tools: Record<string, AITool> = {}
+    const controlled = CollabAgentNode.controlled(input.session.id)
 
     const inputRecord = (value: unknown) => {
       if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>
@@ -1058,7 +1059,8 @@ export namespace SessionPrompt {
       input.agent,
       input.session.id,
     )) {
-      if (input.session.collabPeer && item.id === "question") continue
+      if ((input.session.collabPeer || controlled) && item.id === "question") continue
+      if (controlled && item.id === "plan_exit") continue
       if (item.id === "spawn_agent" && !CollabAgentNode.canSpawn(input.session.id)) continue
       if (item.id === "task" && !CollabAgentNode.canTask(input.session.id)) continue
       if (item.id === "workflow" && CollabAgentNode.spawnContext(input.session.id).controller) continue

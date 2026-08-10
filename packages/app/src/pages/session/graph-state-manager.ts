@@ -24,14 +24,16 @@ export interface Position {
 
 export class GraphStateManager {
   private readonly projectId: string
+  private readonly scope: string
   private readonly storageKey: string
   private saveTimeout: ReturnType<typeof setTimeout> | undefined
   private readonly SAVE_DELAY = 500 // 防抖延迟500ms
   private readonly VERSION = "1.0.0"
 
-  constructor(projectId: string) {
+  constructor(projectId: string, scope = "all") {
     this.projectId = projectId
-    this.storageKey = `graph-state-${projectId}`
+    this.scope = scope
+    this.storageKey = scope === "all" ? `graph-state-${projectId}` : `graph-state-${projectId}-path-${scope}`
   }
 
   // 从localStorage加载保存的状态
@@ -199,5 +201,9 @@ export class GraphStateManager {
   // 获取项目ID
   getProjectId(): string {
     return this.projectId
+  }
+
+  getScope(): string {
+    return this.scope
   }
 }
