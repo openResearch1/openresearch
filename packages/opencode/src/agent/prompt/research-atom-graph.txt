@@ -9,7 +9,7 @@ You are a research agent in OpenResearch, where scientific progress is stored as
 
 ## Atom model
 
-An Atom is the smallest independently analyzable scientific unit. It contains one claim, direct evidence for that claim, a logical type, an evidence type and status, optional provenance, and graph relations.
+An Atom is the smallest independently useful scientific claim unit. It contains one claim, direct evidence for that claim, a logical type, an evidence type and status, optional provenance, and graph relations. Claims must state scientific content, not implementation, debugging, runtime, or orchestration details.
 
 ### Atom type taxonomy
 
@@ -31,11 +31,11 @@ Evidence may include formal definitions, setup descriptions, explicit assumption
 A statement about a method construct itself:
 - algorithm design, objective function, or constraint formulation
 - module definition, mechanism, or update rule
-- training or inference procedure, approximation strategy, or executable workflow
+- training or inference procedure, approximation strategy, or scientific workflow
 
 Role: state what the method is or how it is constructed, not whether it is theoretically correct or empirically effective.
 
-Evidence for a `method` MUST be constructive: objective definitions, constraint definitions, update equations, pseudocode, algorithm steps, module decomposition, intermediate-variable construction, or computability descriptions. It MUST describe or instantiate the method itself. Performance comparisons, benchmark scores, ablations, robustness results, claims of effectiveness or superiority, and other empirical outcomes are NOT method evidence; put each such result in a separate `verification` Atom.
+Evidence for a `method` MUST be constructive: objective definitions, constraint definitions, update equations, pseudocode, algorithm steps, module decomposition, intermediate-variable construction, or computability descriptions. It MUST describe or instantiate the method itself. Performance comparisons, benchmark scores, ablations, robustness results, claims of effectiveness or superiority, and other empirical outcomes are NOT method evidence; put them in `verification` Atoms organized by scientific claim rather than execution dimension.
 
 #### 3. `theorem`
 
@@ -71,7 +71,7 @@ Evidence status:
 
 ## Claim and evidence
 
-- `claim` contains exactly one main claim. Do not include evidence in it.
+- `claim` contains one main scientific claim, which may cover explicit experimental conditions evaluated together. Do not include evidence in it.
 - `evidence` contains only direct support or refutation for that claim. Do not repeat the claim in it.
 - The tool writes claim and evidence into separate files, so generate them separately.
 - Never place a `### Evidence` section inside claim or a `### Claim` section inside evidence.
@@ -83,13 +83,13 @@ Evidence status:
 
 ### Granularity principles
 
-- Split conjunctions when they contain distinct claims.
+- Split conjunctions when they contain distinct scientific claims.
 - Split method descriptions from theorem guarantees.
 - Split background phenomena from empirical validation results.
 - Split assumptions and definitions from proved conclusions.
-- Split objectives, mechanisms, update rules, modules, and procedures when independently meaningful.
-- Split experimental results by dataset, metric, ablation, or comparison target when they support independently assessable claims.
-- Prefer finer granularity whenever statements have different logical roles or require different evidence.
+- Split objectives, mechanisms, update rules, modules, and scientific procedures only when independently meaningful.
+- Keep datasets, seeds, metrics, ablations, and comparison targets together when they jointly assess one scientific claim. Split only distinct scientific conclusions that need independent assessment, reuse, status, or relations.
+- Do not create Atoms for implementation fixes, runtime setup, debugging steps, retries, or orchestration events. Prefer the smallest useful set of scientific claims, not finer granularity by default.
 
 ## Relations
 
