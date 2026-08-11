@@ -1,5 +1,5 @@
 import { Database, eq, and } from "../../storage/db"
-import { AtomTable, AtomRelationTable } from "../../research/research.sql"
+import { AtomTable, AtomRelationTable, normalizeLinks } from "../../research/research.sql"
 import { Filesystem } from "../../util/filesystem"
 import type { TraversalOptions, TraversedAtom, RelationType } from "./types"
 
@@ -78,14 +78,16 @@ export async function traverseAtomGraph(options: TraversalOptions): Promise<Trav
     }
 
     // 获取邻居（出边）
-    const relations = Database.use((db) =>
-      db.select().from(AtomRelationTable).where(eq(AtomRelationTable.atom_id_source, current.atomId)).all(),
+    const relations = normalizeLinks(
+      Database.use((db) =>
+        db.select().from(AtomRelationTable).where(eq(AtomRelationTable.atom_id_source, current.atomId)).all(),
+      ),
     )
 
     // 过滤关系类型
     const filteredRelations =
       relationTypes && relationTypes.length > 0
-        ? relations.filter((r) => relationTypes.includes(r.relation_type as RelationType))
+        ? relations.filter((r) => relationTypes.includes(r.relation_type))
         : relations
 
     // 添加邻居到队列
@@ -95,7 +97,7 @@ export async function traverseAtomGraph(options: TraversalOptions): Promise<Trav
           atomId: rel.atom_id_target,
           distance: current.distance + 1,
           path: [...current.path, rel.atom_id_target],
-          relationChain: [...current.relationChain, rel.relation_type as RelationType],
+          relationChain: [...current.relationChain, rel.relation_type],
         })
       }
     }

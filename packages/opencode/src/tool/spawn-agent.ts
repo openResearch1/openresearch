@@ -4,7 +4,10 @@ import { Collab } from "@/collab"
 import { CollabAgentNode } from "@/collab/agent-node"
 import { AgentPolicySchema, type AgentSpec } from "@/collab/types"
 import { MessageV2 } from "@/session/message-v2"
+import { SessionPrompt } from "@/session/prompt"
 import { PermissionNext } from "@/permission/next"
+import { Provider } from "@/provider/provider"
+import { ResearchSessionControl } from "@/research/session-control"
 import { Tool } from "./tool"
 import DESCRIPTION from "./spawn-agent.txt"
 
@@ -29,9 +32,14 @@ export const SpawnAgentTool = Tool.define("spawn_agent", async (ctx) => {
   const all = await Agent.list()
   const visible = all.filter((a) => a.hidden !== true)
   const caller = ctx?.agent
+  const targets = ctx?.sessionID ? CollabAgentNode.targets(ctx.sessionID, "spawn") : undefined
   const accessible = caller
-    ? visible.filter((a) => PermissionNext.evaluate("spawn_agent", a.name, caller.permission).action !== "deny")
-    : visible
+    ? visible.filter(
+        (a) =>
+          (targets === undefined || targets.includes(a.name)) &&
+          PermissionNext.evaluate("spawn_agent", a.name, caller.permission).action !== "deny",
+      )
+    : visible.filter((a) => targets === undefined || targets.includes(a.name))
 
   const agentList = accessible
     .map((a) => `- \`${a.name}\` [${a.mode}]: ${a.description ?? "(no description)"}`)
@@ -43,6 +51,7 @@ export const SpawnAgentTool = Tool.define("spawn_agent", async (ctx) => {
     description,
     parameters,
     async execute(params: z.infer<typeof parameters>, ctx) {
+      CollabAgentNode.assertSpawn(ctx.sessionID, params.agent_type)
       await ctx.ask({
         permission: "spawn_agent",
         patterns: [params.agent_type],
@@ -58,8 +67,12 @@ export const SpawnAgentTool = Tool.define("spawn_agent", async (ctx) => {
 
       // Make sure the current primary session is a Collab root if it is not yet.
       const parentNode = Collab.getBySession(ctx.sessionID)
-      if (parentNode?.parent_agent_id && !CollabAgentNode.isActive(parentNode.status)) {
-        throw new Error("This experiment agent is inactive. Its Atom parent must call resume_agent before it can spawn peers.")
+      const inactive = !!parentNode?.parent_agent_id && !CollabAgentNode.isActive(parentNode.status)
+      const human = inactive && ResearchSessionControl.canStartHumanRun(ctx.sessionID)
+      if (inactive && !human) {
+        throw new Error(
+          "This experiment agent is inactive. Its Atom parent must call resume_agent before it can spawn peers.",
+        )
       }
       if (!parentNode) {
         await Collab.ensureRootFromSession(ctx.sessionID, {
@@ -71,17 +84,22 @@ export const SpawnAgentTool = Tool.define("spawn_agent", async (ctx) => {
 
       // Model resolution order (mirrors the `task` tool):
       //   1. explicit params.model from the LLM
-      //   2. target agent's configured agent.model
-      //   3. parent turn's model (read off the current assistant message)
-      // Never fall through to Provider.defaultModel() — that's what caused the
-      // bug where Opus parents spawned GPT children.
+      //   2. parent turn's model (read off the current assistant message)
+      //   3. target agent's configured agent.model
       const parentMsg = await MessageV2.get({ sessionID: ctx.sessionID, messageID: ctx.messageID })
       if (parentMsg.info.role !== "assistant") throw new Error("spawn_agent called outside an assistant turn")
       const inheritedModel = {
         providerID: parentMsg.info.providerID,
         modelID: parentMsg.info.modelID,
       }
-      const resolvedModel = params.model ?? agent.model ?? inheritedModel
+      if (params.model) await Provider.getModel(params.model.providerID, params.model.modelID)
+      const resolvedModel =
+        params.model ??
+        (await SessionPrompt.resolveModel({
+          sessionID: ctx.sessionID,
+          agent: params.agent_type,
+          sender: inheritedModel,
+        }))
 
       const spec: AgentSpec = {
         initialPrompt: params.prompt,
@@ -94,6 +112,7 @@ export const SpawnAgentTool = Tool.define("spawn_agent", async (ctx) => {
         name: params.name,
         subagentType: params.agent_type,
         spec,
+        startParent: human ? "human" : undefined,
       })
 
       ctx.metadata({
@@ -119,7 +138,7 @@ export const SpawnAgentTool = Tool.define("spawn_agent", async (ctx) => {
           "",
           "IMPORTANT — the spawned agent is now running asynchronously in the background.",
           "YOU MUST END YOUR TURN NOW. The framework will automatically re-invoke your LLM",
-          "with a `child_done` message as soon as the peer completes — you do not need to",
+          "with a `child_done` or `child_failed` message as soon as the peer finishes — you do not need to",
           "poll, wait, or do anything else. Specifically:",
           "  - DO NOT call `list_children` to check status.",
           "  - DO NOT call `bash sleep` or any other waiting workaround.",

@@ -1,4 +1,5 @@
 import z from "zod"
+import type { SessionPrompt } from "@/session/prompt"
 import { collabAgentPhases, collabAgentStatuses, collabMsgKinds } from "./collab.sql"
 
 export const CollabAgentStatusSchema = z.enum(collabAgentStatuses)
@@ -9,6 +10,9 @@ export type CollabAgentPhase = z.infer<typeof CollabAgentPhaseSchema>
 
 export const CollabMsgKindSchema = z.enum(collabMsgKinds)
 export type CollabMsgKind = z.infer<typeof CollabMsgKindSchema>
+
+export const RunInitiatorSchema = z.enum(["human", "agent"])
+export type RunInitiator = z.infer<typeof RunInitiatorSchema>
 
 export const WAKE_MESSAGE_KINDS: readonly CollabMsgKind[] = [
   "child_done",
@@ -32,6 +36,7 @@ export const AgentPolicySchema = z
     maxChildren: z.number().int().positive().optional(),
     progress_injection: ProgressInjectionSchema.default("latest").optional(),
     summarize: z.boolean().optional(),
+    detach_on_terminal: z.boolean().optional(),
   })
   .meta({ ref: "CollabAgentPolicy" })
 export type AgentPolicy = z.infer<typeof AgentPolicySchema>
@@ -69,6 +74,7 @@ export const AgentErrorSchema = z
 export type AgentError = z.infer<typeof AgentErrorSchema>
 
 export const ChildDonePayloadSchema = z.object({
+  runId: z.string().optional(),
   childAgentId: z.string(),
   childName: z.string(),
   summary: z.string(),
@@ -77,6 +83,7 @@ export const ChildDonePayloadSchema = z.object({
 export type ChildDonePayload = z.infer<typeof ChildDonePayloadSchema>
 
 export const ChildFailedPayloadSchema = z.object({
+  runId: z.string().optional(),
   childAgentId: z.string(),
   childName: z.string(),
   reason: z.enum(["error", "canceled", "timeout"]),
@@ -86,6 +93,7 @@ export const ChildFailedPayloadSchema = z.object({
 export type ChildFailedPayload = z.infer<typeof ChildFailedPayloadSchema>
 
 export const ChildWaitingPayloadSchema = z.object({
+  runId: z.string().optional(),
   childAgentId: z.string(),
   childName: z.string(),
   childSessionId: z.string(),
@@ -97,6 +105,7 @@ export const ChildWaitingPayloadSchema = z.object({
 export type ChildWaitingPayload = z.infer<typeof ChildWaitingPayloadSchema>
 
 export const ChildProgressPayloadSchema = z.object({
+  runId: z.string().optional(),
   childAgentId: z.string(),
   childName: z.string(),
   turn: z.number().int().nonnegative(),
@@ -139,7 +148,9 @@ export const UserInputPayloadSchema = z.object({
     })
     .optional(),
 })
-export type UserInputPayload = z.infer<typeof UserInputPayloadSchema>
+export type UserInputPayload = z.infer<typeof UserInputPayloadSchema> & {
+  prompt?: Omit<SessionPrompt.PromptInput, "sessionID">
+}
 
 export const SystemPayloadSchema = z.object({
   event: z.enum(["timeout", "retry", "resource_reclaim"]),
@@ -166,6 +177,8 @@ export const AgentInfoSchema = z
     name: z.string(),
     project_id: z.string(),
     root_agent_id: z.string(),
+    run_id: z.string().nullable(),
+    initiator: RunInitiatorSchema.nullable(),
     subagent_type: z.string(),
     status: CollabAgentStatusSchema,
     phase: CollabAgentPhaseSchema,
@@ -187,9 +200,10 @@ export const MessageInfoSchema = z
     id: z.string(),
     recipient_agent_id: z.string(),
     sender_agent_id: z.string().nullable(),
+    run_id: z.string().nullable(),
     kind: CollabMsgKindSchema,
     payload: z.unknown(),
-    status: z.enum(["pending", "consumed", "dropped"]),
+    status: z.enum(["pending", "processing", "consumed", "dropped"]),
     time_created: z.number(),
     time_updated: z.number(),
     time_consumed: z.number().nullable(),

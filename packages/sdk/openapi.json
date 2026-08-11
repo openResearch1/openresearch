@@ -5610,6 +5610,16 @@
                       "math",
                       "experiment"
                     ]
+                  },
+                  "article_id": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 }
               }
@@ -11604,6 +11614,7 @@
                 "child_waiting",
                 "child_progress",
                 "remote_task_terminal",
+                "session_remote_task_terminal",
                 "cancel",
                 "user_input",
                 "system"
@@ -17956,6 +17967,9 @@
           },
           "summarize": {
             "type": "boolean"
+          },
+          "detach_on_terminal": {
+            "type": "boolean"
           }
         }
       },
@@ -18056,6 +18070,16 @@
           "root_agent_id": {
             "type": "string"
           },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "subagent_type": {
             "type": "string"
           },
@@ -18147,6 +18171,7 @@
           "name",
           "project_id",
           "root_agent_id",
+          "run_id",
           "subagent_type",
           "status",
           "phase",
@@ -18234,6 +18259,60 @@
               "status",
               "phase",
               "active_children"
+            ]
+          }
+        },
+        "required": [
+          "type",
+          "properties"
+        ]
+      },
+      "Event.collab.agent.reparented": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "collab.agent.reparented"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "info": {
+                "$ref": "#/components/schemas/CollabAgent"
+              },
+              "oldParentAgentId": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "newParentAgentId": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "oldRootAgentId": {
+                "type": "string"
+              },
+              "newRootAgentId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "info",
+              "oldParentAgentId",
+              "newParentAgentId",
+              "oldRootAgentId",
+              "newRootAgentId"
             ]
           }
         },
@@ -18343,6 +18422,7 @@
                   "child_waiting",
                   "child_progress",
                   "remote_task_terminal",
+                  "session_remote_task_terminal",
                   "cancel",
                   "user_input",
                   "system"
@@ -18386,6 +18466,7 @@
                   "child_waiting",
                   "child_progress",
                   "remote_task_terminal",
+                  "session_remote_task_terminal",
                   "cancel",
                   "user_input",
                   "system"
@@ -19677,6 +19758,9 @@
             "$ref": "#/components/schemas/Event.collab.agent.status"
           },
           {
+            "$ref": "#/components/schemas/Event.collab.agent.reparented"
+          },
+          {
             "$ref": "#/components/schemas/Event.collab.agent.completed"
           },
           {
@@ -20869,10 +20953,6 @@
               "disable_paste_summary": {
                 "type": "boolean"
               },
-              "batch_tool": {
-                "description": "Enable the batch tool",
-                "type": "boolean"
-              },
               "openTelemetry": {
                 "description": "Enable OpenTelemetry spans for AI SDK calls (using the 'experimental_telemetry' flag)",
                 "type": "boolean"
@@ -21953,6 +22033,16 @@
               }
             ]
           },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "kind": {
             "type": "string",
             "enum": [
@@ -21961,6 +22051,7 @@
               "child_waiting",
               "child_progress",
               "remote_task_terminal",
+              "session_remote_task_terminal",
               "cancel",
               "user_input",
               "system"
@@ -21971,6 +22062,7 @@
             "type": "string",
             "enum": [
               "pending",
+              "processing",
               "consumed",
               "dropped"
             ]
@@ -21996,6 +22088,7 @@
           "id",
           "recipient_agent_id",
           "sender_agent_id",
+          "run_id",
           "kind",
           "payload",
           "status",

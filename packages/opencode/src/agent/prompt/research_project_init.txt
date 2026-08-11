@@ -127,8 +127,9 @@ After local trees and cross-tree links are complete, briefly ask the user whethe
 - If the user declines, skip this step.
 - If the user agrees:
   - call `atom_query` with the target article IDs
-  - for each returned atom, call `task` with subagent `atom_formula_cleanup`
-  - pass atom id, atom name, claim path, and evidence path in the task prompt
+  - skip every locked Atom
+  - for each remaining Atom, call `task` with subagent `atom_formula_cleanup`
+  - pass atom id, atom name, locked state, claim path, and evidence path in the task prompt
 
 This cleanup step must only inspect atoms from the target articles of this run, not the whole project.
 
@@ -140,10 +141,7 @@ This cleanup step must only inspect atoms from the target articles of this run, 
 - Only then create cross-tree links.
 - Keep article trees conceptually independent even after they are linked.
 - Cross-tree linking must be conservative and sparse.
-- All created relations must obey the `research.txt` relation semantics:
-  - source is prior
-  - target is downstream
-  - `validates` must point from method/theorem to verification
+- Pass tree pairs as unordered groups; `research_tree_link` owns per-edge orientation from the shared relation semantics.
 
 ## Final response
 

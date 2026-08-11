@@ -13,6 +13,7 @@ import { Installation } from "../installation"
 import { Database, NotFoundError, eq, and, or, gte, isNull, desc, like, inArray, lt } from "../storage/db"
 import type { SQL } from "../storage/db"
 import { SessionTable, MessageTable, PartTable } from "./session.sql"
+import { SessionDeletionTable } from "./deletion.sql"
 import { ProjectTable } from "../project/project.sql"
 import { Storage } from "@/storage/storage"
 import { Log } from "../util/log"
@@ -664,9 +665,41 @@ export namespace Session {
 
   async function removeNext(sessionID: string, removing: Set<string>) {
     const project = Instance.project
+    let marked = false
+    let heartbeat: ReturnType<typeof setInterval> | undefined
     try {
       if (removing.has(sessionID)) return
       removing.add(sessionID)
+      const now = Date.now()
+      marked = !!Database.transaction((tx) => {
+        tx.delete(SessionDeletionTable)
+          .where(
+            and(
+              eq(SessionDeletionTable.session_id, sessionID),
+              lt(SessionDeletionTable.time_updated, now - 5 * 60_000),
+            ),
+          )
+          .run()
+        return tx
+          .insert(SessionDeletionTable)
+          .values({ session_id: sessionID, time_created: now, time_updated: now })
+          .onConflictDoNothing()
+          .returning({ id: SessionDeletionTable.session_id })
+          .get()
+      })
+      if (!marked) return
+      heartbeat = setInterval(
+        () =>
+          Database.use((db) =>
+            db
+              .update(SessionDeletionTable)
+              .set({ time_updated: Date.now() })
+              .where(eq(SessionDeletionTable.session_id, sessionID))
+              .run(),
+          ),
+        30_000,
+      )
+      heartbeat.unref?.()
       const session = await get(sessionID)
       for (const child of await children(sessionID)) {
         await removeNext(child.id, removing)
@@ -674,6 +707,7 @@ export namespace Session {
       const { CollabAgentNode } = await import("@/collab/agent-node")
       const agent = CollabAgentNode.loadBySessionId(sessionID)
       if (agent) {
+        await import("@/research/atom-agent").then((mod) => mod.AtomAgent.releaseParent(agent.id))
         for (const child of CollabAgentNode.loadChildren(agent.id)) {
           const info = await get(child.session_id).catch(() => undefined)
           if (info?.collabPeer) {
@@ -683,7 +717,11 @@ export namespace Session {
           CollabAgentNode.detach(child.id)
         }
         const parent = agent.parent_agent_id ? CollabAgentNode.tryLoad(agent.parent_agent_id) : undefined
-        const report = !!parent && CollabAgentNode.isActive(agent.status) && !removing.has(parent.session_id)
+        const report =
+          !!parent &&
+          CollabAgentNode.isActive(agent.status) &&
+          agent.initiator !== "human" &&
+          !removing.has(parent.session_id)
         if (report) {
           const { CollabMessage } = await import("@/collab/message")
           await CollabMessage.post({
@@ -711,7 +749,14 @@ export namespace Session {
         )
       })
     } catch (e) {
+      if (marked) {
+        Database.use((db) =>
+          db.delete(SessionDeletionTable).where(eq(SessionDeletionTable.session_id, sessionID)).run(),
+        )
+      }
       log.error(e)
+    } finally {
+      if (heartbeat) clearInterval(heartbeat)
     }
   }
 
@@ -843,7 +888,9 @@ export namespace Session {
         input.usage.outputTokenDetails?.textTokens ?? safe(input.usage.outputTokens) - reasoningTokens,
       )
 
-      const cacheReadInputTokens = safe(input.usage.inputTokenDetails?.cacheReadTokens ?? input.usage.cachedInputTokens ?? 0)
+      const cacheReadInputTokens = safe(
+        input.usage.inputTokenDetails?.cacheReadTokens ?? input.usage.cachedInputTokens ?? 0,
+      )
       const metadataCacheWriteInputTokens =
         number(input.metadata?.["anthropic"]?.["cacheCreationInputTokens"]) ||
         number(input.metadata?.["vertex"]?.["cacheCreationInputTokens"]) ||
@@ -854,8 +901,7 @@ export namespace Session {
       )
 
       const adjustedInputTokens = safe(
-        input.usage.inputTokenDetails?.noCacheTokens ??
-          inputTokens - cacheReadInputTokens - cacheWriteInputTokens,
+        input.usage.inputTokenDetails?.noCacheTokens ?? inputTokens - cacheReadInputTokens - cacheWriteInputTokens,
       )
 
       const total = safe(

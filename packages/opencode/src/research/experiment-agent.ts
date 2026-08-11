@@ -1,9 +1,8 @@
-import { eq } from "drizzle-orm"
+import { and, eq, isNull } from "drizzle-orm"
 
 import { Bus } from "@/bus"
 import { CollabAgentNode } from "@/collab/agent-node"
 import { CollabEvent } from "@/collab/events"
-import { CollabMessage } from "@/collab/message"
 import { CollabRuntime } from "@/collab/runtime"
 import { Identifier } from "@/id/id"
 import { Instance } from "@/project/instance"
@@ -12,8 +11,9 @@ import { SessionTable } from "@/session/session.sql"
 import { SessionOwnership } from "@/session/ownership"
 import { Database } from "@/storage/db"
 import { Log } from "@/util/log"
-import { ExperimentRemoteTaskListener } from "./experiment-remote-task-listener"
 import { AtomTable, ExperimentTable, ResearchProjectTable } from "./research.sql"
+import { ResearchSessionControl } from "./session-control"
+import { ResearchDeletionTable } from "./research-deletion.sql"
 
 export namespace ExperimentAgent {
   const log = Log.create({ service: "experiment-agent" })
@@ -24,11 +24,7 @@ export namespace ExperimentAgent {
     reason?: string
   }
 
-  export class BusyError extends Error {
-    constructor(public readonly sessionID: string) {
-      super(`Experiment session ${sessionID} is controlled by its Atom agent`)
-    }
-  }
+  export const BusyError = ResearchSessionControl.BusyError
 
   const state = Instance.state(
     () => {
@@ -101,6 +97,7 @@ export namespace ExperimentAgent {
 
   export async function recover(agentId: string) {
     const node = CollabAgentNode.tryLoad(agentId)
+    if (node?.initiator === "human" && CollabAgentNode.isActive(node.status)) return node
     const expId = node?.spec.metadata?.expId
     if (typeof expId !== "string") return node
     const result = await attach(expId, { force: true })
@@ -109,6 +106,14 @@ export namespace ExperimentAgent {
   }
 
   async function run(expId: string, force: boolean): Promise<Result> {
+    const deleting = Database.use((db) =>
+      db
+        .select({ id: ResearchDeletionTable.entity_id })
+        .from(ResearchDeletionTable)
+        .where(and(eq(ResearchDeletionTable.kind, "experiment"), eq(ResearchDeletionTable.entity_id, expId)))
+        .get(),
+    )
+    if (deleting) return { status: "unbound", reason: "Experiment is being deleted" }
     const exp = Database.use((db) => db.select().from(ExperimentTable).where(eq(ExperimentTable.exp_id, expId)).get())
     if (!exp?.atom_id) return { status: "unbound", reason: "Experiment is not linked to an atom" }
     const research = Database.use((db) =>
@@ -132,22 +137,59 @@ export namespace ExperimentAgent {
     if (current?.time_archived) {
       await import("@/session").then((mod) => mod.Session.setArchived({ sessionID: current.id }))
     }
-    const created =
-      !current
-        ? await import("@/session").then((mod) => mod.Session.create({ title: `Exp: ${exp.exp_name}` }))
-        : undefined
+    const { Session } = await import("@/session")
+    const created = !current ? await Session.create({ title: `Exp: ${exp.exp_name}` }) : undefined
+    let sessionId = exp.exp_session_id
     if (created) {
-      Database.transaction((db) => {
-        db
+      const winner = Database.transaction((tx) => {
+        const marker = tx
+          .select({ id: ResearchDeletionTable.entity_id })
+          .from(ResearchDeletionTable)
+          .where(and(eq(ResearchDeletionTable.kind, "experiment"), eq(ResearchDeletionTable.entity_id, expId)))
+          .get()
+        if (marker) return
+        return tx
           .update(ExperimentTable)
           .set({ exp_session_id: created.id, time_updated: Date.now() })
-          .where(eq(ExperimentTable.exp_id, expId))
-          .run()
-        if (previous) CollabAgentNode.rebind(previous.id, created.id)
+          .where(
+            and(
+              eq(ExperimentTable.exp_id, expId),
+              exp.exp_session_id
+                ? eq(ExperimentTable.exp_session_id, exp.exp_session_id)
+                : isNull(ExperimentTable.exp_session_id),
+            ),
+          )
+          .returning({ id: ExperimentTable.exp_id })
+          .get()
       })
+      if (winner) {
+        sessionId = created.id
+        if (previous) CollabAgentNode.rebind(previous.id, created.id)
+      } else {
+        await Session.remove(created.id)
+        sessionId =
+          Database.use(
+            (db) =>
+              db
+                .select({ id: ExperimentTable.exp_session_id })
+                .from(ExperimentTable)
+                .where(eq(ExperimentTable.exp_id, expId))
+                .get()?.id,
+          ) ?? null
+      }
     }
-    const sessionId = created?.id ?? exp.exp_session_id
     if (!sessionId) return { status: "unbound", reason: "Experiment has no session" }
+    if (
+      Database.use((db) =>
+        db
+          .select({ id: ResearchDeletionTable.entity_id })
+          .from(ResearchDeletionTable)
+          .where(and(eq(ResearchDeletionTable.kind, "experiment"), eq(ResearchDeletionTable.entity_id, expId)))
+          .get(),
+      )
+    ) {
+      return { status: "unbound", reason: "Experiment is being deleted" }
+    }
 
     const session = Database.use((db) => db.select().from(SessionTable).where(eq(SessionTable.id, sessionId)).get())
     if (!session) return { status: "unbound", reason: "Experiment session is unavailable" }
@@ -181,7 +223,9 @@ export namespace ExperimentAgent {
       policy: { ...root.spec.policy, on_fail: "continue" },
       metadata: { ...root.spec.metadata, atomId: atom.atom_id },
     })
-    if (!CollabAgentNode.isActive(root.status)) root = CollabAgentNode.activate(root.id)
+    if (!root.parent_agent_id && root.root_agent_id === root.id && !CollabAgentNode.isActive(root.status)) {
+      root = CollabAgentNode.activate(root.id)
+    }
     const node = previous ?? CollabAgentNode.loadBySessionId(session.id)
     if (!node) {
       const info = CollabAgentNode.create({
@@ -247,62 +291,14 @@ export namespace ExperimentAgent {
   }
 
   export function assertHuman(sessionID: string) {
-    const exp = Database.use((db) =>
-      db
-        .select({ id: ExperimentTable.exp_id })
-        .from(ExperimentTable)
-        .where(eq(ExperimentTable.exp_session_id, sessionID))
-        .get(),
-    )
-    if (!exp) return
-    const node = CollabAgentNode.loadBySessionId(sessionID)
-    if (!node?.parent_agent_id || !CollabAgentNode.isActive(node.status)) return
-    throw new BusyError(sessionID)
+    return ResearchSessionControl.assertHuman(sessionID)
   }
 
   export function claimHuman(sessionID: string) {
-    assertHuman(sessionID)
-    const release = SessionOwnership.claim(sessionID, "human")
-    if (!release) throw new BusyError(sessionID)
-    return release
+    return ResearchSessionControl.claimHuman(sessionID)
   }
 
   async function settled(agentId: string) {
-    const node = CollabAgentNode.load(agentId)
-    if (node.parent_agent_id && CollabAgentNode.isActive(node.status)) return false
-    if (SessionStatus.get(node.session_id).type !== "idle") return false
-    const { CollabAutoWake } = await import("@/collab/auto-wake")
-    if (CollabAutoWake.isDriving(node.session_id)) return false
-    if (
-      node.active_children > 0 ||
-      CollabMessage.hasPendingWakeMsg(node.id) ||
-      CollabMessage.hasPendingKind(node.id, "session_remote_task_terminal")
-    )
-      return false
-    return branch(node.id).every((item) => {
-      if (
-        CollabRuntime.has(item.id) ||
-        ExperimentRemoteTaskListener.has(item.id) ||
-        CollabMessage.hasPendingKind(item.id, "session_remote_task_terminal")
-      )
-        return false
-      return item.id === node.id || !CollabAgentNode.isActive(item.status)
-    })
-  }
-
-  function branch(agentId: string) {
-    const node = CollabAgentNode.load(agentId)
-    const tree = CollabAgentNode.loadTree(node.root_agent_id)
-    const ids = new Set([node.id])
-    let changed = true
-    while (changed) {
-      changed = false
-      for (const item of tree) {
-        if (!item.parent_agent_id || !ids.has(item.parent_agent_id) || ids.has(item.id)) continue
-        ids.add(item.id)
-        changed = true
-      }
-    }
-    return tree.filter((item) => ids.has(item.id))
+    return ResearchSessionControl.branchSettled(agentId)
   }
 }

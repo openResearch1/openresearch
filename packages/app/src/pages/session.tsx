@@ -24,7 +24,7 @@ import { Button } from "@opencode-ai/ui/button"
 import { showToast } from "@opencode-ai/ui/toast"
 import { base64Encode, checksum } from "@opencode-ai/util/encode"
 import { useNavigate, useParams, useSearchParams } from "@solidjs/router"
-import { NewSessionView, SessionHeader } from "@/components/session"
+import { NewSessionView, ResearchSessionView, SessionHeader, type ResearchSessionKind } from "@/components/session"
 import { useComments } from "@/context/comments"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
@@ -233,21 +233,6 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
     ),
   )
 
-  // Auto-select the "experiment" agent for fresh experiment sessions
-  createEffect(
-    on(
-      () => params.id,
-      () => {
-        const session = info()
-        if (!session) return
-        if (lastUserMessage()) return
-        if (session.title.startsWith("Exp: ")) {
-          local.agent.set("experiment")
-        }
-      },
-    ),
-  )
-
   createEffect(
     on(
       () => ({ dir: params.dir, id: params.id }),
@@ -294,6 +279,13 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
     if (!store.messageId) return lastUserMessage()
     const found = visibleUserMessages()?.find((m) => m.id === store.messageId)
     return found ?? lastUserMessage()
+  })
+  const researchSessionKind = createMemo<ResearchSessionKind | undefined>(() => {
+    if (!collabActivity.ready()) return
+    if (collabActivity.controllerRoot()) return "controller"
+    const metadata = collabActivity.rootAgent()?.spec.metadata
+    if (typeof metadata?.expId === "string") return "experiment"
+    if (typeof metadata?.atomId === "string") return "atom"
   })
   const setActiveMessage = (message: UserMessage | undefined) => {
     setStore("messageId", message?.id)
@@ -1177,7 +1169,14 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
           <div class="flex-1 min-h-0 overflow-hidden">
             <Switch>
               <Match when={params.id}>
-                <Show when={activeMessage()}>
+                <Show
+                  when={activeMessage()}
+                  fallback={
+                    <Show when={researchSessionKind()} keyed>
+                      {(kind) => <ResearchSessionView kind={kind} />}
+                    </Show>
+                  }
+                >
                   <MessageTimeline
                     remote={props.remote}
                     mobileChanges={mobileChanges()}
@@ -1285,6 +1284,7 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
 
         <Show when={!props.remote}>
           <SessionSidePanel
+            collabActivity={collabActivity}
             reviewPanel={reviewPanel}
             activeDiff={tree.activeDiff}
             focusReviewDiff={focusReviewDiff}

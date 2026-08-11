@@ -350,8 +350,8 @@ export const SessionRoutes = lazy(() =>
       validator("json", Session.initialize.schema.omit({ sessionID: true })),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
-        const release = await import("@/research/experiment-agent").then((mod) =>
-          mod.ExperimentAgent.claimHuman(sessionID),
+        const release = await import("@/research/session-control").then((mod) =>
+          mod.ResearchSessionControl.claimHuman(sessionID),
         )
         const body = c.req.valid("json")
         try {
@@ -419,7 +419,7 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
-        await import("@/research/experiment-agent").then((mod) => mod.ExperimentAgent.assertHuman(sessionID))
+        await import("@/research/session-control").then((mod) => mod.ResearchSessionControl.assertAbort(sessionID))
         SessionPrompt.cancel(sessionID)
         return c.json(true)
       },
@@ -559,8 +559,8 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
-        const release = await import("@/research/experiment-agent").then((mod) =>
-          mod.ExperimentAgent.claimHuman(sessionID),
+        const release = await import("@/research/session-control").then((mod) =>
+          mod.ResearchSessionControl.claimHuman(sessionID),
         )
         const body = c.req.valid("json")
         try {
@@ -810,8 +810,8 @@ export const SessionRoutes = lazy(() =>
       validator("json", SessionPrompt.PromptInput.omit({ sessionID: true })),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
-        const release = await import("@/research/experiment-agent").then((mod) =>
-          mod.ExperimentAgent.claimHuman(sessionID),
+        const release = await import("@/research/session-control").then((mod) =>
+          mod.ResearchSessionControl.claimHuman(sessionID, { restart: true }),
         )
         c.status(200)
         c.header("Content-Type", "application/json")
@@ -849,13 +849,13 @@ export const SessionRoutes = lazy(() =>
       validator("json", SessionPrompt.PromptInput.omit({ sessionID: true })),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
-        const release = await import("@/research/experiment-agent").then((mod) =>
-          mod.ExperimentAgent.claimHuman(sessionID),
-        )
+        const body = c.req.valid("json")
+        const control = await import("@/research/session-control").then((mod) => mod.ResearchSessionControl)
         c.status(204)
         c.header("Content-Type", "application/json")
+        if (control.queueHumanPrompt(sessionID, body)) return c.body(null)
+        const release = control.claimHuman(sessionID, { restart: true })
         return stream(c, async () => {
-          const body = c.req.valid("json")
           void SessionPrompt.prompt({ ...body, sessionID }).finally(release)
         })
       },
@@ -892,8 +892,8 @@ export const SessionRoutes = lazy(() =>
       validator("json", SessionPrompt.CommandInput.omit({ sessionID: true })),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
-        const release = await import("@/research/experiment-agent").then((mod) =>
-          mod.ExperimentAgent.claimHuman(sessionID),
+        const release = await import("@/research/session-control").then((mod) =>
+          mod.ResearchSessionControl.claimHuman(sessionID, { restart: true }),
         )
         const body = c.req.valid("json")
         try {
@@ -930,8 +930,8 @@ export const SessionRoutes = lazy(() =>
       validator("json", SessionPrompt.ShellInput.omit({ sessionID: true })),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
-        const release = await import("@/research/experiment-agent").then((mod) =>
-          mod.ExperimentAgent.claimHuman(sessionID),
+        const release = await import("@/research/session-control").then((mod) =>
+          mod.ResearchSessionControl.claimHuman(sessionID),
         )
         const body = c.req.valid("json")
         try {
@@ -968,8 +968,8 @@ export const SessionRoutes = lazy(() =>
       validator("json", SessionPrompt.RemoteTaskInput.omit({ sessionID: true })),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
-        const release = await import("@/research/experiment-agent").then((mod) =>
-          mod.ExperimentAgent.claimHuman(sessionID),
+        const release = await import("@/research/session-control").then((mod) =>
+          mod.ResearchSessionControl.claimHuman(sessionID),
         )
         const body = c.req.valid("json")
         try {

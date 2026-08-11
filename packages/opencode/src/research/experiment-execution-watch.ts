@@ -1,9 +1,27 @@
-import { and, Database, eq } from "../storage/db"
+import { and, Database, desc, eq } from "../storage/db"
 import { ExperimentExecutionWatchTable, ExperimentTable, ExperimentWatchTable, RemoteTaskTable } from "./research.sql"
 
 type ExecutionStatus = typeof ExperimentExecutionWatchTable.$inferSelect.status
 type ExecutionStage = typeof ExperimentExecutionWatchTable.$inferSelect.stage
+type ExperimentStatus = typeof ExperimentTable.$inferSelect.status
 type Task = typeof RemoteTaskTable.$inferSelect
+
+const states: Record<ExecutionStatus, ExperimentStatus> = {
+  pending: "pending",
+  running: "running",
+  finished: "done",
+  failed: "failed",
+  canceled: "idle",
+}
+
+const watches: Record<typeof ExperimentWatchTable.$inferSelect.status, ExecutionStatus> = {
+  pending: "pending",
+  running: "running",
+  finished: "finished",
+  failed: "failed",
+  crashed: "failed",
+  canceled: "canceled",
+}
 
 interface UpdateInput {
   expId?: string
@@ -36,7 +54,12 @@ function row(input: { expId?: string; watchId?: string }) {
   }
   if (!input.expId) return
   return Database.use((db) =>
-    db.select().from(ExperimentExecutionWatchTable).where(eq(ExperimentExecutionWatchTable.exp_id, input.expId!)).get(),
+    db
+      .select()
+      .from(ExperimentExecutionWatchTable)
+      .where(eq(ExperimentExecutionWatchTable.exp_id, input.expId!))
+      .orderBy(desc(ExperimentExecutionWatchTable.time_updated))
+      .get(),
   )
 }
 
@@ -76,12 +99,17 @@ function finished(task: Task) {
 }
 
 export namespace ExperimentExecutionWatch {
+  export function resolve(expId: string, fallback: ExperimentStatus) {
+    const watch = row({ expId })
+    return watch ? states[watch.status] : fallback
+  }
+
   export function createOrGet(expId: string, title: string, stage: ExecutionStage = "planning") {
-    const existing = row({ expId })
-    if (existing) return existing
-    const now = Date.now()
-    const watchId = crypto.randomUUID()
-    Database.use((db) =>
+    return Database.transaction((db) => {
+      const existing = row({ expId })
+      if (existing) return existing
+      const now = Date.now()
+      const watchId = crypto.randomUUID()
       db
         .insert(ExperimentExecutionWatchTable)
         .values({
@@ -90,24 +118,39 @@ export namespace ExperimentExecutionWatch {
           status: "pending",
           stage,
           title,
-          started_at: now,
           time_created: now,
           time_updated: now,
         })
-        .run(),
-    )
-    return row({ watchId })!
+        .run()
+      db.update(ExperimentTable)
+        .set({ status: states.pending, started_at: null, finished_at: null, time_updated: now })
+        .where(eq(ExperimentTable.exp_id, expId))
+        .run()
+      return row({ watchId })!
+    })
   }
 
   export function update(input: UpdateInput) {
-    const existing = row(input)
-    if (!existing) return
-    const now = Date.now()
-    Database.use((db) =>
-      db
-        .update(ExperimentExecutionWatchTable)
+    return Database.transaction((db) => {
+      const existing = row(input)
+      if (!existing) return
+      const now = Date.now()
+      const next = input.status ?? existing.status
+      const terminal = next === "finished" || next === "failed" || next === "canceled"
+      const started =
+        next === "pending"
+          ? null
+          : input.startedAt !== undefined
+            ? input.startedAt
+            : next === "running" && existing.status !== "running"
+              ? now
+              : existing.started_at
+      const finished =
+        input.finishedAt !== undefined ? input.finishedAt : terminal ? (existing.finished_at ?? now) : null
+
+      db.update(ExperimentExecutionWatchTable)
         .set({
-          status: input.status ?? existing.status,
+          status: next,
           stage: input.stage ?? existing.stage,
           title: input.title ?? existing.title,
           message: input.message === undefined ? existing.message : input.message,
@@ -115,13 +158,22 @@ export namespace ExperimentExecutionWatch {
           wandb_project: input.wandbProject === undefined ? existing.wandb_project : input.wandbProject,
           wandb_run_id: input.wandbRunId === undefined ? existing.wandb_run_id : input.wandbRunId,
           error_message: input.errorMessage === undefined ? existing.error_message : input.errorMessage,
-          started_at: input.startedAt === undefined ? existing.started_at : input.startedAt,
-          finished_at: input.finishedAt === undefined ? existing.finished_at : input.finishedAt,
+          started_at: started,
+          finished_at: finished,
           time_updated: now,
         })
         .where(eq(ExperimentExecutionWatchTable.watch_id, existing.watch_id))
-        .run(),
-    )
+        .run()
+      db.update(ExperimentTable)
+        .set({
+          status: states[next],
+          started_at: started,
+          finished_at: finished,
+          time_updated: now,
+        })
+        .where(eq(ExperimentTable.exp_id, existing.exp_id))
+        .run()
+    })
   }
 
   export function deleteByExp(expId: string) {
@@ -142,9 +194,10 @@ export namespace ExperimentExecutionWatch {
 
   export function syncWatch(expId: string, watch: typeof ExperimentWatchTable.$inferSelect, _opts?: SyncOptions) {
     createOrGet(expId, title(expId))
+    const next = watches[watch.status]
     update({
       expId,
-      status: watch.status === "finished" ? "finished" : watch.status === "running" ? "running" : "failed",
+      status: next,
       stage: undefined,
       wandbEntity: watch.wandb_entity,
       wandbProject: watch.wandb_project,
@@ -152,8 +205,14 @@ export namespace ExperimentExecutionWatch {
       message: undefined,
       errorMessage: watch.status === "finished" ? null : watch.error_message,
       finishedAt:
-        watch.status === "finished" || watch.status === "failed" || watch.status === "crashed" ? Date.now() : null,
+        watch.status === "finished" ||
+        watch.status === "failed" ||
+        watch.status === "crashed" ||
+        watch.status === "canceled"
+          ? Date.now()
+          : null,
     })
+    return next
   }
 
   export function syncRemoteTask(expId: string, _opts?: SyncOptions) {

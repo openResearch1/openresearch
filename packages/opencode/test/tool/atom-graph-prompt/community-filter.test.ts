@@ -34,7 +34,7 @@ async function seedGraph(
   relations: Array<{
     source: string
     target: string
-    type: "motivates" | "formalizes" | "derives" | "analyzes" | "validates" | "contradicts" | "other"
+    type: "motivates" | "formalized_by" | "derives" | "analyzed_by" | "evaluated_by" | "contradicts" | "other"
   }>,
 ) {
   const now = Date.now()
@@ -91,9 +91,9 @@ test("should filter hybrid results by community IDs", async () => {
 
       await seedGraph(rpId, dir, atoms, [
         { source: `${p}-a1`, target: `${p}-a2`, type: "derives" },
-        { source: `${p}-a2`, target: `${p}-a1`, type: "analyzes" },
-        { source: `${p}-b1`, target: `${p}-b2`, type: "validates" },
-        { source: `${p}-b2`, target: `${p}-b1`, type: "formalizes" },
+        { source: `${p}-a2`, target: `${p}-a1`, type: "analyzed_by" },
+        { source: `${p}-b1`, target: `${p}-b2`, type: "evaluated_by" },
+        { source: `${p}-b2`, target: `${p}-b1`, type: "formalized_by" },
       ])
 
       const cache = await detectCommunities({ minCommunitySize: 2, forceRefresh: true })
@@ -151,9 +151,9 @@ test("should filter by minimum community size", async () => {
         { source: `${p}-lg1`, target: `${p}-lg2`, type: "derives" },
         { source: `${p}-lg2`, target: `${p}-lg3`, type: "derives" },
         { source: `${p}-lg3`, target: `${p}-lg4`, type: "derives" },
-        { source: `${p}-lg4`, target: `${p}-lg1`, type: "analyzes" },
-        { source: `${p}-sm1`, target: `${p}-sm2`, type: "validates" },
-        { source: `${p}-sm2`, target: `${p}-sm1`, type: "formalizes" },
+        { source: `${p}-lg4`, target: `${p}-lg1`, type: "analyzed_by" },
+        { source: `${p}-sm1`, target: `${p}-sm2`, type: "evaluated_by" },
+        { source: `${p}-sm2`, target: `${p}-sm1`, type: "formalized_by" },
       ])
 
       await detectCommunities({ minCommunitySize: 1, forceRefresh: true })
@@ -204,9 +204,9 @@ test("should filter by community dominant types", async () => {
 
       await seedGraph(rpId, dir, atoms, [
         { source: `${p}-m1`, target: `${p}-m2`, type: "derives" },
-        { source: `${p}-m2`, target: `${p}-m1`, type: "analyzes" },
-        { source: `${p}-t1`, target: `${p}-t2`, type: "validates" },
-        { source: `${p}-t2`, target: `${p}-t1`, type: "formalizes" },
+        { source: `${p}-m2`, target: `${p}-m1`, type: "analyzed_by" },
+        { source: `${p}-t1`, target: `${p}-t2`, type: "evaluated_by" },
+        { source: `${p}-t2`, target: `${p}-t1`, type: "formalized_by" },
       ])
 
       await detectCommunities({ minCommunitySize: 2, forceRefresh: true })
@@ -301,9 +301,9 @@ test("should combine community filter with semantic search", async () => {
 
       await seedGraph(rpId, dir, atoms, [
         { source: `${p}-opt1`, target: `${p}-opt2`, type: "derives" },
-        { source: `${p}-opt2`, target: `${p}-opt1`, type: "analyzes" },
-        { source: `${p}-bio1`, target: `${p}-bio2`, type: "analyzes" },
-        { source: `${p}-bio2`, target: `${p}-bio1`, type: "validates" },
+        { source: `${p}-opt2`, target: `${p}-opt1`, type: "analyzed_by" },
+        { source: `${p}-bio1`, target: `${p}-bio2`, type: "analyzed_by" },
+        { source: `${p}-bio2`, target: `${p}-bio1`, type: "evaluated_by" },
       ])
 
       const cache = await detectCommunities({ minCommunitySize: 2, forceRefresh: true })
@@ -356,12 +356,12 @@ test("should filter by maximum community size", async () => {
       ]
 
       await seedGraph(rpId, dir, atoms, [
-        { source: `${p}-s1`, target: `${p}-s2`, type: "validates" },
-        { source: `${p}-s2`, target: `${p}-s1`, type: "formalizes" },
+        { source: `${p}-s1`, target: `${p}-s2`, type: "evaluated_by" },
+        { source: `${p}-s2`, target: `${p}-s1`, type: "formalized_by" },
         { source: `${p}-l1`, target: `${p}-l2`, type: "derives" },
         { source: `${p}-l2`, target: `${p}-l3`, type: "derives" },
         { source: `${p}-l3`, target: `${p}-l4`, type: "derives" },
-        { source: `${p}-l4`, target: `${p}-l1`, type: "analyzes" },
+        { source: `${p}-l4`, target: `${p}-l1`, type: "analyzed_by" },
       ])
 
       await detectCommunities({ minCommunitySize: 2, forceRefresh: true })

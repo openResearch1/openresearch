@@ -12,6 +12,7 @@ import {
   type JSX,
 } from "solid-js"
 import { useParams } from "@solidjs/router"
+import { createStore } from "solid-js/store"
 import { Collapsible } from "@opencode-ai/ui/collapsible"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
@@ -80,9 +81,19 @@ export function ResearchSessionTree(props: {
 
   const atomSessionIdSet = createMemo(() => new Set(tree()?.atomSessionIds ?? []))
   const expSessionIdSet = createMemo(() => new Set(tree()?.expSessionIds ?? []))
+  const controllerSessionIdSet = createMemo(() => new Set(tree()?.controllerSessionIds ?? []))
+
+  const controllerSessions = createMemo(() =>
+    props.sessions().filter((session) => controllerSessionIdSet().has(session.id)),
+  )
 
   const normalSessions = createMemo(() =>
-    props.sessions().filter((s) => !atomSessionIdSet().has(s.id) && !expSessionIdSet().has(s.id)),
+    props.sessions().filter(
+      (session) =>
+        !controllerSessionIdSet().has(session.id) &&
+        !atomSessionIdSet().has(session.id) &&
+        !expSessionIdSet().has(session.id),
+    ),
   )
 
   const sessionMap = createMemo(() => {
@@ -115,11 +126,11 @@ export function ResearchSessionTree(props: {
   // Reset user override when active atom changes
   createEffect(on(activeAtomId, () => setAtomsUserOpen(undefined), { defer: true }))
 
-  const [exporting, setExporting] = createSignal(false)
+  const [state, setState] = createStore({ exporting: false })
 
   const handleExport = async () => {
-    if (exporting()) return
-    setExporting(true)
+    if (state.exporting) return
+    setState("exporting", true)
     try {
       const res = await client().research.project.export({ researchProjectId: props.researchProjectId } as any)
       const data = res.data as { zip_path: string; zip_name: string; size: number } | undefined
@@ -137,7 +148,7 @@ export function ResearchSessionTree(props: {
         variant: "error",
       })
     } finally {
-      setExporting(false)
+      setState("exporting", false)
     }
   }
 
@@ -155,7 +166,7 @@ export function ResearchSessionTree(props: {
             size="small"
             class="size-5"
             onClick={handleExport}
-            disabled={exporting()}
+            disabled={state.exporting}
             aria-label={language.t("research.export.button")}
           />
         </Tooltip>
@@ -173,6 +184,30 @@ export function ResearchSessionTree(props: {
       <Show when={props.loading()}>
         <SessionSkeleton />
       </Show>
+
+      <div class="flex items-center justify-between px-2 pt-2 pb-1">
+        <div class="text-11-regular text-text-weak uppercase tracking-wider">
+          {language.t("sidebar.research.controllers")}
+        </div>
+      </div>
+      <For each={controllerSessions()}>
+        {(session) => (
+          <SessionItem
+            session={session}
+            slug={props.slug()}
+            mobile={props.mobile}
+            children={props.children()}
+            sidebarExpanded={props.ctx.sidebarExpanded}
+            sidebarHovering={props.ctx.sidebarHovering}
+            nav={props.ctx.nav}
+            hoverSession={props.ctx.hoverSession}
+            setHoverSession={props.ctx.setHoverSession}
+            clearHoverProjectSoon={props.ctx.clearHoverProjectSoon}
+            prefetchSession={props.ctx.prefetchSession}
+            archiveSession={props.ctx.archiveSession}
+          />
+        )}
+      </For>
 
       {/* Level 1: Normal Conversations - always expanded */}
       <Show when={normalSessions().length > 0}>

@@ -2,9 +2,11 @@ import { Bus } from "@/bus"
 import { Instance } from "@/project/instance"
 import { Log } from "@/util/log"
 import { Session } from "@/session"
+import { MessageV2 } from "@/session/message-v2"
 import { SessionPrompt } from "@/session/prompt"
 import { SessionStatus } from "@/session/status"
 import { SessionOwnership } from "@/session/ownership"
+import { Identifier } from "@/id/id"
 import { CollabAgentNode } from "./agent-node"
 import { CollabMessage } from "./message"
 import { CollabSupervisor } from "./supervisor"
@@ -18,11 +20,13 @@ import {
   buildChildWaitingPart,
   buildRemoteTaskTerminalPart,
   finalizeParts,
+  matchParts,
   type PromptPartDraft,
 } from "./return-parts"
 import type {
   AgentError,
   AgentInfo,
+  CancelPayload,
   ChildDonePayload,
   ChildFailedPayload,
   ChildProgressPayload,
@@ -56,6 +60,7 @@ export namespace CollabAutoWake {
   const state = Instance.state(
     () => {
       const inflight = new Set<string>()
+      const turns = new Map<string, { agentId: string; lifecycle?: string; cancel: () => void }>()
 
       const unsubMsg = Bus.subscribe(CollabEvent.MessagePosted, (e) => {
         if (!enabled) return
@@ -97,18 +102,26 @@ export namespace CollabAutoWake {
         }
       })
 
-      return { inflight, unsubMsg, unsubIdle, unsubAgent }
+      return { inflight, turns, unsubMsg, unsubIdle, unsubAgent }
     },
     async (s) => {
       s.unsubMsg()
       s.unsubIdle()
       s.unsubAgent()
       s.inflight.clear()
+      s.turns.clear()
     },
   )
 
   export function ensure() {
     state()
+  }
+
+  export function wake(sessionID: string) {
+    if (!enabled) return
+    void tryDriveBySession(sessionID, state().inflight).catch((err) =>
+      log.error("wake", { sessionID, error: String(err) }),
+    )
   }
 
   /**
@@ -123,6 +136,27 @@ export namespace CollabAutoWake {
    */
   export function isDriving(sessionId: string): boolean {
     return state().inflight.has(sessionId)
+  }
+
+  export function interrupt(agentId: string, lifecycle: string) {
+    const node = CollabAgentNode.tryLoad(agentId)
+    if (!node || node.parent_agent_id || CollabAgentNode.lifecycle(node.spec) !== lifecycle) return false
+    const turn = state().turns.get(node.session_id)
+    if (!turn || turn.agentId !== agentId || turn.lifecycle !== lifecycle) return false
+    turn.cancel()
+    return true
+  }
+
+  function track(node: AgentInfo) {
+    const turn = {
+      agentId: node.id,
+      lifecycle: CollabAgentNode.lifecycle(node.spec),
+      cancel: () => SessionPrompt.cancel(node.session_id),
+    }
+    state().turns.set(node.session_id, turn)
+    return () => {
+      if (state().turns.get(node.session_id) === turn) state().turns.delete(node.session_id)
+    }
   }
 
   function scanExistingRoots(inflight: Set<string>) {
@@ -163,6 +197,7 @@ export namespace CollabAutoWake {
   }
 
   async function driveNode(node: AgentInfo, inflight: Set<string>) {
+    CollabMessage.reconcileRemoteTerminals(node.id)
     if (CollabMessage.hasPendingKind(node.id, "session_remote_task_terminal")) {
       await maybeDriveDirect(node, inflight)
       return
@@ -194,44 +229,91 @@ export namespace CollabAutoWake {
   }
 
   async function maybeDriveDirect(node: AgentInfo, inflight: Set<string>) {
+    if (CollabAgentNode.isStopped(node)) return
     if (inflight.has(node.session_id)) return
-    if (SessionStatus.get(node.session_id).type === "busy") return
-    if (!CollabMessage.hasPendingKind(node.id, "session_remote_task_terminal")) return
+    if (SessionStatus.get(node.session_id).type === "busy") {
+      if (
+        CollabMessage.hasOutstanding(node.id, "session_remote_task_terminal") ||
+        CollabMessage.hasOutstandingWakeMsg(node.id)
+      ) {
+        CollabRuntime.schedule(node.id, 1000, () => void tryDriveById(node.id, inflight))
+      }
+      return
+    }
+    if (!CollabMessage.hasOutstanding(node.id, "session_remote_task_terminal")) return
 
-    const release = SessionOwnership.claim(node.session_id, "human")
-    if (!release) return
+    const release = SessionOwnership.claim(node.session_id, "collab")
+    if (!release) {
+      CollabRuntime.schedule(
+        node.id,
+        SessionOwnership.retryAfter(node.session_id),
+        () => void tryDriveDirectById(node.id, inflight),
+      )
+      return
+    }
+    const lost = () => SessionPrompt.cancel(node.session_id)
+    release.signal.addEventListener("abort", lost, { once: true })
+    const untrack = track(node)
     inflight.add(node.session_id)
     try {
+      try {
+        SessionPrompt.assertNotBusy(node.session_id)
+      } catch {
+        CollabRuntime.schedule(node.id, 1000, () => void tryDriveDirectById(node.id, inflight))
+        return
+      }
+      CollabMessage.retryProcessing(node.id)
       for (let i = 0; i < MAX_DRIVE_ITERATIONS; i++) {
         if (SessionStatus.get(node.session_id).type === "busy") return
         if (!CollabMessage.hasPendingKind(node.id, "session_remote_task_terminal")) return
-        await driveDirect(node.id)
+        await driveDirect(node.id, release.signal)
       }
       log.warn("maybeDriveDirect hit MAX_DRIVE_ITERATIONS cap", { agentId: node.id })
     } finally {
       inflight.delete(node.session_id)
+      untrack()
+      release.signal.removeEventListener("abort", lost)
       release()
+      if (
+        CollabMessage.hasOutstanding(node.id, "session_remote_task_terminal") ||
+        CollabMessage.hasOutstandingWakeMsg(node.id)
+      ) {
+        CollabRuntime.schedule(node.id, 1000, () => void tryDriveById(node.id, inflight))
+      }
     }
   }
 
-  async function driveDirect(agentId: string) {
+  async function driveDirect(agentId: string, abort: AbortSignal) {
     if (driveTurnOverride) {
       await driveTurnOverride(agentId)
+      if (abort.aborted) {
+        CollabMessage.retryProcessing(agentId)
+        return
+      }
+      CollabMessage.ackProcessing(agentId)
       return
     }
     const node = CollabAgentNode.load(agentId)
     const msgs = CollabMessage.drain(agentId, "direct")
-    const parts = msgs.map((msg) => buildRemoteTaskTerminalPart(msg.payload_json as RemoteTaskTerminalPayload))
-    if (!parts.length) return
     try {
-      await SessionPrompt.prompt({
-        sessionID: node.session_id,
-        agent: node.subagent_type,
-        model: node.spec.model,
-        parts: finalizeParts(parts),
-      })
+      const parts = msgs.map((msg) => buildRemoteTaskTerminalPart(msg.payload_json as RemoteTaskTerminalPayload))
+      if (!parts.length) return
+      const drafts = finalizeParts(parts)
+      const delivery = (msgs[0].payload_json as { deliveryMessageId?: unknown }).deliveryMessageId
+      const messageID = typeof delivery === "string" ? delivery : undefined
+      if (abort.aborted) throw new Error("Session ownership lost during direct delivery")
+      const turn = await deliver(node, messageID, drafts, msgs)
+      if (abort.aborted) throw new Error("Session ownership lost during direct delivery")
+      if (!(await delivered(turn.result, node, turn.messageID))) {
+        throw new Error("Direct callback did not produce its assistant turn")
+      }
+      CollabMessage.ack(msgs)
     } catch (err) {
-      CollabMessage.retry(msgs.map((msg) => msg.id))
+      CollabMessage.retry(msgs, false)
+      const fresh = CollabAgentNode.tryLoad(agentId)
+      if (fresh && !CollabAgentNode.isStopped(fresh)) {
+        CollabRuntime.schedule(agentId, 1000, () => void tryDriveDirectById(agentId, state().inflight))
+      }
       throw err
     }
   }
@@ -239,7 +321,17 @@ export namespace CollabAutoWake {
   function maybeStartLoop(node: AgentInfo) {
     if (CollabRuntime.has(node.id)) return
     if (SessionStatus.get(node.session_id).type === "busy") return
-    if (!CollabMessage.hasPendingWakeMsg(node.id)) return
+    if (
+      node.status === "waiting_interaction" &&
+      node.error?.code === "MODEL_UNAVAILABLE" &&
+      !CollabMessage.hasPendingKind(node.id, "user_input")
+    )
+      return
+    if (
+      !CollabMessage.hasPendingWakeMsg(node.id) &&
+      !(node.initiator === "human" && node.status === "waiting_interaction")
+    )
+      return
     void CollabLoop.start(node.id)
   }
 
@@ -248,16 +340,117 @@ export namespace CollabAutoWake {
   // the next Bus event re-enter. Prevents pathological spin.
   const MAX_DRIVE_ITERATIONS = 64
 
+  async function delivered(result: MessageV2.WithParts, node: AgentInfo, messageID?: string) {
+    if (result.info.role !== "assistant") return false
+    if (result.info.error) return false
+    if (!messageID || result.info.parentID === messageID) return true
+    return derived(node.session_id, result.info.parentID, messageID)
+  }
+
+  async function derived(sessionID: string, current: string, target: string, seen = new Set<string>()) {
+    if (current === target) return true
+    if (seen.has(current)) return false
+    seen.add(current)
+    const msg = await MessageV2.get({ sessionID, messageID: current }).catch(() => undefined)
+    if (msg?.info.role !== "user") return false
+    const origin = msg.parts.flatMap((part) => {
+      if (part.type !== "text") return []
+      if (part.text !== "" || part.synthetic !== true || part.ignored !== true) return []
+      const value = part.metadata?.originMessageID
+      return typeof value === "string" ? [value] : []
+    })[0]
+    if (!origin) return false
+    return derived(sessionID, origin, target, seen)
+  }
+
+  async function deliver(
+    node: AgentInfo,
+    messageID: string | undefined,
+    parts: PromptPartDraft[],
+    msgs: CollabMessage.Row[],
+  ) {
+    const stale = msgs.flatMap((msg) => {
+      const payload = msg.payload_json
+      if (typeof payload !== "object" || payload === null) return []
+      const id = "staleDeliveryMessageId" in payload ? payload.staleDeliveryMessageId : undefined
+      return typeof id === "string" && id !== messageID ? [id] : []
+    })
+    await Promise.all(
+      [...new Set(stale)].map((id) =>
+        Session.removeMessage({ sessionID: node.session_id, messageID: id }).catch(() => undefined),
+      ),
+    )
+    const exact = messageID
+      ? await MessageV2.get({ sessionID: node.session_id, messageID }).catch(() => undefined)
+      : undefined
+    if (exact?.info.role === "user" && matchParts(exact.parts, parts)) {
+      const prior = await SessionPrompt.loop({ sessionID: node.session_id })
+      if (await delivered(prior, node, exact.info.id)) return { result: prior, messageID: exact.info.id }
+      if (prior.info.role === "assistant" && prior.info.parentID === exact.info.id) {
+        await Session.removeMessage({ sessionID: node.session_id, messageID: prior.info.id })
+        return { result: prior, messageID: exact.info.id }
+      }
+      const next = Identifier.ascending("message")
+      if (!CollabMessage.redeliver(msgs, next)) throw new Error("Callback delivery claim changed before refresh")
+      await Session.removeMessage({ sessionID: node.session_id, messageID: exact.info.id })
+      const result = await SessionPrompt.prompt({
+        sessionID: node.session_id,
+        messageID: next,
+        agent: node.subagent_type,
+        model: node.spec.model,
+        parts,
+      })
+      return { result, messageID: next }
+    }
+    if (exact) await Session.removeMessage({ sessionID: node.session_id, messageID: exact.info.id })
+    const result = await SessionPrompt.prompt({
+      sessionID: node.session_id,
+      messageID,
+      agent: node.subagent_type,
+      model: node.spec.model,
+      parts,
+    })
+    return { result, messageID }
+  }
+
   async function maybeWakeOrBlock(node: AgentInfo, inflight: Set<string>) {
+    if (!CollabAgentNode.isActive(node.status)) return
     if (node.parent_agent_id) {
       maybeStartLoop(node)
       return
     }
     if (inflight.has(node.session_id)) return
-    if (SessionStatus.get(node.session_id).type === "busy") return
+    if (SessionStatus.get(node.session_id).type === "busy") {
+      if (
+        CollabMessage.hasOutstandingWakeMsg(node.id) ||
+        CollabMessage.hasOutstanding(node.id, "session_remote_task_terminal")
+      ) {
+        CollabRuntime.schedule(node.id, 1000, () => void tryDriveById(node.id, inflight))
+      }
+      return
+    }
 
+    const release = SessionOwnership.claim(node.session_id, "collab")
+    if (!release) {
+      CollabRuntime.schedule(
+        node.id,
+        SessionOwnership.retryAfter(node.session_id),
+        () => void tryDriveById(node.id, inflight),
+      )
+      return
+    }
+    const lost = () => SessionPrompt.cancel(node.session_id)
+    release.signal.addEventListener("abort", lost, { once: true })
+    const untrack = track(node)
     inflight.add(node.session_id)
     try {
+      try {
+        SessionPrompt.assertNotBusy(node.session_id)
+      } catch {
+        CollabRuntime.schedule(node.id, 1000, () => void tryDriveById(node.id, inflight))
+        return
+      }
+      CollabMessage.retryProcessing(node.id)
       for (let i = 0; i < MAX_DRIVE_ITERATIONS; i++) {
         const fresh = CollabAgentNode.tryLoad(node.id)
         if (!fresh || !CollabAgentNode.isActive(fresh.status)) return
@@ -273,12 +466,27 @@ export namespace CollabAutoWake {
           return
         }
 
-        await driveTurn(fresh.id)
+        if (!(await driveTurn(fresh.id, release.signal))) {
+          const latest = CollabAgentNode.tryLoad(node.id)
+          if (latest && CollabAgentNode.isActive(latest.status)) {
+            CollabRuntime.schedule(node.id, 1000, () => void tryDriveById(node.id, inflight))
+          }
+          return
+        }
         // Loop: during driveTurn more child_done/failed may have arrived. Re-check.
       }
       log.warn("maybeWakeOrBlock hit MAX_DRIVE_ITERATIONS cap", { agentId: node.id })
     } finally {
       inflight.delete(node.session_id)
+      untrack()
+      release.signal.removeEventListener("abort", lost)
+      release()
+      if (
+        CollabMessage.hasOutstandingWakeMsg(node.id) ||
+        CollabMessage.hasOutstanding(node.id, "session_remote_task_terminal")
+      ) {
+        CollabRuntime.schedule(node.id, 1000, () => void tryDriveById(node.id, inflight))
+      }
       // Signal anyone waiting on this root (e.g. Collab.waitForRootSettled)
       // that the drive cycle ended — the AgentStatus / Idle events fired
       // during the cycle were filtered out by their isDriving() guard, so
@@ -290,105 +498,188 @@ export namespace CollabAutoWake {
     }
   }
 
-  async function driveTurn(agentId: string) {
+  async function driveTurn(agentId: string, abort: AbortSignal) {
     if (driveTurnOverride) {
       await driveTurnOverride(agentId)
-      return
+      if (abort.aborted) {
+        CollabMessage.retryProcessing(agentId)
+        return false
+      }
+      CollabMessage.ackProcessing(agentId)
+      return true
     }
     const node = CollabAgentNode.load(agentId)
     const msgs = CollabMessage.drain(agentId)
-
-    let gotCancel = false
-    const returnParts: PromptPartDraft[] = []
-    const progressMsgs: ChildProgressPayload[] = []
-    let failFastTrigger: ChildFailedPayload | undefined
-
-    for (const m of msgs) {
-      const payload = m.payload_json as unknown
-      switch (m.kind) {
-        case "cancel":
-          gotCancel = true
-          break
-        case "child_done": {
-          const p = payload as ChildDonePayload
-          returnParts.push(buildChildDonePart(p))
-          break
-        }
-        case "child_failed": {
-          const p = payload as ChildFailedPayload
-          const policy = node.spec.policy?.on_fail ?? "fail_fast"
-          if (policy === "fail_fast") failFastTrigger = p
-          else returnParts.push(buildChildFailedPart(p))
-          break
-        }
-        case "child_waiting": {
-          returnParts.push(buildChildWaitingPart(payload as ChildWaitingPayload))
-          break
-        }
-        case "child_progress":
-          progressMsgs.push(payload as ChildProgressPayload)
-          break
-        case "remote_task_terminal":
-          returnParts.push(buildRemoteTaskTerminalPart(payload as RemoteTaskTerminalPayload))
-          break
-        case "user_input": {
-          returnParts.push({ type: "text", text: (payload as UserInputPayload).text })
-          break
-        }
-        case "system":
-          break
-      }
-    }
-
-    if (gotCancel) {
-      await CollabSupervisor.cancelDescendants(agentId, { reason: "root canceled", initiator: "user" })
-      const errorInfo: AgentError = { code: "CANCELED", message: "cancel message received" }
-      CollabAgentNode.transition(node.id, "canceled", { phase: "main_loop", error: errorInfo, timeEnded: Date.now() })
-      CollabMessage.closeInbox(node.id)
-      return
-    }
-
-    if (failFastTrigger) {
-      await CollabSupervisor.cancelDescendants(agentId, {
-        reason: "sibling failed (fail_fast)",
-        initiator: "sibling",
-      })
-      const errorInfo: AgentError = {
-        code: "CHILD_FAILED_FAIL_FAST",
-        message: `Child ${failFastTrigger.childAgentId} failed: ${failFastTrigger.message}`,
-        detail: failFastTrigger.detail,
-      }
-      CollabAgentNode.transition(node.id, "failed", { phase: "main_loop", error: errorInfo, timeEnded: Date.now() })
-      CollabMessage.closeInbox(node.id)
-      return
-    }
-
-    const collapsed = CollabLoop.collapseProgress(progressMsgs, node.spec.policy?.progress_injection ?? "latest")
-    for (const p of collapsed) returnParts.push(buildChildProgressPart(p))
-
-    if (returnParts.length === 0) return
-
-    if (node.status === "blocked_on_children") {
-      CollabAgentNode.transition(agentId, "running", { phase: "main_loop" })
-    }
-
     try {
-      await SessionPrompt.prompt({
-        sessionID: node.session_id,
-        // Pin the root's own subagent_type so the resumed turn runs as the same
-        // primary agent the user started the session with (not the global default).
-        // Model is resolved by SessionPrompt via lastModel(sessionID), which reads
-        // the previous user message's model — i.e., it stays on the parent's model.
-        agent: node.subagent_type,
-        model: node.spec.model,
-        parts: finalizeParts(returnParts),
-      })
+      let cancel: CancelPayload | undefined
+      const returnParts: PromptPartDraft[] = []
+      const progressMsgs: ChildProgressPayload[] = []
+      let failFastTrigger: ChildFailedPayload | undefined
+      let messageID: string | undefined
+
+      for (const m of msgs) {
+        const payload = m.payload_json as unknown
+        const delivery = (payload as { deliveryMessageId?: unknown })?.deliveryMessageId
+        if (!messageID && typeof delivery === "string") messageID = delivery
+        switch (m.kind) {
+          case "cancel":
+            cancel = payload as CancelPayload
+            break
+          case "child_done": {
+            const p = payload as ChildDonePayload
+            returnParts.push(buildChildDonePart(p))
+            break
+          }
+          case "child_failed": {
+            const p = payload as ChildFailedPayload
+            const policy = node.spec.policy?.on_fail ?? "fail_fast"
+            if (policy === "fail_fast" && p.reason !== "canceled") failFastTrigger = p
+            else returnParts.push(buildChildFailedPart(p))
+            break
+          }
+          case "child_waiting": {
+            returnParts.push(buildChildWaitingPart(payload as ChildWaitingPayload))
+            break
+          }
+          case "child_progress":
+            progressMsgs.push(payload as ChildProgressPayload)
+            break
+          case "remote_task_terminal":
+            returnParts.push(buildRemoteTaskTerminalPart(payload as RemoteTaskTerminalPayload))
+            break
+          case "user_input": {
+            const input = payload as UserInputPayload
+            messageID = input.messageId ?? messageID
+            returnParts.push({ type: "text", text: input.text })
+            break
+          }
+          case "system":
+            break
+        }
+      }
+
+      if (cancel) {
+        const errorInfo: AgentError = { code: "CANCELED", message: cancel.reason }
+        const latched = (() => {
+          try {
+            return CollabAgentNode.transition(node.id, node.status, { error: errorInfo }, {
+              runId: node.run_id,
+              parentId: node.parent_agent_id,
+              status: node.status,
+              timeUpdated: node.time_updated,
+            })
+          } catch {
+            return
+          }
+        })()
+        if (!latched) {
+          CollabMessage.retry(msgs, false)
+          return false
+        }
+        await CollabSupervisor.cancelChildren(agentId, { reason: cancel.reason, initiator: "parent" })
+        if (abort.aborted) {
+          CollabMessage.retry(msgs, false)
+          return false
+        }
+        CollabAgentNode.transition(
+          node.id,
+          "canceled",
+          { phase: "main_loop", error: errorInfo, timeEnded: Date.now() },
+          {
+            runId: latched.run_id,
+            parentId: latched.parent_agent_id,
+            status: latched.status,
+            timeUpdated: latched.time_updated,
+          },
+        )
+        CollabMessage.closeInbox(node.id)
+        return true
+      }
+
+      if (failFastTrigger) {
+        const errorInfo: AgentError = {
+          code: "CHILD_FAILED_FAIL_FAST",
+          message: `Child ${failFastTrigger.childAgentId} failed: ${failFastTrigger.message}`,
+          detail: failFastTrigger.detail,
+        }
+        const latched = (() => {
+          try {
+            return CollabAgentNode.transition(node.id, node.status, { error: errorInfo }, {
+              runId: node.run_id,
+              parentId: node.parent_agent_id,
+              status: node.status,
+              timeUpdated: node.time_updated,
+            })
+          } catch {
+            return
+          }
+        })()
+        if (!latched) {
+          CollabMessage.retry(msgs, false)
+          return false
+        }
+        await CollabSupervisor.cancelChildren(agentId, {
+          reason: "sibling failed (fail_fast)",
+          initiator: "sibling",
+        })
+        if (abort.aborted) {
+          CollabMessage.retry(msgs, false)
+          return false
+        }
+        CollabAgentNode.transition(
+          node.id,
+          "failed",
+          { phase: "main_loop", error: errorInfo, timeEnded: Date.now() },
+          {
+            runId: latched.run_id,
+            parentId: latched.parent_agent_id,
+            status: latched.status,
+            timeUpdated: latched.time_updated,
+          },
+        )
+        CollabMessage.closeInbox(node.id)
+        return true
+      }
+
+      const collapsed = CollabLoop.collapseProgress(progressMsgs, node.spec.policy?.progress_injection ?? "latest")
+      for (const p of collapsed) returnParts.push(buildChildProgressPart(p))
+      const parts = finalizeParts(returnParts)
+
+      if (returnParts.length === 0) {
+        CollabMessage.ack(msgs)
+        return true
+      }
+
+      if (node.status === "blocked_on_children") {
+        CollabAgentNode.transition(agentId, "running", { phase: "main_loop" })
+      }
+
+      if (abort.aborted) {
+        CollabMessage.retry(msgs, false)
+        return false
+      }
+      const turn = await deliver(node, messageID, parts, msgs)
+      if (abort.aborted) {
+        CollabMessage.retry(msgs, false)
+        return false
+      }
+      if (!(await delivered(turn.result, node, turn.messageID))) {
+        throw new Error("Callback did not produce its assistant turn")
+      }
+      CollabMessage.ack(msgs)
+      return true
     } catch (err) {
       log.error("SessionPrompt.prompt failed in auto-wake", {
         agentId,
         error: err instanceof Error ? err.message : String(err),
       })
+      const fresh = CollabAgentNode.tryLoad(agentId)
+      if (fresh && CollabAgentNode.isActive(fresh.status)) {
+        CollabMessage.retry(msgs, false)
+      } else {
+        CollabMessage.closeInbox(agentId)
+      }
+      return false
     }
   }
-
 }

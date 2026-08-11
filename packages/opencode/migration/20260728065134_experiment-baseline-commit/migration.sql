@@ -1,0 +1,1 @@
+ALTER TABLE `experiment` ADD `baseline_commit_sha` text;

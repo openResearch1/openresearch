@@ -168,7 +168,15 @@ const localeMatchers: Array<{ locale: Locale; match: (language: string) => boole
   { locale: "tr", match: (language) => language.startsWith("tr") },
 ]
 
-type ParityKey = "command.session.previous.unseen" | "command.session.next.unseen"
+type ParityKey =
+  | "command.session.previous.unseen"
+  | "command.session.next.unseen"
+  | "session.collab.stop.button"
+  | "session.collab.stop.title"
+  | "session.collab.stop.confirm"
+  | "session.collab.stop.description"
+  | "session.collab.stop.stopping"
+  | "session.collab.stop.failed"
 const PARITY_CHECK: Record<Exclude<Locale, "en">, Record<ParityKey, string>> = {
   zh,
   zht,

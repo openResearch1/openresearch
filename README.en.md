@@ -56,12 +56,13 @@ Atoms can take different roles, such as:
 Atoms are connected by typed relations, such as:
 
 - `motivates`
-- `formalizes`
+- `grounds`
+- `formalized_by`
 - `derives`
-- `analyzes`
-- `supports`
+- `analyzed_by`
+- `evaluated_by`
 - `contradicts`
-- `verifies`
+- `other`
 
 This structure allows OpenResearch to represent not only final conclusions, but also the **reasoning path, intermediate decisions, failed attempts, and unresolved contradictions** behind them.
 
@@ -178,4 +179,3 @@ OpenResearch may be interesting to you if you care about:
 - structured scientific memory
 - interpretable research agents
 - long-horizon research workflows
-

@@ -85,6 +85,15 @@ describe("session.retry.delay", () => {
     process.emitWarning = originalWarn
     expect(warnings.some((w) => w.includes("TimeoutOverflowWarning"))).toBe(false)
   })
+
+  test("sleep rejects immediately when already aborted", async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const start = Date.now()
+
+    await expect(SessionRetry.sleep(30_000, controller.signal)).rejects.toBeDefined()
+    expect(Date.now() - start).toBeLessThan(100)
+  })
 })
 
 describe("session.retry.retryable", () => {

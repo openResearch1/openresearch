@@ -45,13 +45,6 @@ const Result = z.object({
   message: z.string().optional(),
 })
 
-const RemoteSession = Session.Info.extend({
-  project: Session.ProjectInfo.nullable(),
-  status: SessionStatus.Info,
-}).meta({
-  ref: "RemoteSession",
-})
-
 const SessionParam = z.object({
   sessionID: Identifier.schema("session"),
 })
@@ -600,6 +593,12 @@ async function remote(session: Session.GlobalInfo) {
 }
 
 function createRemoteRoutes(opts: { expose: boolean }): Hono {
+  const RemoteSession = Session.Info.extend({
+    project: Session.ProjectInfo.nullable(),
+    status: SessionStatus.Info,
+  }).meta({
+    ref: "RemoteSession",
+  })
   const app = new Hono()
     .get(
       "/",
@@ -897,8 +896,8 @@ function createRemoteRoutes(opts: { expose: boolean }): Hono {
               async fn() {
                 let release: (() => void) | undefined
                 try {
-                  release = await import("@/research/experiment-agent").then((mod) =>
-                    mod.ExperimentAgent.claimHuman(sessionID),
+                  release = await import("@/research/session-control").then((mod) =>
+                    mod.ResearchSessionControl.claimHuman(sessionID, { restart: true }),
                   )
                   SessionPrompt.assertNotBusy(sessionID)
                 } catch (err) {

@@ -1,6 +1,6 @@
 import z from "zod"
 
-import { defaultRemoteCodePath, syncCodeToRemote } from "@/research/remote-code-sync"
+import { resolveRemoteCodePath, syncCodeToRemote } from "@/research/remote-code-sync"
 import { ExperimentTable, RemoteServerTable } from "@/research/research.sql"
 import { normalizeRemoteServerConfig } from "@/research/remote-server"
 import { Database, eq } from "@/storage/db"
@@ -16,7 +16,9 @@ export const ExperimentCodeSyncTool = Tool.define("experiment_code_sync", {
     remoteCodePath: z
       .string()
       .optional()
-      .describe("Full remote directory for this experiment. Defaults to experiment remote_code_path, then experiments/<exp_id>."),
+      .describe(
+        "Full remote directory for this experiment. Defaults to experiment remote_code_path, then <resource_root>/experiments/<exp_id>.",
+      ),
     remoteServerId: z.string().optional().describe("Remote server ID. Defaults to the experiment remote_server_id."),
     delete: z.boolean().optional().default(false).describe("Pass --delete to rsync so removed local files disappear remotely."),
     timeout: z.number().positive().optional().describe("Sync timeout in milliseconds."),
@@ -29,9 +31,10 @@ export const ExperimentCodeSyncTool = Tool.define("experiment_code_sync", {
     const row = Database.use((db) => db.select().from(RemoteServerTable).where(eq(RemoteServerTable.id, id)).get())
     if (!row) throw new Error(`remote server not found: ${id}`)
 
-    const remoteCodePath = (params.remoteCodePath ?? exp.remote_code_path ?? defaultRemoteCodePath(params.expId)).trim()
+    const server = normalizeRemoteServerConfig(JSON.parse(row.config))
+    const remoteCodePath = resolveRemoteCodePath(server, params.expId, params.remoteCodePath ?? exp.remote_code_path)
     const result = await syncCodeToRemote({
-      server: normalizeRemoteServerConfig(JSON.parse(row.config)),
+      server,
       codePath: params.codePath ?? exp.code_path,
       remoteCodePath,
       delete: params.delete,

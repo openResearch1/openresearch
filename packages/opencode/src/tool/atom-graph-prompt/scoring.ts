@@ -37,10 +37,11 @@ const TYPE_SCORES = {
  * 关系类型的质量分数
  */
 const RELATION_SCORES = {
-  validates: 10, // 验证关系最重要
-  analyzes: 9,
+  evaluated_by: 10, // 验证关系最重要
+  analyzed_by: 9,
   derives: 8,
-  formalizes: 7,
+  grounds: 7,
+  formalized_by: 7,
   motivates: 6,
   contradicts: 5, // 矛盾也很重要
   other: 3,

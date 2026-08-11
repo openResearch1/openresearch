@@ -22,10 +22,11 @@ Atom Graph Prompt 提供两个工具：
 ### `RelationType`
 
 - `motivates`
-- `formalizes`
+- `grounds`
+- `formalized_by`
 - `derives`
-- `analyzes`
-- `validates`
+- `analyzed_by`
+- `evaluated_by`
 - `contradicts`
 - `other`
 
@@ -65,7 +66,7 @@ const result = await agent.useTool("atom_graph_prompt", {
 ```ts
 const result = await agent.useTool("atom_graph_prompt", {
   atomIds: ["atom-456"],
-  relationTypes: ["validates", "analyzes"],
+  relationTypes: ["evaluated_by", "analyzed_by"],
   atomTypes: ["theorem", "verification"],
   includeEvidence: false,
   template: "compact",
@@ -152,7 +153,7 @@ const result = await agent.useTool("atom_graph_prompt_smart", {
 const result = await agent.useTool("atom_graph_prompt_smart", {
   query: "理论证明",
   atomTypes: ["theorem", "verification"],
-  relationTypes: ["validates", "contradicts"],
+  relationTypes: ["evaluated_by", "contradicts"],
   maxDepth: 2,
 })
 ```

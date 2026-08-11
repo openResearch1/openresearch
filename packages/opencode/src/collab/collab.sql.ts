@@ -1,7 +1,8 @@
-import { sqliteTable, text, integer, index } from "drizzle-orm/sqlite-core"
+import { sql } from "drizzle-orm"
+import { sqliteTable, text, integer, index, uniqueIndex } from "drizzle-orm/sqlite-core"
+import { Timestamps } from "@/storage/schema.sql"
 import { SessionTable } from "../session/session.sql"
 import { ProjectTable } from "../project/project.sql"
-import { Timestamps } from "@/storage/schema.sql"
 
 export const collabAgentStatuses = [
   "idle",
@@ -31,7 +32,7 @@ export const collabMsgKinds = [
 ] as const
 export type CollabMsgKind = (typeof collabMsgKinds)[number]
 
-export const collabMsgStatuses = ["pending", "consumed", "dropped"] as const
+export const collabMsgStatuses = ["pending", "processing", "consumed", "dropped"] as const
 export type CollabMsgStatus = (typeof collabMsgStatuses)[number]
 
 type AgentSpecData = {
@@ -43,6 +44,7 @@ type AgentSpecData = {
     maxChildren?: number
     progress_injection?: "none" | "latest" | "all"
     summarize?: boolean
+    detach_on_terminal?: boolean
   }
   metadata?: Record<string, unknown>
 }
@@ -71,6 +73,8 @@ export const CollabAgentTable = sqliteTable(
       .notNull()
       .references(() => ProjectTable.id, { onDelete: "cascade" }),
     root_agent_id: text().notNull(),
+    run_id: text(),
+    initiator: text().$type<"human" | "agent">(),
     subagent_type: text().notNull(),
     status: text().$type<CollabAgentStatus>().notNull(),
     phase: text().$type<CollabAgentPhase>().notNull(),
@@ -99,11 +103,18 @@ export const CollabMessageTable = sqliteTable(
       .notNull()
       .references(() => CollabAgentTable.id, { onDelete: "cascade" }),
     sender_agent_id: text(),
+    run_id: text(),
     kind: text().$type<CollabMsgKind>().notNull(),
     payload_json: text({ mode: "json" }).notNull(),
     status: text().$type<CollabMsgStatus>().notNull(),
+    claim_id: text(),
     ...Timestamps,
     time_consumed: integer(),
   },
-  (t) => [index("collab_msg_recipient_pending_idx").on(t.recipient_agent_id, t.status, t.id)],
+  (t) => [
+    index("collab_msg_recipient_pending_idx").on(t.recipient_agent_id, t.status, t.id),
+    uniqueIndex("collab_msg_terminal_run_idx")
+      .on(t.recipient_agent_id, t.sender_agent_id, t.run_id)
+      .where(sql`${t.run_id} is not null and ${t.kind} in ('child_done', 'child_failed')`),
+  ],
 )

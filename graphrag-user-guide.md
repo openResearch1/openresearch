@@ -4,7 +4,7 @@
 
 ## 什么是 GraphRAG？
 
-在 OpenResearch 中，你的研究被组织为一个 **原子知识图谱** —— 每个 atom 是一个最小的 `声明 + 证据` 单元，atoms 之间通过有类型的关系（motivates, derives, validates 等）连接。
+在 OpenResearch 中，你的研究被组织为一个 **原子知识图谱** —— 每个 atom 是一个最小的 `声明 + 证据` 单元，atoms 之间通过有类型的关系（motivates, grounds, derives, evaluated_by 等）连接。
 
 GraphRAG 是一套基于这个图谱的 **智能检索系统**，让你可以：
 
@@ -82,7 +82,7 @@ Agent 会使用 GraphRAG 语义搜索，找到与 "Transformer 架构改进" 语
 Agent 会：
 
 1. 语义搜索找到关于"梯度消失"的 atoms
-2. 从这些 atoms 出发，沿 `derives`、`validates` 等关系发现解决方案
+2. 从这些 atoms 出发，沿 `derives`、`evaluated_by` 等关系发现解决方案
 3. 综合评分后返回最相关的结果
 
 ### 场景 3: 研究脉络追踪
@@ -110,7 +110,7 @@ GraphRAG 的社区检测功能会自动识别图谱中的主题聚类，告诉�
 
 - 社区过滤：只在"优化算法"社区中搜索
 - 类型过滤：只返回 theorem 类型的 atoms
-- 关系过滤：只关注 `validates` 和 `analyzes` 关系
+- 关系过滤：只关注 `evaluated_by` 和 `analyzed_by` 关系
 
 ---
 

@@ -12,6 +12,20 @@ export namespace Research {
         researchProjectId: z.string(),
       }),
     ),
+    PathsUpdated: BusEvent.define(
+      "research.paths.updated",
+      z.object({
+        researchProjectId: z.string(),
+        researchPathId: z.string(),
+      }),
+    ),
+    ResultsUpdated: BusEvent.define(
+      "research.results.updated",
+      z.object({
+        researchProjectId: z.string(),
+        researchResultId: z.string(),
+      }),
+    ),
   }
   export async function getParentSessionId(sessionID: string): Promise<string | undefined> {
     let current = await Session.get(sessionID)

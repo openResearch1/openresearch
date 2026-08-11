@@ -1,5 +1,5 @@
 import { Database } from "../../storage/db"
-import { AtomRelationTable } from "../../research/research.sql"
+import { AtomRelationTable, normalizeLinks } from "../../research/research.sql"
 
 import { loadCommunityCache } from "./community"
 import type { AtomQualityMetrics, Community, RankedAtom, TraversedAtom } from "./types"
@@ -29,7 +29,7 @@ function scoreCommunityMetrics(input: { size: number; density: number; keywordCo
 
 export async function scoreAtomQuality(atoms: TraversedAtom[]): Promise<Record<string, AtomQualityMetrics>> {
   const ids = new Set(atoms.map((item) => item.atom.atom_id))
-  const rels = Database.use((db) => db.select().from(AtomRelationTable).all()).filter(
+  const rels = normalizeLinks(Database.use((db) => db.select().from(AtomRelationTable).all())).filter(
     (row) => ids.has(row.atom_id_source) && ids.has(row.atom_id_target),
   )
 

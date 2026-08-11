@@ -1,5 +1,6 @@
 import z from "zod"
 import { Collab } from "@/collab"
+import { CollabAgentNode } from "@/collab/agent-node"
 import { Tool } from "./tool"
 import DESCRIPTION from "./resume-agent.txt"
 
@@ -39,9 +40,13 @@ export const ResumeAgentTool = Tool.define("resume_agent", async () => {
       target =
         (await import("@/research/experiment-agent").then((mod) => mod.ExperimentAgent.recover(params.agent_id))) ??
         target
-      if (target.root_agent_id !== callerNode.root_agent_id) {
+      if (!Collab.isAncestor(callerNode.id, target.id)) {
         const atomId = target.spec.metadata?.atomId
-        if (typeof atomId === "string" && atomId === callerNode.spec.metadata?.atomId) {
+        if (
+          target.root_agent_id !== callerNode.root_agent_id &&
+          typeof atomId === "string" &&
+          atomId === callerNode.spec.metadata?.atomId
+        ) {
           return {
             title: "resume_agent",
             metadata: mk(false, { status: target.status, session_id: target.session_id }),
@@ -65,12 +70,25 @@ export const ResumeAgentTool = Tool.define("resume_agent", async () => {
         },
       })
 
+      target = Collab.tryGet(params.agent_id)
+      if (!target || !Collab.isAncestor(callerNode.id, target.id)) {
+        return {
+          title: "resume_agent",
+          metadata: mk(false),
+          output: `Permission denied: ${params.agent_id} is no longer in your subtree.`,
+        }
+      }
+
       try {
         const current = ctx.extra?.model as { providerID?: string; id?: string } | undefined
         const info = await Collab.resume({
           agentId: params.agent_id,
           prompt: params.prompt,
-          model: current?.providerID && current.id ? { providerID: current.providerID, modelID: current.id } : undefined,
+          model:
+            current?.providerID && current.id ? { providerID: current.providerID, modelID: current.id } : undefined,
+          expectedParentAgentId: target.parent_agent_id,
+          expectedRunId: target.run_id,
+          expectedGeneration: CollabAgentNode.generation(target.spec),
         })
         return {
           title: "resume_agent",

@@ -3,6 +3,15 @@ import { dict as en } from "./en"
 type Keys = keyof typeof en
 
 export const dict = {
+  "session.collab.emptyActive": "沒有活躍的子代理程式",
+  "session.collab.showCompleted": "顯示已完成",
+  "session.collab.hideCompleted": "隱藏已完成",
+  "session.collab.stop.button": "停止 Controller",
+  "session.collab.stop.title": "停止 Controller",
+  "session.collab.stop.confirm": "要停止目前的 Controller 及其自動衍生工作嗎？",
+  "session.collab.stop.description": "人類控制的執行與遠端程序將繼續。",
+  "session.collab.stop.stopping": "正在停止...",
+  "session.collab.stop.failed": "停止 Controller 失敗",
   "command.category.suggested": "建議",
   "command.category.view": "檢視",
   "command.category.project": "專案",

@@ -9,6 +9,8 @@ import {
   ExperimentExecutionWatchTable,
   ExperimentWatchTable,
   RemoteTaskTable,
+  linkKinds,
+  normalizeLinks,
 } from "../research/research.sql"
 import { Research } from "../research/research"
 import { Bus } from "@/bus"
@@ -17,10 +19,13 @@ import { Filesystem } from "../util/filesystem"
 import { rm } from "fs/promises"
 import { Session } from "../session"
 import { git } from "../util/git"
+import { AtomLock } from "../research/atom-lock"
+import { ExperimentWorkspace } from "../session/experiment-workspace"
 
 type AtomRow = typeof AtomTable.$inferSelect
 
 const atomKinds = ["fact", "method", "theorem", "verification"] as const
+const evidenceKinds = ["math", "experiment"] as const
 
 function hasSection(input: string, name: "Claim" | "Evidence") {
   return new RegExp(String.raw`^\s{0,3}(?:#{1,6}\s*)?${name}\s*:?\s*$`, "im").test(input)
@@ -56,6 +61,10 @@ export const AtomCreateTool = Tool.define("atom_create", {
   parameters: z.object({
     name: z.string().describe("A short descriptive name for the atom"),
     type: z.enum(atomKinds).describe("The kind of atom: fact, method, theorem, or verification"),
+    evidenceType: z
+      .enum(evidenceKinds)
+      .optional()
+      .describe("Evidence mode. Defaults to experiment for verification Atoms and math otherwise."),
     claim: z
       .string()
       .describe(
@@ -91,6 +100,7 @@ export const AtomCreateTool = Tool.define("atom_create", {
       }
     }
 
+    const article = params.articleId?.trim() || null
     const atomId = crypto.randomUUID()
     const atomDir = path.join(Instance.directory, "atom_list", atomId)
     const claimPath = path.join(atomDir, "claim.md")
@@ -111,11 +121,11 @@ export const AtomCreateTool = Tool.define("atom_create", {
           atom_name: params.name,
           atom_type: params.type,
           atom_claim_path: claimPath,
-          atom_evidence_type: "math",
+          atom_evidence_type: params.evidenceType ?? (params.type === "verification" ? "experiment" : "math"),
           atom_evidence_status: "pending",
           atom_evidence_path: evidencePath,
           atom_evidence_assessment_path: evidenceAssessmentPath,
-          article_id: params.articleId ?? null,
+          article_id: article,
           time_created: now,
           time_updated: now,
         })
@@ -131,8 +141,9 @@ export const AtomCreateTool = Tool.define("atom_create", {
         `- ID: ${atomId}`,
         `- Name: ${params.name}`,
         `- Type: ${params.type}`,
+        `- Evidence type: ${params.evidenceType ?? (params.type === "verification" ? "experiment" : "math")}`,
         `- Claim path: ${claimPath}`,
-        params.articleId ? `- Source article: ${params.articleId}` : `- Source: user created`,
+        article ? `- Source article: ${article}` : `- Source: user created`,
       ].join("\n"),
       metadata: {
         atomId: atomId as string | undefined,
@@ -152,6 +163,7 @@ function formatAtom(row: AtomRow): string {
     row.atom_claim_path ? `claim_path: ${row.atom_claim_path}` : null,
     row.atom_evidence_path ? `evidence_path: ${row.atom_evidence_path}` : null,
     row.atom_evidence_assessment_path ? `evidence_assessment_path: ${row.atom_evidence_assessment_path}` : null,
+    `locked: ${row.locked}`,
     row.article_id ? `article_id: ${row.article_id}` : null,
     row.session_id ? `session_id: ${row.session_id}` : null,
     `time_created: ${row.time_created}`,
@@ -183,7 +195,16 @@ export const AtomQueryTool = Tool.define("atom_query", {
   async execute(params, ctx) {
     // 0. If atomId is explicitly provided, query it directly
     if (params.atomId) {
-      const atom = Database.use((db) => db.select().from(AtomTable).where(eq(AtomTable.atom_id, params.atomId!)).get())
+      const researchProjectId = await Research.getResearchProjectId(ctx.sessionID)
+      const atom = researchProjectId
+        ? Database.use((db) =>
+            db
+              .select()
+              .from(AtomTable)
+              .where(and(eq(AtomTable.atom_id, params.atomId!), eq(AtomTable.research_project_id, researchProjectId)))
+              .get(),
+          )
+        : undefined
       if (!atom) {
         return {
           title: "Not found",
@@ -217,9 +238,7 @@ export const AtomQueryTool = Tool.define("atom_query", {
       }
 
       // 2. Check if current session is an experiment session → return the experiment's atom
-      const experiment = Database.use((db) =>
-        db.select().from(ExperimentTable).where(eq(ExperimentTable.exp_session_id, parentSessionId)).get(),
-      )
+      const experiment = ExperimentWorkspace.resolve(ctx.sessionID)
       if (experiment?.atom_id) {
         const expAtom = Database.use((db) =>
           db.select().from(AtomTable).where(eq(AtomTable.atom_id, experiment.atom_id!)).get(),
@@ -290,6 +309,15 @@ export const AtomStatusUpdateTool = Tool.define("atom_status_update", {
     evidenceType: z.enum(["math", "experiment"]).optional().describe("New evidence type: math or experiment"),
   }),
   async execute(params, ctx) {
+    const researchProjectId = await Research.getResearchProjectId(ctx.sessionID)
+    if (!researchProjectId) {
+      return {
+        title: "Failed",
+        output: "Current session is not associated with any research project.",
+        metadata: { updated: false },
+      }
+    }
+
     let atomId = params.atomId
 
     if (!atomId) {
@@ -310,7 +338,13 @@ export const AtomStatusUpdateTool = Tool.define("atom_status_update", {
       atomId = bound.atom_id
     }
 
-    const atom = Database.use((db) => db.select().from(AtomTable).where(eq(AtomTable.atom_id, atomId!)).get())
+    const atom = Database.use((db) =>
+      db
+        .select()
+        .from(AtomTable)
+        .where(and(eq(AtomTable.atom_id, atomId!), eq(AtomTable.research_project_id, researchProjectId)))
+        .get(),
+    )
     if (!atom) {
       return {
         title: "Failed",
@@ -318,6 +352,7 @@ export const AtomStatusUpdateTool = Tool.define("atom_status_update", {
         metadata: { updated: false },
       }
     }
+    AtomLock.assert(atom)
 
     const updates: Record<string, unknown> = { time_updated: Date.now() }
     if (params.evidenceStatus) updates.atom_evidence_status = params.evidenceStatus
@@ -333,7 +368,7 @@ export const AtomStatusUpdateTool = Tool.define("atom_status_update", {
 
     Database.use((db) => db.update(AtomTable).set(updates).where(eq(AtomTable.atom_id, atomId!)).run())
 
-    await Bus.publish(Research.Event.AtomsUpdated, { researchProjectId: atom.research_project_id })
+    await Bus.publish(Research.Event.AtomsUpdated, { researchProjectId })
 
     const changed = Object.entries(updates)
       .filter(([k]) => k !== "time_updated")
@@ -348,7 +383,7 @@ export const AtomStatusUpdateTool = Tool.define("atom_status_update", {
   },
 })
 
-const relationKinds = ["motivates", "formalizes", "derives", "analyzes", "validates", "contradicts", "other"] as const
+const relationKinds = linkKinds
 
 export const AtomBatchCreateTool = Tool.define("atom_batch_create", {
   description:
@@ -362,6 +397,10 @@ export const AtomBatchCreateTool = Tool.define("atom_batch_create", {
         z.object({
           name: z.string().describe("A short descriptive name for the atom"),
           type: z.enum(atomKinds).describe("The kind of atom: fact, method, theorem, or verification"),
+          evidenceType: z
+            .enum(evidenceKinds)
+            .optional()
+            .describe("Evidence mode. Defaults to experiment for verification Atoms and math otherwise."),
           claim: z
             .string()
             .describe(
@@ -394,8 +433,9 @@ export const AtomBatchCreateTool = Tool.define("atom_batch_create", {
           relationType: z
             .enum(relationKinds)
             .describe(
-              "The type of relation between atoms: motivates, formalizes, derives, analyzes, validates, contradicts, or other",
+              "The type of relation between atoms: motivates, grounds, formalized_by, derives, analyzed_by, evaluated_by, contradicts, or other",
             ),
+          note: z.string().optional().describe("Required for other; explain its meaning and direction."),
         }),
       )
       .optional()
@@ -415,6 +455,20 @@ export const AtomBatchCreateTool = Tool.define("atom_batch_create", {
 
     // Validate relation indexes
     for (const rel of params.relations ?? []) {
+      if (rel.source === rel.target) {
+        return {
+          title: "Failed",
+          output: `Invalid relation: source and target index ${rel.source} are the same.`,
+          metadata: { atomCount: 0, relationCount: 0 },
+        }
+      }
+      if (rel.relationType === "other" && !rel.note?.trim()) {
+        return {
+          title: "Failed",
+          output: "Invalid relation: other requires a note explaining meaning and direction.",
+          metadata: { atomCount: 0, relationCount: 0 },
+        }
+      }
       if (rel.source >= params.atoms.length) {
         return {
           title: "Failed",
@@ -455,11 +509,11 @@ export const AtomBatchCreateTool = Tool.define("atom_batch_create", {
           atom_name: atom.name,
           atom_type: atom.type,
           atom_claim_path: path.join(atomDir, "claim.md"),
-          atom_evidence_type: "math" as const,
+          atom_evidence_type: atom.evidenceType ?? (atom.type === "verification" ? "experiment" : "math"),
           atom_evidence_status: "pending" as const,
           atom_evidence_path: path.join(atomDir, "evidence.md"),
           atom_evidence_assessment_path: path.join(atomDir, "evidence_assessment.md"),
-          article_id: atom.articleId ?? null,
+          article_id: atom.articleId?.trim() || null,
           time_created: now,
           time_updated: now,
         }
@@ -472,6 +526,7 @@ export const AtomBatchCreateTool = Tool.define("atom_batch_create", {
           atom_id_source: atomIds[rel.source],
           atom_id_target: atomIds[rel.target],
           relation_type: rel.relationType,
+          note: rel.note ?? null,
           time_created: now,
           time_updated: now,
         }))
@@ -518,7 +573,6 @@ export const AtomDeleteTool = Tool.define("atom_delete", {
         metadata: { deleted: false, deletedCount: 0 },
       }
     }
-
     if (params.atomIds.length === 0) {
       return {
         title: "No atoms to delete",
@@ -551,6 +605,8 @@ export const AtomDeleteTool = Tool.define("atom_delete", {
         metadata: { deleted: false, deletedCount: 0 },
       }
     }
+
+    for (const atomId of validAtomIds) AtomLock.assert(atomMap.get(atomId)!)
 
     // Delete atom directories and files
     const deletePromises = validAtomIds.map(async (atomId) => {
@@ -668,12 +724,17 @@ export const AtomRelationQueryTool = Tool.define("atom_relation_query", {
     )
     const atomMap = new Map(allAtoms.map((a) => [a.atom_id, a]))
 
-    let relations = Database.use((db) => db.select().from(AtomRelationTable).all())
+    const ids = new Set(allAtoms.map((atom) => atom.atom_id))
+    let relations = normalizeLinks(Database.use((db) => db.select().from(AtomRelationTable).all())).filter(
+      (relation) => ids.has(relation.atom_id_source) && ids.has(relation.atom_id_target),
+    )
 
     if (params.atomId && params.direction === "in") {
       relations = relations.filter((r) => r.atom_id_target === params.atomId)
     } else if (params.atomId && params.direction === "out") {
       relations = relations.filter((r) => r.atom_id_source === params.atomId)
+    } else if (params.atomId) {
+      relations = relations.filter((r) => r.atom_id_source === params.atomId || r.atom_id_target === params.atomId)
     }
 
     if (params.relationType) {
@@ -711,13 +772,16 @@ export const AtomRelationQueryTool = Tool.define("atom_relation_query", {
 export const AtomRelationCreateTool = Tool.define("atom_relation_create", {
   description:
     "Create a relation between two existing atoms. " +
-    "The relation connects a source atom to a target atom with a specific type.",
+    "For progression relations, source is conceptually prior and target is downstream. " +
+    "Use grounds for conceptual dependencies and formalized_by only when the target formalizes the source claim.",
   parameters: z.object({
     sourceAtomId: z.string().describe("The ID of the source atom"),
     targetAtomId: z.string().describe("The ID of the target atom"),
     relationType: z
       .enum(relationKinds)
-      .describe("The type of relation: motivates, formalizes, derives, analyzes, validates, contradicts, or other"),
+      .describe(
+        "The type of relation: motivates, grounds, formalized_by, derives, analyzed_by, evaluated_by, contradicts, or other. Other requires a note explaining meaning and direction.",
+      ),
     note: z.string().optional().describe("Optional note for the relation"),
   }),
   async execute(params, ctx) {
@@ -729,6 +793,9 @@ export const AtomRelationCreateTool = Tool.define("atom_relation_create", {
         metadata: { created: false },
       }
     }
+    if (params.sourceAtomId === params.targetAtomId) {
+      return { title: "Failed", output: "Source and target atoms must be different", metadata: { created: false } }
+    }
 
     const sourceAtom = Database.use((db) =>
       db.select().from(AtomTable).where(eq(AtomTable.atom_id, params.sourceAtomId)).get(),
@@ -737,6 +804,13 @@ export const AtomRelationCreateTool = Tool.define("atom_relation_create", {
       return {
         title: "Failed",
         output: `Source atom not found: ${params.sourceAtomId}`,
+        metadata: { created: false },
+      }
+    }
+    if (sourceAtom.research_project_id !== researchProjectId) {
+      return {
+        title: "Failed",
+        output: `Source atom is outside the current research project`,
         metadata: { created: false },
       }
     }
@@ -750,6 +824,16 @@ export const AtomRelationCreateTool = Tool.define("atom_relation_create", {
         output: `Target atom not found: ${params.targetAtomId}`,
         metadata: { created: false },
       }
+    }
+    if (targetAtom.research_project_id !== researchProjectId) {
+      return {
+        title: "Failed",
+        output: `Target atom is outside the current research project`,
+        metadata: { created: false },
+      }
+    }
+    if (params.relationType === "other" && !params.note?.trim()) {
+      return { title: "Failed", output: "Relation type other requires a note", metadata: { created: false } }
     }
 
     const now = Date.now()
@@ -813,6 +897,21 @@ export const AtomRelationDeleteTool = Tool.define("atom_relation_delete", {
     const existingRelations = Database.use((db) =>
       db.select().from(AtomRelationTable).where(eq(AtomRelationTable.atom_id_source, params.sourceAtomId)).all(),
     ).filter((r) => r.atom_id_target === params.targetAtomId)
+    const atoms = Database.use((db) =>
+      db
+        .select({ id: AtomTable.atom_id })
+        .from(AtomTable)
+        .where(eq(AtomTable.research_project_id, researchProjectId))
+        .all(),
+    )
+    const ids = new Set(atoms.map((atom) => atom.id))
+    if (!ids.has(params.sourceAtomId) || !ids.has(params.targetAtomId)) {
+      return {
+        title: "Failed",
+        output: "Both atoms must belong to the current research project",
+        metadata: { deleted: false, deletedCount: 0 },
+      }
+    }
 
     if (existingRelations.length === 0) {
       return {

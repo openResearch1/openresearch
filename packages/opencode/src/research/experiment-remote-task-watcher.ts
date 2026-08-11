@@ -92,7 +92,9 @@ async function pollAll() {
   if (!tasks.length) return
   log.info("polling remote tasks", { count: tasks.length })
   for (const task of tasks) {
-    await refresh(task, true)
+    await refresh(task, true).catch((err) => {
+      log.error("remote task poll failed", { taskId: task.task_id, error: String(err) })
+    })
   }
 }
 

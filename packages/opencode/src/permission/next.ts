@@ -1,5 +1,6 @@
 import { Bus } from "@/bus"
 import { BusEvent } from "@/bus/bus-event"
+import { CollabAgentNode } from "@/collab/agent-node"
 import { Config } from "@/config/config"
 import { Identifier } from "@/id/id"
 import { Instance } from "@/project/instance"
@@ -131,28 +132,45 @@ export namespace PermissionNext {
   export const ask = fn(
     Request.partial({ id: true }).extend({
       ruleset: Ruleset,
+      signal: z.custom<AbortSignal>().optional(),
     }),
     async (input) => {
       const s = await state()
-      const { ruleset, ...request } = input
+      const { ruleset, signal, ...request } = input
       for (const pattern of request.patterns ?? []) {
         const rule = evaluate(request.permission, pattern, ruleset, s.approved)
         log.info("evaluated", { permission: request.permission, pattern, action: rule })
         if (rule.action === "deny")
           throw new DeniedError(ruleset.filter((r) => Wildcard.match(request.permission, r.permission)))
         if (rule.action === "ask") {
+          if (CollabAgentNode.controlled(request.sessionID))
+            throw new DeniedError(ruleset.filter((r) => Wildcard.match(request.permission, r.permission)))
           const id = input.id ?? Identifier.ascending("permission")
           return new Promise<void>((resolve, reject) => {
             const info: Request = {
               id,
               ...request,
             }
+            const stop = () => {
+              if (!s.pending[id]) return
+              delete s.pending[id]
+              Bus.publish(Event.Replied, { sessionID: request.sessionID, requestID: id, reply: "reject" })
+              reject(new RejectedError())
+            }
+            signal?.addEventListener("abort", stop, { once: true })
             s.pending[id] = {
               info,
-              resolve,
-              reject,
+              resolve() {
+                signal?.removeEventListener("abort", stop)
+                resolve()
+              },
+              reject(error) {
+                signal?.removeEventListener("abort", stop)
+                reject(error)
+              },
             }
             Bus.publish(Event.Asked, info)
+            if (signal?.aborted) stop()
           })
         }
         if (rule.action === "allow") continue
@@ -233,6 +251,20 @@ export namespace PermissionNext {
     },
   )
 
+  export async function rejectSession(sessionID: string) {
+    const s = await state()
+    for (const [id, existing] of Object.entries(s.pending)) {
+      if (existing.info.sessionID !== sessionID) continue
+      delete s.pending[id]
+      Bus.publish(Event.Replied, {
+        sessionID,
+        requestID: existing.info.id,
+        reply: "reject",
+      })
+      existing.reject(new RejectedError())
+    }
+  }
+
   export function evaluate(permission: string, pattern: string, ...rulesets: Ruleset[]): Rule {
     const merged = merge(...rulesets)
     log.info("evaluate", { permission, pattern, ruleset: merged })
@@ -242,7 +274,7 @@ export namespace PermissionNext {
     return match ?? { action: "ask", permission, pattern: "*" }
   }
 
-  const EDIT_TOOLS = ["edit", "write", "patch", "multiedit"]
+  const EDIT_TOOLS = ["edit", "write", "patch", "apply_patch", "multiedit"]
 
   export function disabled(tools: string[], ruleset: Ruleset): Set<string> {
     const result = new Set<string>()

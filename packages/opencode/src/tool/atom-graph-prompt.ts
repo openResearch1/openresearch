@@ -1,4 +1,5 @@
 import z from "zod"
+import { linkKinds } from "@/research/research.sql"
 import { Tool } from "./tool"
 import { Database, eq } from "../storage/db"
 import { AtomTable, ExperimentTable } from "../research/research.sql"
@@ -16,7 +17,7 @@ export const AtomGraphPromptTool = Tool.define("atom_graph_prompt", {
     maxDepth: z.number().default(2).describe("最大遍历深度（跳数），默认 2"),
     maxAtoms: z.number().default(10).describe("最多返回的 Atom 数量，默认 10"),
     relationTypes: z
-      .array(z.enum(["motivates", "formalizes", "derives", "analyzes", "validates", "contradicts", "other"]))
+      .array(z.enum(linkKinds))
       .optional()
       .describe("只遍历指定类型的关系"),
     atomTypes: z

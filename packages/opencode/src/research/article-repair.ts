@@ -3,6 +3,7 @@ import { Database, eq, inArray } from "@/storage/db"
 import { ArticleTable, AtomTable } from "@/research/research.sql"
 import { Filesystem } from "@/util/filesystem"
 import { articleTitle, isArticleDirectory, listArticleSources } from "./article-source"
+import { AtomLock } from "./atom-lock"
 
 type Hit = {
   path: string
@@ -117,6 +118,8 @@ export async function repairContainerArticles(researchProjectId: string) {
     }))
 
     if (assigned.length === 0) continue
+
+    for (const item of assigned) item.atomIds.forEach(AtomLock.assertId)
 
     Database.transaction(() => {
       for (const item of assigned) {

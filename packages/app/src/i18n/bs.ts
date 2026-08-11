@@ -1,4 +1,10 @@
 export const dict = {
+  "session.collab.stop.button": "Zaustavi Controller",
+  "session.collab.stop.title": "Zaustavi Controller",
+  "session.collab.stop.confirm": "Zaustaviti trenutni Controller i njegove automatski izvedene zadatke?",
+  "session.collab.stop.description": "Pokretanja pod ljudskom kontrolom i udaljeni procesi će se nastaviti.",
+  "session.collab.stop.stopping": "Zaustavljanje...",
+  "session.collab.stop.failed": "Zaustavljanje Controllera nije uspjelo",
   "command.category.suggested": "Predloženo",
   "command.category.view": "Prikaz",
   "command.category.project": "Projekat",

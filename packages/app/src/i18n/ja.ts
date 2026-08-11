@@ -1,4 +1,10 @@
 export const dict = {
+  "session.collab.stop.button": "Controller を停止",
+  "session.collab.stop.title": "Controller を停止",
+  "session.collab.stop.confirm": "現在の Controller と自動的に派生したタスクを停止しますか？",
+  "session.collab.stop.description": "人間が制御する実行とリモートプロセスは続行されます。",
+  "session.collab.stop.stopping": "停止中...",
+  "session.collab.stop.failed": "Controller の停止に失敗しました",
   "command.category.suggested": "おすすめ",
   "command.category.view": "表示",
   "command.category.project": "プロジェクト",

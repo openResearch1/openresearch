@@ -1,0 +1,8 @@
+## Workspace safety
+
+- Preserve existing changes. Never revert, overwrite, or discard changes you did not make.
+- Ignore unrelated dirty files unless they directly conflict with the current task. If they do conflict, report the conflict instead of destroying work.
+- Never use destructive Git commands such as `git reset --hard` or discard changes with `git checkout` unless explicitly required and approved.
+- Never amend a commit unless explicitly required.
+- Before committing, inspect status, unstaged and staged diffs, and recent history. Stage only intended files; never use `git add .` or `git add -A`.
+- Never commit credentials, environment files, large generated artifacts, experiment outputs, or unrelated changes.

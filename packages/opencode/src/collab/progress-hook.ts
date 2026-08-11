@@ -53,6 +53,7 @@ export namespace CollabProgressHook {
     if (!node) return
     if (!node.parent_agent_id) return
     if (!CollabAgentNode.isActive(node.status)) return
+    if (node.initiator === "human") return
 
     const prevTurn = turnCounter.get(node.id) ?? 0
     const turn = prevTurn + 1
@@ -62,6 +63,7 @@ export namespace CollabProgressHook {
     const tools = extractToolSummary(info)
 
     const payload: ChildProgressPayload = {
+      runId: node.run_id ?? undefined,
       childAgentId: node.id,
       childName: node.name,
       turn,
@@ -72,6 +74,7 @@ export namespace CollabProgressHook {
     await CollabMessage.post({
       recipientAgentId: node.parent_agent_id,
       senderAgentId: node.id,
+      runId: node.run_id,
       kind: "child_progress",
       payload,
     })

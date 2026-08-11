@@ -11,7 +11,9 @@ import { ProviderTransform } from "../provider/transform"
 import PROMPT_GENERATE from "./generate.txt"
 import PROMPT_COMPACTION from "./prompt/compaction.txt"
 import PROMPT_EXPLORE from "./prompt/explore.txt"
-import PROMPT_RESEARCH from "./prompt/research.txt"
+import PROMPT_RESEARCH_GRAPH from "./prompt/research-atom-graph.txt"
+import PROMPT_CONTROLLER from "./prompt/controller.txt"
+import PROMPT_REVIEWER from "./prompt/reviewer.txt"
 import PROMPT_SUMMARY from "./prompt/summary.txt"
 import PROMPT_TITLE from "./prompt/title.txt"
 import PROMPT_RESEARCH_PROJECT_INIT from "./prompt/research_project_init.txt"
@@ -19,12 +21,6 @@ import PROMPT_EXPERIMENT from "./prompt/experiment.txt"
 import PROMPT_EXPERIMENT_COMMIT from "./prompt/experiment_commit.txt"
 import PROMPT_EXPERIMENT_PLAN from "./prompt/experiment_plan.txt"
 import PROMPT_EXPERIMENT_RESOURCE_PREPARE from "./prompt/experiment_resource_prepare.txt"
-import PROMPT_PROJECT_RUNTIME_RESOURCE_DOWNLOAD from "./prompt/project_runtime_resource_download.txt"
-import PROMPT_EXPERIMENT_DEPLOY from "./prompt/experiment_deploy.txt"
-import PROMPT_EXPERIMENT_SETUP_ENV from "./prompt/experiment_setup_env.txt"
-import PROMPT_EXPERIMENT_RUN from "./prompt/experiment_run.txt"
-import PROMPT_EXPERIMENT_SUMMARY from "./prompt/experiment_summary.txt"
-import PROMPT_EXPERIMENT_SUCCESS from "./prompt/experiment_success.txt"
 import PROMPT_PROJECT_RUNTIME_ENV_SETUP from "./prompt/project_runtime_env_setup.txt"
 import PROMPT_EVIDENCE_ASSESSMENT from "./prompt/evidence_assessment.txt"
 import PROMPT_ATOM_FORMULA_CLEANUP from "./prompt/atom_formula_cleanup.txt"
@@ -36,6 +32,9 @@ import PROMPT_DEEP_RESEARCH from "./prompt/deep_research.txt"
 import PROMPT_DEEP_RESEARCH_PLAN from "./prompt/deep_research_plan.txt"
 import PROMPT_DEEP_RESEARCH_SEARCH_VERIFY from "./prompt/deep_research_search_verify.txt"
 import PROMPT_DEEP_RESEARCH_GENERATE from "./prompt/deep_research_generate.txt"
+import PROMPT_INTERACTION from "./prompt/shared-interaction.txt"
+import PROMPT_WORKSPACE from "./prompt/shared-workspace-safety.txt"
+import PROMPT_CODE from "./prompt/shared-code-editing.txt"
 import { PermissionNext } from "@/permission/next"
 import { mergeDeep, pipe, sortBy, values } from "remeda"
 import { Global } from "@/global"
@@ -128,14 +127,30 @@ export namespace Agent {
       experiment: {
         name: "experiment",
         description:
-          "Experiment execution agent. Reads the experiment plan and implements code changes strictly within the experiment's code_path.",
+          "Autonomous experiment agent. Owns planning, implementation, remote execution, recovery, result analysis, and the final conclusion for one experiment.",
         options: {},
         permission: PermissionNext.merge(
           defaults,
           PermissionNext.fromConfig({
+            workflow: "deny",
+            remote_terminal_start: "deny",
+            remote_terminal_write: "deny",
+            remote_terminal_read: "deny",
+            remote_terminal_wait: "deny",
+            remote_terminal_list: "deny",
+            remote_terminal_stop: "deny",
             question: "allow",
             plan_enter: "allow",
-            spawn_agent: "allow",
+            task: {
+              "*": "deny",
+              experiment_plan: "allow",
+              experiment_commit: "allow",
+            },
+            spawn_agent: {
+              "*": "deny",
+              project_runtime_env_setup: "allow",
+              experiment_resource_prepare: "allow",
+            },
             list_children: "allow",
             cancel_agent: "allow",
             resume_agent: "allow",
@@ -153,7 +168,7 @@ export namespace Agent {
           }),
           user,
         ),
-        prompt: PROMPT_EXPERIMENT,
+        prompt: [PROMPT_INTERACTION, PROMPT_WORKSPACE, PROMPT_CODE, PROMPT_EXPERIMENT].join("\n\n"),
         mode: "primary",
         native: true,
       },
@@ -165,9 +180,17 @@ export namespace Agent {
         permission: PermissionNext.merge(
           defaults,
           PermissionNext.fromConfig({
-            question: "allow",
-            experiment_remote_task_get: "allow",
-            experiment_remote_task_list: "allow",
+            "*": "deny",
+            experiment_query: "allow",
+            atom_query: "allow",
+            atom_relation_query: "allow",
+            project_runtime_server_query: "allow",
+            project_runtime_env_query: "allow",
+            project_runtime_resource_query: "allow",
+            read: "allow",
+            glob: "allow",
+            grep: "allow",
+            edit: "allow",
           }),
           user,
         ),
@@ -175,67 +198,23 @@ export namespace Agent {
         mode: "subagent",
         native: true,
       },
-      experiment_deploy: {
-        name: "experiment_deploy",
-        description: "Experiment deploy agent. Syncs code to a remote server.",
-        options: {},
-        permission: PermissionNext.merge(
-          defaults,
-          PermissionNext.fromConfig({
-            experiment_code_sync: "allow",
-            experiment_remote_task_get: "allow",
-            experiment_remote_task_list: "allow",
-          }),
-          user,
-        ),
-        prompt: PROMPT_EXPERIMENT_DEPLOY,
-        mode: "subagent",
-        native: true,
-      },
-      project_runtime_resource_download: {
-        name: "project_runtime_resource_download",
+      experiment_resource_prepare: {
+        name: "experiment_resource_prepare",
         description:
-          "Project runtime resource download agent. Downloads large shared resources on the remote server, verifies them, and updates project runtime inventory.",
+          "Remote resource agent. Reuses, repairs, acquires, prepares, verifies, and records an unresolved experiment resource batch.",
         options: {},
         permission: PermissionNext.merge(
           defaults,
           PermissionNext.fromConfig({
             "*": "deny",
+            experiment_query: "allow",
             ssh: "allow",
-            read: "allow",
-            question: "allow",
             huggingface_search: "allow",
             modelscope_search: "allow",
             experiment_remote_task_start: "allow",
             experiment_remote_task_get: "allow",
             experiment_remote_task_list: "allow",
-            project_runtime_server_query: "allow",
             project_runtime_ensure: "allow",
-            project_runtime_resource_query: "allow",
-            project_runtime_resource_upsert: "allow",
-          }),
-          user,
-        ),
-        prompt: PROMPT_PROJECT_RUNTIME_RESOURCE_DOWNLOAD,
-        mode: "subagent",
-        native: true,
-      },
-      experiment_resource_prepare: {
-        name: "experiment_resource_prepare",
-        description:
-          "Experiment resource preparation agent. Verifies existing remote resources and performs experiment-specific remote preparation without downloading resources.",
-        options: {},
-        permission: PermissionNext.merge(
-          defaults,
-          PermissionNext.fromConfig({
-            "*": "deny",
-            ssh: "allow",
-            read: "allow",
-            question: "allow",
-            experiment_remote_task_start: "allow",
-            experiment_remote_task_get: "allow",
-            experiment_remote_task_list: "allow",
-            project_runtime_server_query: "allow",
             project_runtime_resource_query: "allow",
             project_runtime_resource_upsert: "allow",
           }),
@@ -245,63 +224,18 @@ export namespace Agent {
         mode: "subagent",
         native: true,
       },
-      experiment_setup_env: {
-        name: "experiment_setup_env",
-        description:
-          "Experiment setup environment agent. Checks existing conda environments on the remote server, reuses or creates one as needed, and installs dependencies.",
-        options: {},
-        permission: PermissionNext.merge(
-          defaults,
-          PermissionNext.fromConfig({
-            experiment_remote_task_get: "allow",
-            experiment_remote_task_list: "allow",
-            project_runtime_server_query: "allow",
-            project_runtime_env_spec_inspect: "allow",
-            project_runtime_ensure: "allow",
-            project_runtime_env_query: "allow",
-            project_runtime_env_upsert: "allow",
-          }),
-          user,
-        ),
-        prompt: PROMPT_EXPERIMENT_SETUP_ENV,
-        mode: "subagent",
-        native: true,
-      },
-      experiment_run: {
-        name: "experiment_run",
-        description:
-          "Experiment run agent. Launches the experiment on a remote server via remote task tooling and monitors its startup.",
-        options: {},
-        permission: PermissionNext.merge(
-          defaults,
-          PermissionNext.fromConfig({
-            experiment_remote_task_start: "allow",
-            experiment_remote_task_get: "allow",
-            experiment_remote_task_list: "allow",
-          }),
-          user,
-        ),
-        prompt: PROMPT_EXPERIMENT_RUN,
-        mode: "subagent",
-        native: true,
-      },
       project_runtime_env_setup: {
         name: "project_runtime_env_setup",
         description:
-          "Project runtime environment setup agent. Inspects a local code path, derives environment requirements, reuses or prepares a project-managed remote conda environment, and updates runtime inventory.",
+          "Remote environment setup agent. Uses synced remote code to configure or repair a project-managed conda environment and update runtime inventory.",
         options: {},
         permission: PermissionNext.merge(
           defaults,
           PermissionNext.fromConfig({
             "*": "deny",
-            read: "allow",
-            glob: "allow",
-            grep: "allow",
+            experiment_query: "allow",
             ssh: "allow",
-            question: "allow",
-            research_code_query: "allow",
             project_runtime_server_query: "allow",
-            project_runtime_env_spec_inspect: "allow",
             project_runtime_ensure: "allow",
             project_runtime_env_query: "allow",
             project_runtime_env_upsert: "allow",
@@ -329,7 +263,10 @@ export namespace Agent {
             list_children: "allow",
             cancel_agent: "allow",
             resume_agent: "allow",
+            delegate_atom: "allow",
+            research_path: "allow",
             research_code_query: "allow",
+            research_code_branch_query: "allow",
             project_runtime_server_query: "allow",
             project_runtime_env_spec_inspect: "allow",
             project_runtime_ensure: "allow",
@@ -346,8 +283,60 @@ export namespace Agent {
           }),
           user,
         ),
-        prompt: PROMPT_RESEARCH,
+        prompt: [PROMPT_INTERACTION, PROMPT_WORKSPACE, PROMPT_RESEARCH_GRAPH].join("\n\n"),
         mode: "primary",
+        native: true,
+      },
+      controller: {
+        name: "controller",
+        description:
+          "Coordinates research agents for a human-defined OpenResearch objective without doing research itself.",
+        options: {},
+        hidden: true,
+        permission: PermissionNext.merge(
+          defaults,
+          PermissionNext.fromConfig({
+            "*": "deny",
+            question: "allow",
+            spawn_agent: {
+              "*": "deny",
+              research: "allow",
+            },
+            list_children: "allow",
+            cancel_agent: "allow",
+            resume_agent: "allow",
+            read_agent_output: "allow",
+            research_path: "allow",
+          }),
+          user,
+        ),
+        prompt: [PROMPT_INTERACTION, PROMPT_CONTROLLER].join("\n\n"),
+        mode: "primary",
+        native: true,
+      },
+      reviewer: {
+        name: "reviewer",
+        description: "Independently reviews an exact proven Atom subset and submits it only when it is meaningful.",
+        options: {},
+        permission: PermissionNext.merge(
+          defaults,
+          PermissionNext.fromConfig({
+            "*": "deny",
+            read: "allow",
+            research_info: "allow",
+            research_path: "allow",
+            research_result_query: "allow",
+            research_result_submit: "allow",
+            article_query: "allow",
+            atom_query: "allow",
+            atom_relation_query: "allow",
+            atom_graph_prompt: "allow",
+            atom_graph_prompt_smart: "allow",
+          }),
+          user,
+        ),
+        prompt: [PROMPT_RESEARCH_GRAPH, PROMPT_REVIEWER].join("\n\n"),
+        mode: "subagent",
         native: true,
       },
       research_idea: {
@@ -482,7 +471,7 @@ export namespace Agent {
         name: "research_project_init",
         description:
           "Initialize a research project by auto-generating background/goal documents and building an atom network from articles.",
-        prompt: PROMPT_RESEARCH_PROJECT_INIT,
+        prompt: [PROMPT_RESEARCH_GRAPH, PROMPT_RESEARCH_PROJECT_INIT].join("\n\n"),
         permission: PermissionNext.merge(
           defaults,
           PermissionNext.fromConfig({
@@ -525,7 +514,7 @@ export namespace Agent {
         name: "research_article_tree_build",
         description:
           "Build one article-local atom tree only: create atoms and intra-article relations for exactly one target article.",
-        prompt: PROMPT_RESEARCH_ARTICLE_TREE_BUILD,
+        prompt: [PROMPT_RESEARCH_GRAPH, PROMPT_RESEARCH_ARTICLE_TREE_BUILD].join("\n\n"),
         permission: PermissionNext.merge(
           defaults,
           PermissionNext.fromConfig({
@@ -551,8 +540,8 @@ export namespace Agent {
       research_tree_link: {
         name: "research_tree_link",
         description:
-          "Link already-built trees by creating only high-confidence cross-tree atom relations between the provided source and target groups.",
-        prompt: PROMPT_RESEARCH_TREE_LINK,
+          "Link already-built trees by creating only high-confidence cross-tree atom relations between two unordered groups.",
+        prompt: [PROMPT_RESEARCH_GRAPH, PROMPT_RESEARCH_TREE_LINK].join("\n\n"),
         permission: PermissionNext.merge(
           defaults,
           PermissionNext.fromConfig({
@@ -573,7 +562,7 @@ export namespace Agent {
         name: "research_idea_tree_build",
         description:
           "Build one idea-local validation tree only: create atoms and intra-tree relations for exactly one target idea.",
-        prompt: PROMPT_RESEARCH_IDEA_TREE_BUILD,
+        prompt: [PROMPT_RESEARCH_GRAPH, PROMPT_RESEARCH_IDEA_TREE_BUILD].join("\n\n"),
         permission: PermissionNext.merge(
           defaults,
           PermissionNext.fromConfig({
@@ -597,56 +586,11 @@ export namespace Agent {
           defaults,
           PermissionNext.fromConfig({
             "*": "deny",
+            experiment_query: "allow",
             bash: "allow",
             read: "allow",
             glob: "allow",
             grep: "allow",
-          }),
-          user,
-        ),
-        options: {},
-        mode: "subagent",
-        native: true,
-      },
-      experiment_summary: {
-        name: "experiment_summary",
-        description:
-          "Summarize completed experiment results for an atom and write the evidence to evidence.md. Reads experiment watchers, W&B metrics, and synthesizes findings.",
-        prompt: PROMPT_EXPERIMENT_SUMMARY,
-        permission: PermissionNext.merge(
-          defaults,
-          PermissionNext.fromConfig({
-            "*": "deny",
-            atom_query: "allow",
-            experiment_query: "allow",
-            read: "allow",
-            write: "allow",
-            edit: "allow",
-            apply_patch: "allow",
-            glob: "allow",
-          }),
-          user,
-        ),
-        options: {},
-        mode: "subagent",
-        native: true,
-      },
-      experiment_success: {
-        name: "experiment_success",
-        description:
-          "Summarize the actual runtime setup of a successful experiment run and write reusable success notes under openresearch/successful.",
-        prompt: PROMPT_EXPERIMENT_SUCCESS,
-        permission: PermissionNext.merge(
-          defaults,
-          PermissionNext.fromConfig({
-            "*": "deny",
-            atom_query: "allow",
-            experiment_query: "allow",
-            read: "allow",
-            write: "allow",
-            edit: "allow",
-            apply_patch: "allow",
-            glob: "allow",
           }),
           user,
         ),
@@ -700,7 +644,8 @@ export namespace Agent {
       },
       deep_research: {
         name: "deep_research",
-        description: "Deep research primary agent. Coordinates three subagents (plan, search-verify, generate) to complete end-to-end in-depth research tasks, including research planning, information search and verification, and research result generation.",
+        description:
+          "Deep research primary agent. Coordinates three subagents (plan, search-verify, generate) to complete end-to-end in-depth research tasks, including research planning, information search and verification, and research result generation.",
         options: {},
         temperature: 0.5,
         steps: 20,
@@ -736,7 +681,8 @@ export namespace Agent {
       },
       deep_research_plan: {
         name: "deep_research_plan",
-        description: "Subagent for deep research planning. Analyzes research topics and requirements, splits research tasks into detailed steps, formulates a scientific and feasible research plan, and clarifies the scope and objectives of each sub-task.",
+        description:
+          "Subagent for deep research planning. Analyzes research topics and requirements, splits research tasks into detailed steps, formulates a scientific and feasible research plan, and clarifies the scope and objectives of each sub-task.",
         options: {},
         temperature: 0.4,
         permission: PermissionNext.merge(
@@ -759,7 +705,8 @@ export namespace Agent {
       },
       deep_research_search_verify: {
         name: "deep_research_search_verify",
-        description: "Subagent for deep research search and verification. Executes search tasks according to the research plan, collects relevant information from multiple sources, verifies the authenticity, accuracy and authority of the information, and filters out valid research materials.",
+        description:
+          "Subagent for deep research search and verification. Executes search tasks according to the research plan, collects relevant information from multiple sources, verifies the authenticity, accuracy and authority of the information, and filters out valid research materials.",
         options: {},
         temperature: 0.2,
         permission: PermissionNext.merge(
@@ -789,7 +736,8 @@ export namespace Agent {
       },
       deep_research_generate: {
         name: "deep_research_generate",
-        description: "Subagent for deep research result generation. Integrates valid information collected and verified, organizes research logic, generates standardized research reports, summaries or analysis conclusions, and ensures the completeness and rigor of the results.",
+        description:
+          "Subagent for deep research result generation. Integrates valid information collected and verified, organizes research logic, generates standardized research reports, summaries or analysis conclusions, and ensures the completeness and rigor of the results.",
         options: {},
         temperature: 0.3,
         steps: 15,
@@ -845,7 +793,17 @@ export namespace Agent {
 
     // Ensure Truncate.GLOB is allowed unless explicitly configured
     for (const name in result) {
-      result[name].permission = PermissionNext.merge(result[name].permission, remoteTerminal)
+      if (
+        ![
+          "experiment",
+          "experiment_plan",
+          "project_runtime_env_setup",
+          "experiment_resource_prepare",
+          "experiment_commit",
+        ].includes(name)
+      ) {
+        result[name].permission = PermissionNext.merge(result[name].permission, remoteTerminal)
+      }
 
       const agent = result[name]
       const explicit = agent.permission.some((r) => {

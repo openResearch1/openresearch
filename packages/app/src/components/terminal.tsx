@@ -232,8 +232,8 @@ export const Terminal = (props: TerminalProps) => {
     const selectionBackground = withAlpha(base, alpha)
     return {
       background,
-      foreground: text,
-      cursor: text,
+      foreground: base,
+      cursor: base,
       selectionBackground,
     }
   }

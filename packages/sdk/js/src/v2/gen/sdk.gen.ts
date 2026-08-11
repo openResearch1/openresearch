@@ -20,6 +20,8 @@ import type {
   CollabAgentGetResponses,
   CollabAgentMessagesErrors,
   CollabAgentMessagesResponses,
+  CollabAgentStopErrors,
+  CollabAgentStopResponses,
   CollabPeerSessionsListResponses,
   CollabReturnPartInput,
   CollabSessionAgentGetResponses,
@@ -141,6 +143,8 @@ import type {
   ResearchAtomCreateResponses,
   ResearchAtomDeleteErrors,
   ResearchAtomDeleteResponses,
+  ResearchAtomLockErrors,
+  ResearchAtomLockResponses,
   ResearchAtomSessionCreateErrors,
   ResearchAtomSessionCreateResponses,
   ResearchAtomsListErrors,
@@ -159,6 +163,8 @@ import type {
   ResearchCodeListResponses,
   ResearchCodePathsErrors,
   ResearchCodePathsResponses,
+  ResearchControllerSessionCreateErrors,
+  ResearchControllerSessionCreateResponses,
   ResearchExperimentBySessionErrors,
   ResearchExperimentBySessionResponses,
   ResearchExperimentCreateErrors,
@@ -188,6 +194,8 @@ import type {
   ResearchExperimentWatchRefreshResponses,
   ResearchExperimentWatchRefreshWandbErrors,
   ResearchExperimentWatchRefreshWandbResponses,
+  ResearchPathsListErrors,
+  ResearchPathsListResponses,
   ResearchProjectCreateErrors,
   ResearchProjectCreateResponses,
   ResearchProjectExportErrors,
@@ -204,6 +212,10 @@ import type {
   ResearchRelationDeleteResponses,
   ResearchRelationUpdateErrors,
   ResearchRelationUpdateResponses,
+  ResearchResultGetErrors,
+  ResearchResultGetResponses,
+  ResearchResultsListErrors,
+  ResearchResultsListResponses,
   ResearchServerCreateResponses,
   ResearchServerDeleteErrors,
   ResearchServerDeleteResponses,
@@ -2846,6 +2858,153 @@ export class Project2 extends HeyApiClient {
   }
 }
 
+export class Session3 extends HeyApiClient {
+  /**
+   * Create a Controller session
+   *
+   * Create a project-scoped human-facing Controller session and its durable Collab root.
+   */
+  public create<ThrowOnError extends boolean = false>(
+    parameters: {
+      researchProjectId: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "researchProjectId" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      ResearchControllerSessionCreateResponses,
+      ResearchControllerSessionCreateErrors,
+      ThrowOnError
+    >({
+      url: "/research/project/{researchProjectId}/controller/session",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Controller extends HeyApiClient {
+  private _session?: Session3
+  get session(): Session3 {
+    return (this._session ??= new Session3({ client: this.client }))
+  }
+}
+
+export class Paths extends HeyApiClient {
+  /**
+   * List Research Paths
+   *
+   * List every active, completed, and cancelled Research Path in a project.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters: {
+      researchProjectId: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "researchProjectId" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ResearchPathsListResponses, ResearchPathsListErrors, ThrowOnError>({
+      url: "/research/project/{researchProjectId}/paths",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Results extends HeyApiClient {
+  /**
+   * List accepted Research Results
+   *
+   * List every Reviewer-accepted Atom subset in a Research Project.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters: {
+      researchProjectId: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "researchProjectId" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ResearchResultsListResponses, ResearchResultsListErrors, ThrowOnError>({
+      url: "/research/project/{researchProjectId}/results",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Result extends HeyApiClient {
+  /**
+   * Get an accepted Research Result
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters: {
+      researchProjectId: string
+      researchResultId: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "researchProjectId" },
+            { in: "path", key: "researchResultId" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ResearchResultGetResponses, ResearchResultGetErrors, ThrowOnError>({
+      url: "/research/project/{researchProjectId}/result/{researchResultId}",
+      ...options,
+      ...params,
+    })
+  }
+}
+
 export class Atoms extends HeyApiClient {
   /**
    * List atoms and relations
@@ -2880,7 +3039,7 @@ export class Atoms extends HeyApiClient {
   }
 }
 
-export class Session3 extends HeyApiClient {
+export class Session4 extends HeyApiClient {
   /**
    * Create or get session for an atom
    *
@@ -2997,6 +3156,47 @@ export class Atom extends HeyApiClient {
   }
 
   /**
+   * Lock or unlock an atom
+   *
+   * Set the human-controlled lock state for an atom.
+   */
+  public lock<ThrowOnError extends boolean = false>(
+    parameters: {
+      researchProjectId: string
+      atomId: string
+      directory?: string
+      workspace?: string
+      locked?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "researchProjectId" },
+            { in: "path", key: "atomId" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "locked" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).patch<ResearchAtomLockResponses, ResearchAtomLockErrors, ThrowOnError>({
+      url: "/research/project/{researchProjectId}/atom/{atomId}/lock",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
    * Update an atom's mutable fields
    */
   public update<ThrowOnError extends boolean = false>(
@@ -3007,6 +3207,7 @@ export class Atom extends HeyApiClient {
       workspace?: string
       evidence_status?: "pending" | "in_progress" | "proven" | "disproven"
       evidence_type?: "math" | "experiment"
+      article_id?: string | null
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -3021,6 +3222,7 @@ export class Atom extends HeyApiClient {
             { in: "query", key: "workspace" },
             { in: "body", key: "evidence_status" },
             { in: "body", key: "evidence_type" },
+            { in: "body", key: "article_id" },
           ],
         },
       ],
@@ -3037,9 +3239,9 @@ export class Atom extends HeyApiClient {
     })
   }
 
-  private _session?: Session3
-  get session(): Session3 {
-    return (this._session ??= new Session3({ client: this.client }))
+  private _session?: Session4
+  get session(): Session4 {
+    return (this._session ??= new Session4({ client: this.client }))
   }
 }
 
@@ -3056,7 +3258,18 @@ export class Relation extends HeyApiClient {
       workspace?: string
       source_atom_id?: string
       target_atom_id?: string
-      relation_type?: "motivates" | "formalizes" | "derives" | "analyzes" | "validates" | "contradicts" | "other"
+      relation_type?:
+        | "motivates"
+        | "grounds"
+        | "formalized_by"
+        | "derives"
+        | "analyzed_by"
+        | "evaluated_by"
+        | "contradicts"
+        | "other"
+        | "formalizes"
+        | "analyzes"
+        | "validates"
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -3103,8 +3316,30 @@ export class Relation extends HeyApiClient {
       workspace?: string
       source_atom_id?: string
       target_atom_id?: string
-      relation_type?: "motivates" | "formalizes" | "derives" | "analyzes" | "validates" | "contradicts" | "other"
-      next_relation_type?: "motivates" | "formalizes" | "derives" | "analyzes" | "validates" | "contradicts" | "other"
+      relation_type?:
+        | "motivates"
+        | "grounds"
+        | "formalized_by"
+        | "derives"
+        | "analyzed_by"
+        | "evaluated_by"
+        | "contradicts"
+        | "other"
+        | "formalizes"
+        | "analyzes"
+        | "validates"
+      next_relation_type?:
+        | "motivates"
+        | "grounds"
+        | "formalized_by"
+        | "derives"
+        | "analyzed_by"
+        | "evaluated_by"
+        | "contradicts"
+        | "other"
+        | "formalizes"
+        | "analyzes"
+        | "validates"
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -3152,7 +3387,18 @@ export class Relation extends HeyApiClient {
       workspace?: string
       source_atom_id?: string
       target_atom_id?: string
-      relation_type?: "motivates" | "formalizes" | "derives" | "analyzes" | "validates" | "contradicts" | "other"
+      relation_type?:
+        | "motivates"
+        | "grounds"
+        | "formalized_by"
+        | "derives"
+        | "analyzed_by"
+        | "evaluated_by"
+        | "contradicts"
+        | "other"
+        | "formalizes"
+        | "analyzes"
+        | "validates"
       note?: string
     },
     options?: Options<never, ThrowOnError>,
@@ -3309,7 +3555,7 @@ export class Atom2 extends HeyApiClient {
   }
 }
 
-export class Session4 extends HeyApiClient {
+export class Session5 extends HeyApiClient {
   private _atom?: Atom2
   get atom(): Atom2 {
     return (this._atom ??= new Atom2({ client: this.client }))
@@ -3459,7 +3705,7 @@ export class Code extends HeyApiClient {
   }
 }
 
-export class Session5 extends HeyApiClient {
+export class Session6 extends HeyApiClient {
   /**
    * Create or get session for an experiment
    *
@@ -3510,6 +3756,7 @@ export class Experiment extends HeyApiClient {
       atomId?: string
       expName?: string
       baselineBranch?: string
+      expectedHeadSha?: string
       remoteServerId?: string
       codePath?: string
     },
@@ -3525,6 +3772,7 @@ export class Experiment extends HeyApiClient {
             { in: "body", key: "atomId" },
             { in: "body", key: "expName" },
             { in: "body", key: "baselineBranch" },
+            { in: "body", key: "expectedHeadSha" },
             { in: "body", key: "remoteServerId" },
             { in: "body", key: "codePath" },
           ],
@@ -3629,7 +3877,7 @@ export class Experiment extends HeyApiClient {
   /**
    * Get experiment by session
    *
-   * Resolve the experiment linked to a session (walks up to parent session). Returns the experiment, its linked atom, and the atom's article. Each field is independently nullable.
+   * Resolve the experiment linked to a session through session and collaboration ancestry. Returns the experiment, its linked atom, and the atom's article. Each field is independently nullable.
    */
   public bySession<ThrowOnError extends boolean = false>(
     parameters: {
@@ -3665,7 +3913,7 @@ export class Experiment extends HeyApiClient {
   /**
    * Get experiment branch diff
    *
-   * Compare the experiment branch against its baseline branch and return file diffs grouped by commit.
+   * Compare the experiment branch against its fixed baseline commit and return file diffs grouped by commit.
    */
   public diff<ThrowOnError extends boolean = false>(
     parameters: {
@@ -3776,6 +4024,7 @@ export class Experiment extends HeyApiClient {
       workspace?: string
       expName?: string
       baselineBranch?: string
+      expectedHeadSha?: string
       remoteServerId?: string | null
       codePath?: string
       remoteCodePath?: string | null
@@ -3792,6 +4041,7 @@ export class Experiment extends HeyApiClient {
             { in: "query", key: "workspace" },
             { in: "body", key: "expName" },
             { in: "body", key: "baselineBranch" },
+            { in: "body", key: "expectedHeadSha" },
             { in: "body", key: "remoteServerId" },
             { in: "body", key: "codePath" },
             { in: "body", key: "remoteCodePath" },
@@ -3815,9 +4065,9 @@ export class Experiment extends HeyApiClient {
     })
   }
 
-  private _session?: Session5
-  get session(): Session5 {
-    return (this._session ??= new Session5({ client: this.client }))
+  private _session?: Session6
+  get session(): Session6 {
+    return (this._session ??= new Session6({ client: this.client }))
   }
 }
 
@@ -4382,7 +4632,7 @@ export class Research extends HeyApiClient {
   /**
    * List git branches for a code path
    *
-   * List local git branches under the given code path. If a branch is associated with an experiment, returns the experiment name as displayName.
+   * List local git branches with HEAD commit metadata. If a branch is associated with an experiment, returns the experiment name as displayName.
    */
   public branches<ThrowOnError extends boolean = false>(
     parameters: {
@@ -4416,6 +4666,26 @@ export class Research extends HeyApiClient {
     return (this._project ??= new Project2({ client: this.client }))
   }
 
+  private _controller?: Controller
+  get controller(): Controller {
+    return (this._controller ??= new Controller({ client: this.client }))
+  }
+
+  private _paths?: Paths
+  get paths(): Paths {
+    return (this._paths ??= new Paths({ client: this.client }))
+  }
+
+  private _results?: Results
+  get results(): Results {
+    return (this._results ??= new Results({ client: this.client }))
+  }
+
+  private _result?: Result
+  get result(): Result {
+    return (this._result ??= new Result({ client: this.client }))
+  }
+
   private _atoms?: Atoms
   get atoms(): Atoms {
     return (this._atoms ??= new Atoms({ client: this.client }))
@@ -4436,9 +4706,9 @@ export class Research extends HeyApiClient {
     return (this._article ??= new Article({ client: this.client }))
   }
 
-  private _session?: Session4
-  get session(): Session4 {
-    return (this._session ??= new Session4({ client: this.client }))
+  private _session?: Session5
+  get session(): Session5 {
+    return (this._session ??= new Session5({ client: this.client }))
   }
 
   private _code?: Code
@@ -4676,6 +4946,38 @@ export class Agent extends HeyApiClient {
       },
     })
   }
+
+  /**
+   * Stop a Collab root
+   *
+   * Durably stop this Controller/root and its automatic descendants. Human-controlled runs and remote processes continue.
+   */
+  public stop<ThrowOnError extends boolean = false>(
+    parameters: {
+      agentId: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "agentId" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<CollabAgentStopResponses, CollabAgentStopErrors, ThrowOnError>({
+      url: "/collab/agent/{agentId}/stop",
+      ...options,
+      ...params,
+    })
+  }
 }
 
 export class Agent2 extends HeyApiClient {
@@ -4712,7 +5014,7 @@ export class Agent2 extends HeyApiClient {
   }
 }
 
-export class Session6 extends HeyApiClient {
+export class Session7 extends HeyApiClient {
   private _agent?: Agent2
   get agent(): Agent2 {
     return (this._agent ??= new Agent2({ client: this.client }))
@@ -4740,9 +5042,9 @@ export class Collab extends HeyApiClient {
     return (this._agent ??= new Agent({ client: this.client }))
   }
 
-  private _session?: Session6
-  get session(): Session6 {
-    return (this._session ??= new Session6({ client: this.client }))
+  private _session?: Session7
+  get session(): Session7 {
+    return (this._session ??= new Session7({ client: this.client }))
   }
 }
 
@@ -5068,7 +5370,7 @@ export class Tunnel extends HeyApiClient {
   }
 }
 
-export class Session7 extends HeyApiClient {
+export class Session8 extends HeyApiClient {
   /**
    * List remote session messages
    *
@@ -5305,9 +5607,9 @@ export class Remote extends HeyApiClient {
     return (this._tunnel ??= new Tunnel({ client: this.client }))
   }
 
-  private _session?: Session7
-  get session2(): Session7 {
-    return (this._session ??= new Session7({ client: this.client }))
+  private _session?: Session8
+  get session2(): Session8 {
+    return (this._session ??= new Session8({ client: this.client }))
   }
 }
 

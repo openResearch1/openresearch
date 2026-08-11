@@ -86,8 +86,22 @@ async function run(cmd: string, args: string[], timeout: number) {
   return { ok: proc.exitCode === 0, code: proc.exitCode ?? 1, output: output.trim() }
 }
 
-export function defaultRemoteCodePath(expId: string) {
-  return `experiments/${expId}`
+function root(server: RemoteServerConfig) {
+  const value = server.resource_root?.trim()
+  if (!value) throw new Error("remote server resource_root is required for code sync")
+  if (!value.startsWith("/")) throw new Error("remote server resource_root must be an absolute path")
+  return value
+}
+
+export function defaultRemoteCodePath(server: RemoteServerConfig, expId: string) {
+  return path.posix.join(root(server), "experiments", expId)
+}
+
+export function resolveRemoteCodePath(server: RemoteServerConfig, expId: string, input?: string | null) {
+  const value = input?.trim()
+  if (!value) return defaultRemoteCodePath(server, expId)
+  if (value.startsWith("/") || value === "~" || value.startsWith("~/")) return value
+  return path.posix.join(root(server), value)
 }
 
 export async function syncCodeToRemote(input: {

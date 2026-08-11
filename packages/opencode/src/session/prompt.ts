@@ -10,14 +10,7 @@ import { SessionRevert } from "./revert"
 import { Session } from "."
 import { Agent } from "../agent/agent"
 import { Provider } from "../provider/provider"
-import {
-  type JSONSchema7,
-  type Tool as AITool,
-  type ToolExecutionOptions,
-  tool,
-  jsonSchema,
-  asSchema,
-} from "ai"
+import { type JSONSchema7, type Tool as AITool, type ToolExecutionOptions, tool, jsonSchema, asSchema } from "ai"
 import { SessionCompaction } from "./compaction"
 import { Instance } from "../project/instance"
 import { Bus } from "../bus"
@@ -53,15 +46,17 @@ import { LLM } from "./llm"
 import { iife } from "@/util/iife"
 import { Shell } from "@/shell/shell"
 import { Truncate } from "@/tool/truncation"
-import { assertExperimentReady, setExperimentStatus } from "./experiment-guard"
+import { assertExperimentReady } from "./experiment-guard"
 import { Workflow } from "@/workflow"
 import { Collab } from "@/collab"
+import { CollabAgentNode } from "@/collab/agent-node"
 import { SshTool } from "@/tool/ssh"
 import { ExperimentRemoteTaskStartTool } from "@/tool/experiment-remote-task"
 import { Database } from "@/storage/db"
 import { ExperimentTable, RemoteServerTable } from "@/research/research.sql"
 import { normalizeRemoteServerConfig } from "@/research/remote-server"
 import { Research } from "@/research/research"
+import { ResearchSessionAgent } from "@/research/session-agent"
 import { eq } from "drizzle-orm"
 import { ExperimentWorkspace } from "./experiment-workspace"
 
@@ -192,6 +187,7 @@ export namespace SessionPrompt {
 
   export const prompt = fn(PromptInput, async (input) => {
     const session = await Session.get(input.sessionID)
+    input = { ...input, agent: await ResearchSessionAgent.resolve(input) }
     await SessionRevert.cleanup(session)
 
     // assert experiment ready
@@ -233,10 +229,11 @@ export namespace SessionPrompt {
         sessionID: input.sessionID,
         error: assistantMessage.error,
       })
-      return userMessage
+      return { info: assistantMessage, parts: [] }
     }
 
     const message = await createUserMessage(input)
+    Collab.model(input.sessionID, message.info.model)
     const text = input.parts
       .filter((part) => part.type === "text")
       .map((part) => part.text)
@@ -339,10 +336,11 @@ export namespace SessionPrompt {
     return s[sessionID].abort.signal
   }
 
-  export function cancel(sessionID: string) {
+  export function cancel(sessionID: string, signal?: AbortSignal) {
     log.info("cancel", { sessionID })
     const s = state()
     const match = s[sessionID]
+    if (signal && match?.abort.signal !== signal) return
     if (!match) {
       SessionStatus.set(sessionID, { type: "idle" })
       return
@@ -350,7 +348,6 @@ export namespace SessionPrompt {
     match.abort.abort()
     delete s[sessionID]
     SessionStatus.set(sessionID, { type: "idle" })
-    setExperimentStatus(sessionID, "pending")
     return
   }
 
@@ -360,6 +357,10 @@ export namespace SessionPrompt {
   })
   export const loop = fn(LoopInput, async (input) => {
     const { sessionID, resume_existing } = input
+    const context = CollabAgentNode.spawnContext(sessionID)
+    if (context.controller && context.role === "blocked") {
+      throw new Error("This Controller session is blocked by an invalid legacy agent topology")
+    }
 
     const abort = resume_existing ? resume(sessionID) : start(sessionID)
     if (!abort) {
@@ -369,9 +370,7 @@ export namespace SessionPrompt {
       })
     }
 
-    using _ = defer(() => cancel(sessionID))
-
-    await setExperimentStatus(sessionID, "running")
+    using _ = defer(() => cancel(sessionID, abort))
 
     // Structured output state
     // Note: On session resumption, state is reset but outputFormat is preserved
@@ -405,7 +404,20 @@ export namespace SessionPrompt {
       }
 
       if (!lastUser) throw new Error("No user message found in stream. This should never happen.")
-      const activeWorkflow = Workflow.active(sessionID)
+      let activeWorkflow = Workflow.active(sessionID)
+      if (
+        lastUser.agent === "experiment" &&
+        activeWorkflow &&
+        ["experiment_execution_v1", "experiment_execution_v2"].includes(activeWorkflow.template_id)
+      ) {
+        Workflow.fail({
+          sessionID,
+          instanceID: activeWorkflow.id,
+          code: "EXPERIMENT_WORKFLOW_RETIRED",
+          message: "Experiment workflows were replaced by autonomous event-driven execution.",
+        })
+        activeWorkflow = undefined
+      }
       if (
         !activeWorkflow &&
         lastAssistant?.finish &&
@@ -529,6 +541,7 @@ export namespace SessionPrompt {
               ...req,
               sessionID: sessionID,
               ruleset: PermissionNext.merge(taskAgent.permission, session.permission ?? []),
+              signal: abort,
             })
           },
         }
@@ -612,6 +625,16 @@ export namespace SessionPrompt {
             text: "Summarize the task tool output above and continue with your task.",
             synthetic: true,
           } satisfies MessageV2.TextPart)
+          await Session.updatePart({
+            id: Identifier.ascending("part"),
+            messageID: summaryUserMsg.id,
+            sessionID,
+            type: "text",
+            text: "",
+            synthetic: true,
+            ignored: true,
+            metadata: { originMessageID: lastUser.id },
+          } satisfies MessageV2.TextPart)
         }
 
         continue
@@ -642,12 +665,16 @@ export namespace SessionPrompt {
           agent: lastUser.agent,
           model: lastUser.model,
           auto: true,
+          origin: lastUser.id,
         })
         continue
       }
 
       // normal processing
-      const agent = await Agent.get(lastUser.agent)
+      const agent = await ResearchSessionAgent.compose({
+        sessionID,
+        agent: await Agent.get(lastUser.agent),
+      })
       const maxSteps = agent.steps ?? Infinity
       const isLastStep = step >= maxSteps
       msgs = await insertReminders({
@@ -685,6 +712,14 @@ export namespace SessionPrompt {
         sessionID: sessionID,
         model,
         abort,
+        interactive: !session.collabPeer,
+        retry: session.collabPeer
+          ? {
+              count: 3,
+              deadline: Date.now() + 60_000,
+              delay: 30_000,
+            }
+          : undefined,
       })
       using _ = defer(() => InstructionPrompt.clear(processor.message.id))
 
@@ -841,6 +876,7 @@ export namespace SessionPrompt {
             model: lastUser.model,
             auto: true,
             overflow: !processor.message.finish,
+            origin: lastUser.id,
           })
         }
         continue
@@ -866,6 +902,7 @@ export namespace SessionPrompt {
           model: lastUser.model,
           auto: true,
           overflow: !processor.message.finish,
+          origin: lastUser.id,
         })
       }
       continue
@@ -895,11 +932,11 @@ export namespace SessionPrompt {
   export async function resolveModel(input: {
     sessionID: string
     agent: string
-    preferred?: { providerID: string; modelID: string }
-    fallback?: { providerID: string; modelID: string }
+    sender?: { providerID: string; modelID: string }
+    current?: { providerID: string; modelID: string }
   }) {
     const agent = await Agent.get(input.agent)
-    const candidates = [input.preferred, agent?.model, await recentModel(input.sessionID), input.fallback]
+    const candidates = [input.sender, input.current, agent?.model, await recentModel(input.sessionID)]
     candidates.push(await Provider.defaultModel().catch(() => undefined))
     const providers = await Provider.list()
     candidates.push(
@@ -940,6 +977,7 @@ export namespace SessionPrompt {
   }) {
     using _ = log.time("resolveTools")
     const tools: Record<string, AITool> = {}
+    const controlled = CollabAgentNode.controlled(input.session.id)
 
     const inputRecord = (value: unknown) => {
       if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>
@@ -955,9 +993,9 @@ export namespace SessionPrompt {
       agent: input.agent.name,
       messages: input.messages,
       metadata: async (val: { title?: string; metadata?: Record<string, unknown> }) => {
-        const match = input.processor.partFromToolCall(options.toolCallId)
-        if (match && match.state.status === "running") {
-          await Session.updatePart({
+        await input.processor.updateToolCall(options.toolCallId, (match) => {
+          if (match.state.status !== "pending" && match.state.status !== "running") return match
+          return {
             ...match,
             state: {
               title: val.title,
@@ -965,26 +1003,67 @@ export namespace SessionPrompt {
               status: "running",
               input: inputRecord(args),
               time: {
-                start: Date.now(),
+                start: match.state.status === "running" ? match.state.time.start : Date.now(),
               },
             },
-          })
-        }
+          }
+        })
       },
       async ask(req) {
-        await PermissionNext.ask({
+        const ruleset = PermissionNext.merge(input.agent.permission, input.session.permission ?? [])
+        const actions = req.patterns.map((pattern) => PermissionNext.evaluate(req.permission, pattern, ruleset).action)
+        const approval = input.session.collabPeer
+          ? ResearchSessionAgent.approval({
+              sessionID: input.session.id,
+              permission: req.permission,
+              actions,
+            })
+          : undefined
+        if (approval === "allow") return
+        if (approval === "deny") {
+          throw new PermissionNext.DeniedError(
+            ruleset.filter((rule) => rule.permission === req.permission || rule.permission === "*"),
+          )
+        }
+        if (
+          input.session.collabPeer &&
+          actions.some((action) => action === "ask")
+        ) {
+          throw new PermissionNext.DeniedError(
+            ruleset.filter((rule) => rule.permission === req.permission || rule.permission === "*"),
+          )
+        }
+        const pending = PermissionNext.ask({
           ...req,
           sessionID: input.session.id,
           tool: { messageID: input.processor.message.id, callID: options.toolCallId },
-          ruleset: PermissionNext.merge(input.agent.permission, input.session.permission ?? []),
+          ruleset,
+          signal: options.abortSignal,
         })
+        if (!input.session.collabPeer) {
+          await pending
+          return
+        }
+        const stop = () => void PermissionNext.rejectSession(input.session.id)
+        options.abortSignal?.addEventListener("abort", stop, { once: true })
+        try {
+          await pending
+        } finally {
+          options.abortSignal?.removeEventListener("abort", stop)
+        }
       },
     })
 
     for (const item of await ToolRegistry.tools(
       { modelID: input.model.api.id, providerID: input.model.providerID },
       input.agent,
+      input.session.id,
     )) {
+      if ((input.session.collabPeer || controlled) && item.id === "question") continue
+      if (controlled && item.id === "plan_exit") continue
+      if (item.id === "spawn_agent" && !CollabAgentNode.canSpawn(input.session.id)) continue
+      if (item.id === "task" && !CollabAgentNode.canTask(input.session.id)) continue
+      if (item.id === "workflow" && CollabAgentNode.spawnContext(input.session.id).controller) continue
       const schema = ProviderTransform.schema(input.model, z.toJSONSchema(item.parameters))
       tools[item.id] = tool({
         description: item.description,
@@ -1696,15 +1775,18 @@ NOTE: At any point in time through this workflow you should feel free to ask the
   export type RemoteTaskInput = z.infer<typeof RemoteTaskInput>
 
   export async function remoteTask(input: RemoteTaskInput) {
+    input = { ...input, agent: (await ResearchSessionAgent.resolve(input)) ?? input.agent }
     const abort = start(input.sessionID)
     if (!abort) {
       throw new Session.BusyError(input.sessionID)
     }
 
     using _ = defer(() => {
-      const callbacks = state()[input.sessionID]?.callbacks ?? []
+      const current = state()[input.sessionID]
+      if (current?.abort.signal !== abort) return
+      const callbacks = current.callbacks
       if (callbacks.length === 0) {
-        cancel(input.sessionID)
+        cancel(input.sessionID, abort)
         return
       }
       loop({ sessionID: input.sessionID, resume_existing: true }).catch((error) => {
@@ -1864,16 +1946,19 @@ NOTE: At any point in time through this workflow you should feel free to ask the
   }
 
   export async function shell(input: ShellInput) {
+    input = { ...input, agent: (await ResearchSessionAgent.resolve(input)) ?? input.agent }
     const abort = start(input.sessionID)
     if (!abort) {
       throw new Session.BusyError(input.sessionID)
     }
 
     using _ = defer(() => {
+      const current = state()[input.sessionID]
+      if (current?.abort.signal !== abort) return
       // If no queued callbacks, cancel (the default)
-      const callbacks = state()[input.sessionID]?.callbacks ?? []
+      const callbacks = current.callbacks
       if (callbacks.length === 0) {
-        cancel(input.sessionID)
+        cancel(input.sessionID, abort)
       } else {
         // Otherwise, trigger the session loop to process queued items
         loop({ sessionID: input.sessionID, resume_existing: true }).catch((error) => {

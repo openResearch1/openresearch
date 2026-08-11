@@ -1,16 +1,30 @@
-import { createEffect, createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js"
+import { createEffect, createMemo, createResource, createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js"
+import { createStore } from "solid-js/store"
 import { useNavigate } from "@solidjs/router"
+import type { ResearchAtomsListResponse, ResearchPathsListResponse } from "@opencode-ai/sdk/v2"
+import { Select } from "@opencode-ai/ui/select"
 import { base64Encode } from "@opencode-ai/util/encode"
+
 import { useSDK } from "@/context/sdk"
 import { usePrompt } from "@/context/prompt"
-import type { ResearchAtomsListResponse } from "@opencode-ai/sdk/v2"
+
 import { AtomGraphView } from "./atom-graph-view"
 import { AtomDetailFullscreen } from "./atom-detail-fullscreen"
+import { scope } from "./atom-path-filter"
 
 type Atom = ResearchAtomsListResponse["atoms"][number]
 type Relation = ResearchAtomsListResponse["relations"][number]
+type Path = ResearchPathsListResponse[number]
 type AtomKind = "fact" | "method" | "theorem" | "verification"
-type RelationKind = "motivates" | "formalizes" | "derives" | "analyzes" | "validates" | "contradicts" | "other"
+type RelationKind =
+  | "motivates"
+  | "grounds"
+  | "formalized_by"
+  | "derives"
+  | "analyzed_by"
+  | "evaluated_by"
+  | "contradicts"
+  | "other"
 
 const TYPE_LABELS: Record<string, string> = {
   fact: "Fact",
@@ -27,8 +41,12 @@ const EVIDENCE_STATUS_LABELS: Record<string, string> = {
 }
 
 const RELATION_LABELS: Record<string, string> = {
-  depends_on: "depends on",
-  supports: "supports",
+  motivates: "motivates",
+  grounds: "grounds",
+  formalized_by: "is formalized by",
+  derives: "derives",
+  analyzed_by: "is analyzed by",
+  evaluated_by: "is evaluated by",
   contradicts: "contradicts",
   other: "related to",
 }
@@ -51,6 +69,10 @@ function AtomCard(props: { atom: Atom; relations: Relation[]; atomMap: Map<strin
       </div>
       <div class="flex items-center gap-2 text-11-regular text-text-weak">
         <span>{EVIDENCE_STATUS_LABELS[props.atom.atom_evidence_status] ?? props.atom.atom_evidence_status}</span>
+        <Show when={props.atom.locked}>
+          <span class="text-border-base">·</span>
+          <span>Locked</span>
+        </Show>
         <Show when={relCount() > 0 ? relCount() : null} keyed>
           {(count) => (
             <>
@@ -130,6 +152,14 @@ export function AtomsTab(props: { researchProjectId: string; currentSessionId?: 
   const [relations, setRelations] = createSignal<Relation[]>([])
   const [loading, setLoading] = createSignal(true)
   const [error, setError] = createSignal(false)
+  const [filter, setFilter] = createStore({ path: "all" })
+  const [paths, { refetch }] = createResource(
+    () => props.researchProjectId,
+    async (researchProjectId) => {
+      const result = await sdk.client.research.paths.list({ researchProjectId })
+      return result.data ?? []
+    },
+  )
 
   // Initialize subTab with saved state from localStorage
   const getSavedViewMode = (): SubTab => {
@@ -152,34 +182,69 @@ export function AtomsTab(props: { researchProjectId: string; currentSessionId?: 
   const atomMap = createMemo(() => new Map(atoms().map((a) => [a.atom_id, a])))
   const safeAtoms = createMemo(() => atoms())
   const safeRelations = createMemo(() => relations())
+  const pathMap = createMemo(() => new Map((paths() ?? []).map((path) => [path.research_path_id, path])))
+  const options = createMemo(() => ["all", ...(paths() ?? []).map((path) => path.research_path_id)])
+  const selected = createMemo<Path | undefined>(() => pathMap().get(filter.path))
+  const graph = createMemo(() => {
+    const path = selected()
+    return scope(
+      atoms(),
+      relations(),
+      path ? new Set(path.atoms.map((atom) => atom.atom_id)) : undefined,
+    )
+  })
+  const pathLabel = (id: string) => {
+    if (id === "all") return "All atoms"
+    const path = pathMap().get(id)
+    if (!path) return "All atoms"
+    const status = path.status.charAt(0).toUpperCase() + path.status.slice(1)
+    return `${path.title} (${status})`
+  }
 
-  const fetchAtoms = async () => {
+  const fetchAtoms = async (projectId = props.researchProjectId) => {
     try {
       setLoading(true)
       setError(false)
-      const res = await sdk.client.research.atoms.list({ researchProjectId: props.researchProjectId })
-      if (res.data) {
+      const res = await sdk.client.research.atoms.list({ researchProjectId: projectId })
+      if (res.data && projectId === props.researchProjectId) {
         setAtoms(res.data.atoms)
         setRelations(res.data.relations)
       }
     } catch (e) {
+      if (projectId !== props.researchProjectId) return
       console.error("Failed to fetch atoms", e)
       setError(true)
     } finally {
-      setLoading(false)
+      if (projectId === props.researchProjectId) setLoading(false)
     }
   }
 
   createEffect(() => {
     const projectId = props.researchProjectId
-    fetchAtoms().then((r) => {})
+    setFilter("path", "all")
+    void fetchAtoms(projectId)
   })
 
   createEffect(() => {
-    const unsub = sdk.event.on("research.atoms.updated" as any, () => {
-      fetchAtoms().then((r) => {})
+    const atomsUnsub = sdk.event.on("research.atoms.updated", (event) => {
+      if (event.properties.researchProjectId !== props.researchProjectId) return
+      void fetchAtoms()
+      void refetch()
     })
-    onCleanup(unsub)
+    const pathsUnsub = sdk.event.on("research.paths.updated", (event) => {
+      if (event.properties.researchProjectId !== props.researchProjectId) return
+      void refetch()
+    })
+    onCleanup(() => {
+      atomsUnsub()
+      pathsUnsub()
+    })
+  })
+
+  createEffect(() => {
+    const items = paths()
+    if (!items || filter.path === "all") return
+    if (!items.some((path) => path.research_path_id === filter.path)) setFilter("path", "all")
   })
 
   // Save subTab state to localStorage when it changes
@@ -284,9 +349,21 @@ export function AtomsTab(props: { researchProjectId: string; currentSessionId?: 
 
   return (
     <div class="relative flex-1 min-h-0 overflow-hidden h-full flex flex-col">
-      <div class="px-3 pt-3 pb-1 flex items-center justify-between">
+      <div class="px-3 pt-3 pb-1 flex flex-wrap items-center justify-between gap-2">
         <div class="text-12-semibold text-text-weak uppercase tracking-wider">Atoms</div>
-        <div class="flex items-center gap-1">
+        <div class="flex min-w-0 items-center justify-end gap-1">
+          <Select<string>
+            aria-label="Filter graph by Research Path"
+            options={options()}
+            current={filter.path}
+            label={pathLabel}
+            onSelect={(path) => path && setFilter("path", path)}
+            disabled={paths.loading || !!paths.error || options().length === 1}
+            variant="secondary"
+            size="small"
+            valueClass="max-w-32 truncate text-10-regular"
+            triggerStyle={{ "max-width": "10rem" }}
+          />
           <button
             class={`px-2 py-1 rounded text-11-regular transition-colors ${
               subTab() === "list" ? "bg-background-stronger text-text-strong" : "text-text-weak hover:text-text-base"
@@ -336,8 +413,11 @@ export function AtomsTab(props: { researchProjectId: string; currentSessionId?: 
           <Match when={subTab() === "graph"}>
             <div class="h-full min-h-[400px]">
               <AtomGraphView
-                atoms={safeAtoms()}
-                relations={safeRelations()}
+                atoms={graph().atoms}
+                relations={graph().relations}
+                externalAtomIds={graph().external}
+                scopeId={selected()?.research_path_id}
+                canCreate={!selected()}
                 loading={loading()}
                 error={error()}
                 onAtomClick={handleAtomClick}
@@ -357,8 +437,11 @@ export function AtomsTab(props: { researchProjectId: string; currentSessionId?: 
 
       <Show when={hasOpenedDetail()}>
         <AtomDetailFullscreen
-          atoms={safeAtoms()}
-          relations={safeRelations()}
+          atoms={graph().atoms}
+          relations={graph().relations}
+          externalAtomIds={graph().external}
+          pathTitle={selected()?.title}
+          canCreate={!selected()}
           loading={loading()}
           error={error()}
           onAtomClick={handleAtomClick}

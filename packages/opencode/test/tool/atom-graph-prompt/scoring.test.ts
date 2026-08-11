@@ -15,7 +15,9 @@ function mockAtom(
     name: string
     type: "fact" | "method" | "theorem" | "verification"
     distance: number
-    relationChain: Array<"motivates" | "formalizes" | "derives" | "analyzes" | "validates" | "contradicts" | "other">
+    relationChain: Array<
+      "motivates" | "formalized_by" | "derives" | "analyzed_by" | "evaluated_by" | "contradicts" | "other"
+    >
     created: number
     embedding: number[]
   }>,
@@ -32,6 +34,7 @@ function mockAtom(
       atom_evidence_status: "pending",
       atom_evidence_path: null,
       atom_evidence_assessment_path: null,
+      locked: false,
       article_id: null,
       session_id: null,
       time_created: overrides.created ?? now,
@@ -79,23 +82,23 @@ test("should score atoms based on type", () => {
 })
 
 test("should score atoms based on relation chain quality", () => {
-  const validates = mockAtom({ relationChain: ["validates"] })
-  const analyzes = mockAtom({ relationChain: ["analyzes"] })
+  const evaluated = mockAtom({ relationChain: ["evaluated_by"] })
+  const analyzed = mockAtom({ relationChain: ["analyzed_by"] })
   const derives = mockAtom({ relationChain: ["derives"] })
   const other = mockAtom({ relationChain: ["other"] })
   const origin = mockAtom({ relationChain: [] }) // start node, gets full score
 
   const weights = { distance: 0, type: 0, semantic: 0, temporal: 0, relationChain: 1 }
 
-  const validatesScore = scoreAtom(validates, null, weights)
-  const analyzesScore = scoreAtom(analyzes, null, weights)
+  const evaluatedScore = scoreAtom(evaluated, null, weights)
+  const analyzedScore = scoreAtom(analyzed, null, weights)
   const derivesScore = scoreAtom(derives, null, weights)
   const otherScore = scoreAtom(other, null, weights)
   const originScore = scoreAtom(origin, null, weights)
 
   expect(originScore).toBe(10) // start node gets full marks
-  expect(validatesScore).toBe(10)
-  expect(analyzesScore).toBe(9)
+  expect(evaluatedScore).toBe(10)
+  expect(analyzedScore).toBe(9)
   expect(derivesScore).toBe(8)
   expect(otherScore).toBe(3)
 })
@@ -214,7 +217,7 @@ test("should return all atoms when count <= maxCount", () => {
 })
 
 test("should provide score explanation breakdown", () => {
-  const atom = mockAtom({ type: "theorem", distance: 1, relationChain: ["validates"] })
+  const atom = mockAtom({ type: "theorem", distance: 1, relationChain: ["evaluated_by"] })
 
   const explanation = explainScore(atom, null)
 

@@ -21,7 +21,8 @@ export function CollabAgentDetail(props: Props) {
       if (
         (e.type === "collab.agent.status" && e.properties.agentId === props.agentId) ||
         (e.type === "collab.agent.completed" && e.properties.agentId === props.agentId) ||
-        (e.type === "collab.agent.failed" && e.properties.agentId === props.agentId)
+        (e.type === "collab.agent.failed" && e.properties.agentId === props.agentId) ||
+        (e.type === "collab.agent.reparented" && e.properties.info.id === props.agentId)
       ) {
         void refetch()
       }

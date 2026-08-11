@@ -4,7 +4,6 @@ import { BashTool } from "./bash"
 import { EditTool } from "./edit"
 import { GlobTool } from "./glob"
 import { GrepTool } from "./grep"
-import { BatchTool } from "./batch"
 import { ReadTool } from "./read"
 import { TaskTool } from "./task"
 import { TodoWriteTool, TodoReadTool } from "./todo"
@@ -47,8 +46,11 @@ import { ExperimentCreateTool } from "./experiment"
 import { ExperimentCodeSyncTool } from "./experiment-code-sync"
 import { ExperimentQueryTool } from "./experiment-query"
 import { ResearchCodeQueryTool } from "./research-code"
+import { ResearchCodeBranchQueryTool } from "./research-code-branch"
 import { ResearchBackgroundTool, ResearchGoalTool, ResearchMacroTool } from "./research-background"
 import { ResearchInfoTool } from "./research-info"
+import { ResearchPathTool } from "./research-path"
+import { ResearchResultQueryTool, ResearchResultSubmitTool } from "./research-result"
 import { SshTool } from "./ssh"
 import { ExperimentWatchTool } from "./experiment-watch"
 import { ExperimentExecutionWatchInitTool, ExperimentExecutionWatchUpdateTool } from "./experiment-execution-watch"
@@ -81,6 +83,7 @@ import { ListChildrenTool } from "./list-children"
 import { CancelAgentTool } from "./cancel-agent"
 import { ResumeAgentTool } from "./resume-agent"
 import { ReadAgentOutputTool } from "./read-agent-output"
+import { DelegateAtomTool } from "./delegate-atom"
 import { Glob } from "../util/glob"
 import { pathToFileURL } from "url"
 
@@ -150,7 +153,6 @@ export namespace ToolRegistry {
 
   async function all(): Promise<Tool.Info[]> {
     const custom = await state().then((x) => x.custom)
-    const config = await Config.get()
     const question = ["app", "cli", "desktop"].includes(Flag.OPENCODE_CLIENT) || Flag.OPENCODE_ENABLE_QUESTION_TOOL
 
     return [
@@ -188,10 +190,14 @@ export namespace ToolRegistry {
       ExperimentCodeSyncTool,
       ExperimentQueryTool,
       ResearchCodeQueryTool,
+      ResearchCodeBranchQueryTool,
       ResearchBackgroundTool,
       ResearchGoalTool,
       ResearchMacroTool,
       ResearchInfoTool,
+      ResearchPathTool,
+      ResearchResultQueryTool,
+      ResearchResultSubmitTool,
       SshTool,
       ExperimentWatchTool,
       ExperimentExecutionWatchInitTool,
@@ -219,8 +225,8 @@ export namespace ToolRegistry {
       CancelAgentTool,
       ResumeAgentTool,
       ReadAgentOutputTool,
+      DelegateAtomTool,
       ...(Flag.OPENCODE_EXPERIMENTAL_LSP_TOOL ? [LspTool] : []),
-      ...(config.experimental?.batch_tool === true ? [BatchTool] : []),
       ...(Flag.OPENCODE_EXPERIMENTAL_PLAN_MODE && Flag.OPENCODE_CLIENT === "cli" ? [PlanExitTool] : []),
       ...custom,
     ]
@@ -236,6 +242,7 @@ export namespace ToolRegistry {
       modelID: string
     },
     agent?: Agent.Info,
+    sessionID?: string,
   ) {
     const tools = await all()
     const result = await Promise.all(
@@ -256,7 +263,7 @@ export namespace ToolRegistry {
         })
         .map(async (t) => {
           using _ = log.time(t.id)
-          const tool = await t.init({ agent })
+          const tool = await t.init({ agent, sessionID })
           const output = {
             description: tool.description,
             parameters: tool.parameters,

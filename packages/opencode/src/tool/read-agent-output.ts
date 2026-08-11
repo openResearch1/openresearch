@@ -36,12 +36,16 @@ export const ReadAgentOutputTool = Tool.define("read_agent_output", async () => 
       if (!caller) {
         throw new Error("Caller session is not a Collab agent; spawn a child first.")
       }
-      if (target.root_agent_id !== caller.root_agent_id) {
+      if (!Collab.isAncestor(caller.id, target.id)) {
         throw new Error(`Permission denied: ${params.agent_id} is not in your subtree.`)
       }
 
       const maxBytes = params.max_bytes ?? DEFAULT_MAX_BYTES
       const fullText = await extractFullFinalText(target.session_id)
+      const fresh = Collab.tryGet(target.id)
+      if (!fresh || fresh.parent_agent_id !== target.parent_agent_id || fresh.run_id !== target.run_id) {
+        throw new Error(`Permission denied: ${params.agent_id} changed ownership while reading output.`)
+      }
       const truncated = fullText.length > maxBytes
       const summaryText = truncated ? fullText.slice(0, maxBytes) + "\n...[truncated]" : fullText
 

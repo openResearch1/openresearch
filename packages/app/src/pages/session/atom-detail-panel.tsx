@@ -11,7 +11,10 @@ import { Select } from "@opencode-ai/ui/select"
 import { Combobox as KobalteCombobox } from "@kobalte/core/combobox"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Markdown } from "@opencode-ai/ui/markdown"
+import { Switch } from "@opencode-ai/ui/switch"
 import type { ResearchAtomsListResponse } from "@opencode-ai/sdk/v2"
+
+import { AtomArticleSelector } from "./atom-article-selector"
 
 type Atom = ResearchAtomsListResponse["atoms"][number]
 
@@ -69,6 +72,7 @@ export function AtomDetailPanel(props: {
   const [creatingExp, setCreatingExp] = createSignal(false)
   const [deletingExpId, setDeletingExpId] = createSignal<string | null>(null)
   const [updatingStatus, setUpdatingStatus] = createSignal(false)
+  const [updatingLock, setUpdatingLock] = createSignal(false)
   const [panelWidth, setPanelWidth] = createSignal(PANEL_DEFAULT_WIDTH)
   const [dragging, setDragging] = createSignal(false)
 
@@ -217,7 +221,7 @@ export function AtomDetailPanel(props: {
   }
 
   const handleDelete = async () => {
-    if (!props.onDelete || deleting()) return
+    if (!props.onDelete || props.atom.locked || deleting()) return
     setDeleting(true)
     try {
       await props.onDelete(props.atom.atom_id)
@@ -241,7 +245,12 @@ export function AtomDetailPanel(props: {
     }
   }
 
-  const doCreateExperiment = async (expName: string, baselineBranch: string, codePath: string) => {
+  const doCreateExperiment = async (
+    expName: string,
+    baselineBranch: string,
+    expectedHeadSha: string,
+    codePath: string,
+  ) => {
     if (creatingExp()) return
     setCreatingExp(true)
     try {
@@ -249,6 +258,7 @@ export function AtomDetailPanel(props: {
         atomId: props.atom.atom_id,
         expName,
         baselineBranch,
+        expectedHeadSha,
         codePath,
       })
       dialog.close()
@@ -264,7 +274,9 @@ export function AtomDetailPanel(props: {
     dialog.show(() => (
       <DialogCreateExperiment
         creating={creatingExp()}
-        onSubmit={(expName, baselineBranch, codePath) => doCreateExperiment(expName, baselineBranch, codePath)}
+        onSubmit={(expName, baselineBranch, expectedHeadSha, codePath) =>
+          doCreateExperiment(expName, baselineBranch, expectedHeadSha, codePath)
+        }
       />
     ))
   }
@@ -284,7 +296,7 @@ export function AtomDetailPanel(props: {
   }
 
   const handleUpdateStatus = async (status: string) => {
-    if (updatingStatus()) return
+    if (props.atom.locked || updatingStatus()) return
     setUpdatingStatus(true)
     try {
       await sdk.client.research.atom.update({
@@ -296,6 +308,22 @@ export function AtomDetailPanel(props: {
       console.error("[atom-detail-panel] failed to update status", e)
     } finally {
       setUpdatingStatus(false)
+    }
+  }
+
+  const handleUpdateLock = async (locked: boolean) => {
+    if (updatingLock()) return
+    setUpdatingLock(true)
+    try {
+      await sdk.client.research.atom.lock({
+        researchProjectId: props.atom.research_project_id,
+        atomId: props.atom.atom_id,
+        locked,
+      })
+    } catch (e) {
+      console.error("[atom-detail-panel] failed to update atom lock", e)
+    } finally {
+      setUpdatingLock(false)
     }
   }
 
@@ -393,11 +421,11 @@ export function AtomDetailPanel(props: {
                   <div class="flex items-center gap-1 shrink-0">
                     <button
                       onClick={handleDelete}
-                      disabled={deleting()}
+                      disabled={props.atom.locked || deleting()}
                       class="flex items-center gap-1 px-2 py-0.5 rounded border border-red-600 bg-red-600 text-white text-[11px] whitespace-nowrap"
                       style={{
-                        cursor: deleting() ? "not-allowed" : "pointer",
-                        opacity: deleting() ? "0.6" : "1",
+                        cursor: props.atom.locked || deleting() ? "not-allowed" : "pointer",
+                        opacity: props.atom.locked || deleting() ? "0.6" : "1",
                       }}
                     >
                       {deleting() ? "Deleting..." : "Confirm"}
@@ -413,8 +441,10 @@ export function AtomDetailPanel(props: {
               >
                 <button
                   onClick={() => setConfirmDelete(true)}
-                  title="Delete atom"
+                  disabled={props.atom.locked}
+                  title={props.atom.locked ? "Unlock the atom before deleting it" : "Delete atom"}
                   class="flex items-center gap-1 px-2 py-0.5 rounded border border-border-base bg-transparent text-red-400 text-[11px] cursor-pointer shrink-0 whitespace-nowrap hover:border-red-400 transition-colors"
+                  classList={{ "opacity-50 !cursor-not-allowed": props.atom.locked }}
                 >
                   <svg
                     width="12"
@@ -445,12 +475,21 @@ export function AtomDetailPanel(props: {
             </span>
             <StatusSelector
               current={props.atom.atom_evidence_status}
-              updating={updatingStatus()}
+              updating={updatingStatus() || props.atom.locked}
               onSelect={handleUpdateStatus}
             />
             <span class="text-[11px] px-2 py-0.5 rounded bg-background-stronger text-text-weak">
               {props.atom.atom_evidence_type}
             </span>
+            <AtomArticleSelector
+              researchProjectId={props.atom.research_project_id}
+              atomId={props.atom.atom_id}
+              articleId={props.atom.article_id}
+              locked={props.atom.locked}
+            />
+            <Switch checked={props.atom.locked} disabled={updatingLock()} onChange={handleUpdateLock}>
+              {updatingLock() ? "Updating..." : "Locked"}
+            </Switch>
           </div>
         </div>
         <button
@@ -747,13 +786,21 @@ function DetailButton(props: { onClick: () => void }) {
 
 type BranchOption = {
   branch: string
+  ref: string
+  headSha: string
+  subject: string
+  committedAt: string
+  current: boolean
+  default: boolean
   displayName: string
   experimentId: string | null
+  experimentName: string | null
+  experimentStatus: string | null
 }
 
 function DialogCreateExperiment(props: {
   creating: boolean
-  onSubmit: (expName: string, baselineBranch: string, codePath: string) => void
+  onSubmit: (expName: string, baselineBranch: string, expectedHeadSha: string, codePath: string) => void
 }) {
   const sdk = useSDK()
   const [expName, setExpName] = createSignal("")
@@ -784,7 +831,10 @@ function DialogCreateExperiment(props: {
     sdk.client.research
       .branches({ codePath: cp })
       .then((res) => {
-        if (res.data) setBranches(res.data)
+        if (res.data) {
+          setBranches(res.data)
+          setSelectedBranch(res.data.find((branch) => branch.default) ?? null)
+        }
       })
       .catch((err) => {
         console.error("[DialogCreateExperiment] failed to load branches", err)
@@ -797,7 +847,7 @@ function DialogCreateExperiment(props: {
     e.preventDefault()
     const branch = selectedBranch()
     if (!expName().trim() || !codePath().trim() || !branch) return
-    props.onSubmit(expName().trim(), branch.branch, codePath().trim())
+    props.onSubmit(expName().trim(), branch.branch, branch.headSha, codePath().trim())
   }
 
   const selectedOption = createMemo(() => codePaths().find((o) => o.path === codePath()) ?? null)
@@ -839,43 +889,58 @@ function DialogCreateExperiment(props: {
               placeholder="Search and select a branch..."
               triggerMode="focus"
               itemComponent={(itemProps) => (
-                <KobalteCombobox.Item item={itemProps.item} data-slot="select-select-item">
-                  <KobalteCombobox.ItemLabel data-slot="select-select-item-label">
-                    {itemProps.item.rawValue.displayName}
-                    <Show when={itemProps.item.rawValue.experimentId}>
-                      <span class="ml-1.5 text-text-weak text-xs">({itemProps.item.rawValue.branch.slice(0, 8)})</span>
-                    </Show>
+                <KobalteCombobox.Item item={itemProps.item} data-slot="select-select-item" class="w-full">
+                  <KobalteCombobox.ItemLabel
+                    data-slot="select-select-item-label"
+                    class="pointer-events-none min-w-0 flex-1"
+                  >
+                    <div class="flex min-w-0 flex-col">
+                      <span class="truncate">
+                        {itemProps.item.rawValue.displayName}
+                        <Show when={itemProps.item.rawValue.experimentId}>
+                          <span class="ml-1.5 text-text-weak text-xs">
+                            ({itemProps.item.rawValue.branch.slice(0, 8)})
+                          </span>
+                        </Show>
+                      </span>
+                      <span class="truncate text-xs text-text-weak">
+                        {itemProps.item.rawValue.subject || "No commit message"} -{" "}
+                        {itemProps.item.rawValue.headSha.slice(0, 8)}
+                      </span>
+                    </div>
                   </KobalteCombobox.ItemLabel>
-                  <KobalteCombobox.ItemIndicator data-slot="select-select-item-indicator">
+                  <KobalteCombobox.ItemIndicator
+                    data-slot="select-select-item-indicator"
+                    class="pointer-events-none shrink-0"
+                  >
                     <Icon name="check-small" size="small" />
                   </KobalteCombobox.ItemIndicator>
                 </KobalteCombobox.Item>
               )}
             >
-              <KobalteCombobox.Control data-component="combobox-control" class="flex items-center">
+              <KobalteCombobox.Control data-component="combobox-control" class="relative flex w-full items-center">
                 <KobalteCombobox.Input
                   data-component="combobox-input"
-                  class="flex-1 bg-transparent outline-none text-sm"
+                  class="h-8 w-full min-w-0 flex-1 bg-transparent px-2 pr-8 text-sm outline-none"
                   style={{
-                    height: "32px",
-                    padding: "0 8px",
                     "border-radius": "var(--radius-md)",
                     "background-color": "var(--input-base)",
                     "box-shadow": "var(--shadow-xs-border-base)",
                     color: "var(--text-strong)",
                   }}
                 />
-                <KobalteCombobox.Trigger data-component="combobox-trigger" class="absolute right-2">
+                <KobalteCombobox.Trigger
+                  data-component="combobox-trigger"
+                  class="absolute inset-y-0 right-2 flex items-center"
+                >
                   <KobalteCombobox.Icon>
                     <Icon name="chevron-down" size="small" />
                   </KobalteCombobox.Icon>
                 </KobalteCombobox.Trigger>
               </KobalteCombobox.Control>
-              <KobalteCombobox.Portal>
-                <KobalteCombobox.Content data-component="select-content">
-                  <KobalteCombobox.Listbox data-slot="select-select-content-list" />
-                </KobalteCombobox.Content>
-              </KobalteCombobox.Portal>
+              <KobalteCombobox.Content data-component="select-content" data-inline="">
+                <KobalteCombobox.Listbox data-slot="select-select-content-list" />
+              </KobalteCombobox.Content>
             </KobalteCombobox>
           </Show>
           <Show when={branches().length === 0 && codePath().trim() && !loadingBranches()}>

@@ -1,0 +1,1 @@
+ALTER TABLE `atom` ADD `locked` integer DEFAULT false NOT NULL;

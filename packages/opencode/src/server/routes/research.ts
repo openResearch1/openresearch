@@ -21,7 +21,7 @@ import {
 } from "@/research/research.sql"
 import { and, desc, eq } from "drizzle-orm"
 import { Session } from "@/session"
-import { linkKinds } from "@/research/research.sql"
+import { linkInputs, linkKind, linkKinds, normalizeLinks } from "@/research/research.sql"
 import { Bus } from "@/bus"
 import { errors } from "../error"
 import fs from "fs"
@@ -49,7 +49,14 @@ import {
 import { parseSshConfig } from "@/research/ssh-config"
 import { isArticleDirectory } from "@/research/article-source"
 import { readRemoteTaskLog } from "@/research/remote-task-runner"
-import { defaultRemoteCodePath, syncCodeToRemote } from "@/research/remote-code-sync"
+import { resolveRemoteCodePath, syncCodeToRemote } from "@/research/remote-code-sync"
+import { AtomAgent } from "@/research/atom-agent"
+import { CodeBranch } from "@/research/code-branch"
+import { ResearchDeletionTable } from "@/research/research-deletion.sql"
+import { ControllerAgent } from "@/research/controller-agent"
+import { ResearchPath } from "@/research/research-path"
+import { ResearchResult } from "@/research/research-result"
+import { ExperimentWorkspace } from "@/session/experiment-workspace"
 
 const createSchema = z.object({
   name: z.string().min(1, "name required"),
@@ -65,6 +72,9 @@ async function copyFile(src: string, dest: string) {
 }
 
 const uniqueID = () => crypto.randomUUID()
+const commitShaSchema = z
+  .string()
+  .regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/, "expectedHeadSha must be a full Git commit SHA")
 const REMOTE_TASK_VISIBLE_MS = 60 * 1000
 type RemoteTaskRow = typeof RemoteTaskTable.$inferSelect
 
@@ -90,6 +100,7 @@ function taskJson(task: RemoteTaskRow) {
     status: task.status,
     resource_key: task.resource_key,
     target_path: task.target_path,
+    command: task.command,
     screen_name: task.screen_name,
     log_path: task.log_path,
     error_message: task.error_message,
@@ -115,6 +126,7 @@ const atomSchema = z.object({
   atom_evidence_status: z.string(),
   atom_evidence_path: z.string().nullable(),
   atom_evidence_assessment_path: z.string().nullable(),
+  locked: z.boolean(),
   article_id: z.string().nullable(),
   session_id: z.string().nullable(),
   time_created: z.number(),
@@ -129,6 +141,7 @@ const experimentSchema = z.object({
   exp_name: z.string(),
   exp_session_id: z.string().nullable(),
   baseline_branch_name: z.string().nullable(),
+  baseline_commit_sha: z.string().nullable(),
   exp_branch_name: z.string().nullable(),
   exp_result_path: z.string().nullable(),
   atom_id: z.string().nullable(),
@@ -152,6 +165,7 @@ const remoteTaskListItemSchema = z.object({
   status: z.enum(["pending", "running", "finished", "failed", "crashed", "canceled"]),
   resource_key: z.string().nullable(),
   target_path: z.string().nullable(),
+  command: z.string(),
   screen_name: z.string(),
   log_path: z.string().nullable(),
   error_message: z.string().nullable(),
@@ -264,7 +278,7 @@ const experimentSessionResponseSchema = experimentSchema
 const atomRelationSchema = z.object({
   atom_id_source: z.string(),
   atom_id_target: z.string(),
-  relation_type: z.string(),
+  relation_type: z.enum(linkKinds),
   note: z.string().nullable(),
   time_created: z.number(),
   time_updated: z.number(),
@@ -285,7 +299,7 @@ const experimentDiffResponseSchema = z.object({
 const atomRelationCreateSchema = z.object({
   source_atom_id: z.string().min(1, "source atom required"),
   target_atom_id: z.string().min(1, "target atom required"),
-  relation_type: z.enum(linkKinds),
+  relation_type: z.enum(linkInputs),
   note: z.string().optional(),
 })
 
@@ -297,11 +311,11 @@ const atomCreateSchema = z.object({
 const atomRelationDeleteSchema = z.object({
   source_atom_id: z.string().min(1, "source atom required"),
   target_atom_id: z.string().min(1, "target atom required"),
-  relation_type: z.enum(linkKinds),
+  relation_type: z.enum(linkInputs),
 })
 
 const atomRelationUpdateSchema = atomRelationDeleteSchema.extend({
-  next_relation_type: z.enum(linkKinds),
+  next_relation_type: z.enum(linkInputs),
 })
 
 const atomRelationDeleteResponseSchema = z.object({
@@ -403,6 +417,121 @@ export const ResearchRoutes = new Hono()
       return c.json(row)
     },
   )
+  .post(
+    "/project/:researchProjectId/controller/session",
+    describeRoute({
+      summary: "Create a Controller session",
+      description: "Create a project-scoped human-facing Controller session and its durable Collab root.",
+      operationId: "research.controller.session.create",
+      responses: {
+        200: {
+          description: "Created Controller session",
+          content: {
+            "application/json": {
+              schema: resolver(z.object({ session_id: z.string(), agent_id: z.string() })),
+            },
+          },
+        },
+        ...errors(404),
+      },
+    }),
+    async (c) => {
+      const researchProjectId = c.req.param("researchProjectId")
+      const project = Database.use((db) =>
+        db
+          .select()
+          .from(ResearchProjectTable)
+          .where(eq(ResearchProjectTable.research_project_id, researchProjectId))
+          .get(),
+      )
+      if (!project || project.project_id !== Instance.project.id) {
+        return c.json({ success: false, message: `research project not found: ${researchProjectId}` }, 404)
+      }
+      const result = await ControllerAgent.create(researchProjectId)
+      return c.json({ session_id: result.session.id, agent_id: result.agent.id })
+    },
+  )
+  .get(
+    "/project/:researchProjectId/paths",
+    describeRoute({
+      summary: "List Research Paths",
+      description: "List every active, completed, and cancelled Research Path in a project.",
+      operationId: "research.paths.list",
+      responses: {
+        200: {
+          description: "Research Paths",
+          content: {
+            "application/json": {
+              schema: resolver(ResearchPath.Info.array()),
+            },
+          },
+        },
+        ...errors(404),
+      },
+    }),
+    async (c) => {
+      const researchProjectId = c.req.param("researchProjectId")
+      const project = Research.getResearchProject(researchProjectId)
+      if (!project || project.project_id !== Instance.project.id) {
+        return c.json({ success: false, message: `research project not found: ${researchProjectId}` }, 404)
+      }
+      return c.json(ResearchPath.list(researchProjectId))
+    },
+  )
+  .get(
+    "/project/:researchProjectId/results",
+    describeRoute({
+      summary: "List accepted Research Results",
+      description: "List every Reviewer-accepted Atom subset in a Research Project.",
+      operationId: "research.results.list",
+      responses: {
+        200: {
+          description: "Accepted Research Results",
+          content: {
+            "application/json": {
+              schema: resolver(ResearchResult.Info.array()),
+            },
+          },
+        },
+        ...errors(404),
+      },
+    }),
+    async (c) => {
+      const researchProjectId = c.req.param("researchProjectId")
+      const project = Research.getResearchProject(researchProjectId)
+      if (!project || project.project_id !== Instance.project.id) {
+        return c.json({ success: false, message: `research project not found: ${researchProjectId}` }, 404)
+      }
+      return c.json(ResearchResult.list(researchProjectId))
+    },
+  )
+  .get(
+    "/project/:researchProjectId/result/:researchResultId",
+    describeRoute({
+      summary: "Get an accepted Research Result",
+      operationId: "research.result.get",
+      responses: {
+        200: {
+          description: "Accepted Research Result",
+          content: {
+            "application/json": {
+              schema: resolver(ResearchResult.Info),
+            },
+          },
+        },
+        ...errors(404),
+      },
+    }),
+    async (c) => {
+      const researchProjectId = c.req.param("researchProjectId")
+      const project = Research.getResearchProject(researchProjectId)
+      const result = ResearchResult.get(researchProjectId, c.req.param("researchResultId"))
+      if (!project || project.project_id !== Instance.project.id || !result) {
+        return c.json({ success: false, message: "research result not found" }, 404)
+      }
+      return c.json(result)
+    },
+  )
   .get(
     "/project/:researchProjectId/atoms",
     describeRoute({
@@ -437,8 +566,8 @@ export const ResearchRoutes = new Hono()
 
       let relations: (typeof AtomRelationTable.$inferSelect)[] = []
       if (atomIds.length > 0) {
-        const allRelations = Database.use((db) => db.select().from(AtomRelationTable).all())
-        relations = allRelations.filter((r) => atomIds.includes(r.atom_id_source) || atomIds.includes(r.atom_id_target))
+        const allRelations = normalizeLinks(Database.use((db) => db.select().from(AtomRelationTable).all()))
+        relations = allRelations.filter((r) => atomIds.includes(r.atom_id_source) && atomIds.includes(r.atom_id_target))
       }
 
       return c.json({ atoms, relations })
@@ -498,7 +627,7 @@ export const ResearchRoutes = new Hono()
             atom_name: body.name.trim(),
             atom_type: body.type,
             atom_claim_path: claimPath,
-            atom_evidence_type: "math",
+            atom_evidence_type: body.type === "verification" ? "experiment" : "math",
             atom_evidence_status: "pending",
             atom_evidence_path: evidencePath,
             atom_evidence_assessment_path: evidenceAssessmentPath,
@@ -542,6 +671,7 @@ export const ResearchRoutes = new Hono()
     async (c) => {
       const researchProjectId = c.req.param("researchProjectId")
       const body = c.req.valid("json")
+      const kind = linkKind(body.relation_type)!
 
       if (body.source_atom_id === body.target_atom_id) {
         return c.json({ success: false, message: "source and target atoms must be different" }, 400)
@@ -570,7 +700,7 @@ export const ResearchRoutes = new Hono()
             .values({
               atom_id_source: body.source_atom_id,
               atom_id_target: body.target_atom_id,
-              relation_type: body.relation_type,
+              relation_type: kind,
               note: body.note ?? null,
               time_created: now,
               time_updated: now,
@@ -589,7 +719,7 @@ export const ResearchRoutes = new Hono()
       return c.json({
         atom_id_source: body.source_atom_id,
         atom_id_target: body.target_atom_id,
-        relation_type: body.relation_type,
+        relation_type: kind,
         note: body.note ?? null,
         time_created: now,
         time_updated: now,
@@ -618,6 +748,8 @@ export const ResearchRoutes = new Hono()
     async (c) => {
       const researchProjectId = c.req.param("researchProjectId")
       const body = c.req.valid("json")
+      const current = linkKind(body.relation_type)!
+      const next = linkKind(body.next_relation_type)!
 
       const source = Database.use((db) =>
         db.select().from(AtomTable).where(eq(AtomTable.atom_id, body.source_atom_id)).get(),
@@ -641,7 +773,7 @@ export const ResearchRoutes = new Hono()
             and(
               eq(AtomRelationTable.atom_id_source, body.source_atom_id),
               eq(AtomRelationTable.atom_id_target, body.target_atom_id),
-              eq(AtomRelationTable.relation_type, body.relation_type),
+              eq(AtomRelationTable.relation_type, current),
             ),
           )
           .get(),
@@ -650,7 +782,7 @@ export const ResearchRoutes = new Hono()
         return c.json({ success: false, message: "relation not found" }, 404)
       }
 
-      if (body.next_relation_type === body.relation_type) {
+      if (next === current) {
         return c.json(existing)
       }
 
@@ -662,7 +794,7 @@ export const ResearchRoutes = new Hono()
             and(
               eq(AtomRelationTable.atom_id_source, body.source_atom_id),
               eq(AtomRelationTable.atom_id_target, body.target_atom_id),
-              eq(AtomRelationTable.relation_type, body.next_relation_type),
+              eq(AtomRelationTable.relation_type, next),
             ),
           )
           .get(),
@@ -680,7 +812,7 @@ export const ResearchRoutes = new Hono()
               and(
                 eq(AtomRelationTable.atom_id_source, body.source_atom_id),
                 eq(AtomRelationTable.atom_id_target, body.target_atom_id),
-                eq(AtomRelationTable.relation_type, body.relation_type),
+                eq(AtomRelationTable.relation_type, current),
               ),
             )
             .run(),
@@ -691,7 +823,7 @@ export const ResearchRoutes = new Hono()
             .values({
               atom_id_source: body.source_atom_id,
               atom_id_target: body.target_atom_id,
-              relation_type: body.next_relation_type,
+              relation_type: next,
               note: existing.note,
               time_created: existing.time_created,
               time_updated: now,
@@ -705,7 +837,7 @@ export const ResearchRoutes = new Hono()
       return c.json({
         atom_id_source: body.source_atom_id,
         atom_id_target: body.target_atom_id,
-        relation_type: body.next_relation_type,
+        relation_type: next,
         note: existing.note,
         time_created: existing.time_created,
         time_updated: now,
@@ -734,6 +866,7 @@ export const ResearchRoutes = new Hono()
     async (c) => {
       const researchProjectId = c.req.param("researchProjectId")
       const body = c.req.valid("json")
+      const kind = linkKind(body.relation_type)!
 
       const source = Database.use((db) =>
         db.select().from(AtomTable).where(eq(AtomTable.atom_id, body.source_atom_id)).get(),
@@ -757,7 +890,7 @@ export const ResearchRoutes = new Hono()
             and(
               eq(AtomRelationTable.atom_id_source, body.source_atom_id),
               eq(AtomRelationTable.atom_id_target, body.target_atom_id),
-              eq(AtomRelationTable.relation_type, body.relation_type),
+              eq(AtomRelationTable.relation_type, kind),
             ),
           )
           .get(),
@@ -773,7 +906,7 @@ export const ResearchRoutes = new Hono()
             and(
               eq(AtomRelationTable.atom_id_source, body.source_atom_id),
               eq(AtomRelationTable.atom_id_target, body.target_atom_id),
-              eq(AtomRelationTable.relation_type, body.relation_type),
+              eq(AtomRelationTable.relation_type, kind),
             ),
           )
           .run(),
@@ -784,7 +917,7 @@ export const ResearchRoutes = new Hono()
       return c.json({
         source_atom_id: body.source_atom_id,
         target_atom_id: body.target_atom_id,
-        relation_type: body.relation_type,
+        relation_type: kind,
         deleted: true as const,
       })
     },
@@ -804,16 +937,52 @@ export const ResearchRoutes = new Hono()
             },
           },
         },
-        ...errors(404),
+        ...errors(400, 404),
       },
     }),
     async (c) => {
       const researchProjectId = c.req.param("researchProjectId")
       const atomId = c.req.param("atomId")
 
-      const atom = Database.use((db) => db.select().from(AtomTable).where(eq(AtomTable.atom_id, atomId)).get())
-      if (!atom || atom.research_project_id !== researchProjectId) {
+      const existing = Database.use((db) => db.select().from(AtomTable).where(eq(AtomTable.atom_id, atomId)).get())
+      if (existing?.research_project_id === researchProjectId && existing.locked) {
+        return c.json({ success: false, message: `atom is locked: ${atomId}` }, 400)
+      }
+
+      const target = Database.transaction((tx) => {
+        const atom = tx.select().from(AtomTable).where(eq(AtomTable.atom_id, atomId)).get()
+        if (!atom || atom.research_project_id !== researchProjectId) return
+        const research = tx
+          .select({ project: ResearchProjectTable.project_id })
+          .from(ResearchProjectTable)
+          .where(eq(ResearchProjectTable.research_project_id, atom.research_project_id))
+          .get()
+        if (research?.project !== Instance.project.id) return
+        const experiments = tx.select().from(ExperimentTable).where(eq(ExperimentTable.atom_id, atomId)).all()
+        const now = Date.now()
+        tx.insert(ResearchDeletionTable)
+          .values([
+            { kind: "atom", entity_id: atomId, time_created: now, time_updated: now },
+            ...experiments.map((exp) => ({
+              kind: "experiment" as const,
+              entity_id: exp.exp_id,
+              time_created: now,
+              time_updated: now,
+            })),
+          ])
+          .onConflictDoNothing()
+          .run()
+        return { atom, experiments }
+      })
+      if (!target) {
         return c.json({ success: false, message: `atom not found: ${atomId}` }, 404)
+      }
+      const atom = target.atom
+      const discard = async (sessionID: string) => {
+        await Session.remove(sessionID)
+        if (await Session.get(sessionID).catch(() => undefined)) {
+          throw new Error(`Failed to remove session ${sessionID}`)
+        }
       }
 
       const dir = path.join(Instance.directory, "atom_list", atomId)
@@ -824,21 +993,13 @@ export const ResearchRoutes = new Hono()
       }
 
       if (atom.session_id) {
-        await Session.remove(atom.session_id)
+        await discard(atom.session_id)
       }
 
-      // Delete associated experiments
-      const experiments = Database.use((db) =>
-        db.select().from(ExperimentTable).where(eq(ExperimentTable.atom_id, atomId)).all(),
-      )
-      for (const exp of experiments) {
-        // Delete experiment watchers
-        Database.use((db) => db.delete(ExperimentWatchTable).where(eq(ExperimentWatchTable.exp_id, exp.exp_id)).run())
-        // Delete experiment record
-        Database.use((db) => db.delete(ExperimentTable).where(eq(ExperimentTable.exp_id, exp.exp_id)).run())
+      for (const exp of target.experiments) {
         // Clean up experiment session
         if (exp.exp_session_id) {
-          await Session.remove(exp.exp_session_id).catch(() => {})
+          await discard(exp.exp_session_id)
         }
         // Delete experiment results directory
         const expDir = path.join(Instance.directory, "exp_results", exp.exp_id)
@@ -851,10 +1012,18 @@ export const ResearchRoutes = new Hono()
         }
       }
 
-      Database.transaction(() => {
-        Database.use((db) => db.delete(AtomRelationTable).where(eq(AtomRelationTable.atom_id_source, atomId)).run())
-        Database.use((db) => db.delete(AtomRelationTable).where(eq(AtomRelationTable.atom_id_target, atomId)).run())
-        Database.use((db) => db.delete(AtomTable).where(eq(AtomTable.atom_id, atomId)).run())
+      Database.transaction((tx) => {
+        for (const exp of target.experiments) {
+          tx.delete(ExperimentWatchTable).where(eq(ExperimentWatchTable.exp_id, exp.exp_id)).run()
+          tx.delete(ExperimentTable).where(eq(ExperimentTable.exp_id, exp.exp_id)).run()
+          tx.delete(ResearchDeletionTable)
+            .where(and(eq(ResearchDeletionTable.kind, "experiment"), eq(ResearchDeletionTable.entity_id, exp.exp_id)))
+            .run()
+        }
+        tx.delete(AtomTable).where(eq(AtomTable.atom_id, atomId)).run()
+        tx.delete(ResearchDeletionTable)
+          .where(and(eq(ResearchDeletionTable.kind, "atom"), eq(ResearchDeletionTable.entity_id, atomId)))
+          .run()
       })
 
       await Bus.publish(Research.Event.AtomsUpdated, { researchProjectId })
@@ -863,6 +1032,54 @@ export const ResearchRoutes = new Hono()
         atom_id: atomId,
         deleted: true as const,
       })
+    },
+  )
+  .patch(
+    "/project/:researchProjectId/atom/:atomId/lock",
+    describeRoute({
+      summary: "Lock or unlock an atom",
+      description: "Set the human-controlled lock state for an atom.",
+      operationId: "research.atom.lock",
+      responses: {
+        200: {
+          description: "Updated atom lock state",
+          content: {
+            "application/json": {
+              schema: resolver(atomSchema),
+            },
+          },
+        },
+        ...errors(404),
+      },
+    }),
+    validator("json", z.object({ locked: z.boolean() })),
+    async (c) => {
+      const researchProjectId = c.req.param("researchProjectId")
+      const atomId = c.req.param("atomId")
+      const body = c.req.valid("json")
+      const atom = Database.use((db) => db.select().from(AtomTable).where(eq(AtomTable.atom_id, atomId)).get())
+      const research = atom
+        ? Database.use((db) =>
+            db
+              .select({ project: ResearchProjectTable.project_id })
+              .from(ResearchProjectTable)
+              .where(eq(ResearchProjectTable.research_project_id, atom.research_project_id))
+              .get(),
+          )
+        : undefined
+      if (!atom || atom.research_project_id !== researchProjectId || research?.project !== Instance.project.id) {
+        return c.json({ success: false, message: `atom not found: ${atomId}` }, 404)
+      }
+
+      Database.use((db) =>
+        db
+          .update(AtomTable)
+          .set({ locked: body.locked, time_updated: Date.now() })
+          .where(eq(AtomTable.atom_id, atomId))
+          .run(),
+      )
+      await Bus.publish(Research.Event.AtomsUpdated, { researchProjectId })
+      return c.json(Database.use((db) => db.select().from(AtomTable).where(eq(AtomTable.atom_id, atomId)).get())!)
     },
   )
   // ── Atom update ──
@@ -888,6 +1105,7 @@ export const ResearchRoutes = new Hono()
       z.object({
         evidence_status: z.enum(["pending", "in_progress", "proven", "disproven"]).optional(),
         evidence_type: z.enum(["math", "experiment"]).optional(),
+        article_id: z.string().nullable().optional(),
       }),
     ),
     async (c) => {
@@ -899,10 +1117,29 @@ export const ResearchRoutes = new Hono()
       if (!atom || atom.research_project_id !== researchProjectId) {
         return c.json({ success: false, message: `atom not found: ${atomId}` }, 404)
       }
+      if (atom.locked) {
+        return c.json({ success: false, message: `atom is locked: ${atomId}` }, 400)
+      }
 
       const updates: Record<string, unknown> = { time_updated: Date.now() }
       if (body.evidence_status) updates.atom_evidence_status = body.evidence_status
       if (body.evidence_type) updates.atom_evidence_type = body.evidence_type
+      if (body.article_id !== undefined) {
+        const article = body.article_id?.trim() || null
+        if (article) {
+          const exists = Database.use((db) =>
+            db
+              .select({ id: ArticleTable.article_id })
+              .from(ArticleTable)
+              .where(and(eq(ArticleTable.article_id, article), eq(ArticleTable.research_project_id, researchProjectId)))
+              .get(),
+          )
+          if (!exists) {
+            return c.json({ success: false, message: `article not found in research project: ${article}` }, 400)
+          }
+        }
+        updates.article_id = article
+      }
 
       Database.use((db) => db.update(AtomTable).set(updates).where(eq(AtomTable.atom_id, atomId)).run())
 
@@ -1375,27 +1612,8 @@ export const ResearchRoutes = new Hono()
         return c.json({ success: false, message: `atom not found: ${atomId}` }, 404)
       }
 
-      if (atom.session_id) {
-        const existing = await Session.get(atom.session_id).catch(() => undefined)
-        if (existing && !existing.time.archived) {
-          await import("@/research/experiment-agent").then((mod) => mod.ExperimentAgent.atom(atomId))
-          return c.json({ session_id: atom.session_id, created: false })
-        }
-      }
-
-      const session = await Session.create({ title: `Atom: ${atom.atom_name}` })
-
-      Database.use((db) =>
-        db
-          .update(AtomTable)
-          .set({ session_id: session.id, time_updated: Date.now() })
-          .where(eq(AtomTable.atom_id, atomId))
-          .run(),
-      )
-
-      await import("@/research/experiment-agent").then((mod) => mod.ExperimentAgent.atom(atomId))
-
-      return c.json({ session_id: session.id, created: true })
+      const result = await AtomAgent.ensure(atomId)
+      return c.json({ session_id: result.session.id, created: result.created })
     },
   )
   .get(
@@ -1487,7 +1705,7 @@ export const ResearchRoutes = new Hono()
     describeRoute({
       summary: "List git branches for a code path",
       description:
-        "List local git branches under the given code path. If a branch is associated with an experiment, returns the experiment name as displayName.",
+        "List local git branches with HEAD commit metadata. If a branch is associated with an experiment, returns the experiment name as displayName.",
       operationId: "research.branches",
       responses: {
         200: {
@@ -1498,8 +1716,16 @@ export const ResearchRoutes = new Hono()
                 z.array(
                   z.object({
                     branch: z.string(),
+                    ref: z.string(),
+                    headSha: z.string(),
+                    subject: z.string(),
+                    committedAt: z.string(),
+                    current: z.boolean(),
+                    default: z.boolean(),
                     displayName: z.string(),
                     experimentId: z.string().nullable(),
+                    experimentName: z.string().nullable(),
+                    experimentStatus: z.string().nullable(),
                   }),
                 ),
               ),
@@ -1518,48 +1744,17 @@ export const ResearchRoutes = new Hono()
     async (c) => {
       const { codePath } = c.req.valid("query")
 
-      if (!fs.existsSync(codePath)) {
-        return c.json({ success: false, message: `codePath not found: ${codePath}` }, 400)
-      }
-
-      const result = await git(["branch", "--format=%(refname:short)"], { cwd: codePath })
-      if (result.exitCode !== 0) {
-        return c.json({ success: false, message: `git error: ${result.stderr.toString()}` }, 400)
-      }
-
-      const raw = result.text().trim()
-      if (!raw) {
-        return c.json([])
-      }
-
-      const branches: string[] = []
-      for (const line of raw.split("\n")) {
-        const name = line.trim()
-        if (!name) continue
-        branches.push(name)
-      }
-
-      // find experiments linked to these branches
-      const experiments = Database.use((db) =>
-        db.select().from(ExperimentTable).where(eq(ExperimentTable.kind, "experiment")).all(),
+      const project = Database.use((db) =>
+        db
+          .select({ id: ResearchProjectTable.research_project_id })
+          .from(ResearchProjectTable)
+          .where(eq(ResearchProjectTable.project_id, Instance.project.id))
+          .get(),
       )
-      const expByBranch = new Map<string, { expId: string; expName: string }>()
-      for (const exp of experiments) {
-        if (exp.exp_branch_name) {
-          expByBranch.set(exp.exp_branch_name, { expId: exp.exp_id, expName: exp.exp_name })
-        }
-      }
-
-      const items = branches.map((branch) => {
-        const exp = expByBranch.get(branch)
-        return {
-          branch,
-          displayName: exp ? exp.expName : branch,
-          experimentId: exp ? exp.expId : null,
-        }
-      })
-
-      return c.json(items)
+      return CodeBranch.list(codePath)
+        .then((info) => (project ? CodeBranch.experiments(info, project.id) : info))
+        .then((info) => c.json(info.branches))
+        .catch((err) => c.json({ success: false, message: err instanceof Error ? err.message : String(err) }, 400))
     },
   )
   // ── Code CRUD ──
@@ -1823,6 +2018,7 @@ export const ResearchRoutes = new Hono()
                   atom_name: z.string(),
                   session_id: z.string(),
                   baseline_branch: z.string(),
+                  baseline_commit: z.string(),
                   exp_branch: z.string(),
                   exp_result_path: z.string(),
                   exp_result_summary_path: z.string(),
@@ -1839,7 +2035,8 @@ export const ResearchRoutes = new Hono()
       z.object({
         atomId: z.string().min(1, "atomId required"),
         expName: z.string().min(1, "expName required"),
-        baselineBranch: z.string().optional().default("master"),
+        baselineBranch: z.string().min(1, "baselineBranch required"),
+        expectedHeadSha: commitShaSchema,
         remoteServerId: z.string().optional(),
         codePath: z.string().min(1, "codePath required"),
       }),
@@ -1861,17 +2058,6 @@ export const ResearchRoutes = new Hono()
       if (project?.id !== Instance.project.id) {
         return c.json({ success: false, message: `atom not found: ${body.atomId}` }, 404)
       }
-      const expId = uniqueID()
-      const session = await Session.create({ title: `Exp: ${body.expName}` })
-
-      const expDir = path.join(Instance.directory, "exp_results", expId)
-      const expResultPath = path.join(expDir, "result.wandb")
-      const expResultSummaryPath = path.join(expDir, "summary.md")
-      const expPlanPath = path.join(expDir, "plan.md")
-
-      await Filesystem.write(path.join(expDir, ".keep"), "")
-      await Filesystem.write(expPlanPath, "")
-
       // Ensure repo is initialised and create worktree for the experiment
       const initResult = await ensureRepoInitialized(body.codePath)
       if (!initResult.ok) {
@@ -1881,16 +2067,35 @@ export const ResearchRoutes = new Hono()
         )
       }
 
-      const baselineExists = await git(["rev-parse", "--verify", body.baselineBranch], { cwd: body.codePath })
-      if (baselineExists.exitCode !== 0) {
+      const baseline = await CodeBranch.resolve(body.codePath, body.baselineBranch).catch(() => undefined)
+      if (!baseline) {
         return c.json(
           { success: false, message: `baseline branch "${body.baselineBranch}" not found at ${body.codePath}` },
           400,
         )
       }
+      if (baseline !== body.expectedHeadSha) {
+        return c.json(
+          {
+            success: false,
+            message: `baseline branch "${body.baselineBranch}" moved from ${body.expectedHeadSha} to ${baseline}; refresh branches and try again`,
+          },
+          400,
+        )
+      }
+
+      const expId = uniqueID()
+      const session = await Session.create({ title: `Exp: ${body.expName}` })
+      const expDir = path.join(Instance.directory, "exp_results", expId)
+      const expResultPath = path.join(expDir, "result.wandb")
+      const expResultSummaryPath = path.join(expDir, "summary.md")
+      const expPlanPath = path.join(expDir, "plan.md")
+
+      await Filesystem.write(path.join(expDir, ".keep"), "")
+      await Filesystem.write(expPlanPath, "")
 
       const worktreePath = path.join(body.codePath, ".openresearch_worktrees", expId)
-      const createWorktree = await git(["worktree", "add", worktreePath, body.baselineBranch, "-b", expId], {
+      const createWorktree = await git(["worktree", "add", "-b", expId, worktreePath, baseline], {
         cwd: body.codePath,
         env: GIT_ENV,
       })
@@ -1915,6 +2120,7 @@ export const ResearchRoutes = new Hono()
             atom_id: body.atomId,
             exp_session_id: session.id,
             baseline_branch_name: body.baselineBranch,
+            baseline_commit_sha: baseline,
             exp_branch_name: expId,
             exp_result_path: expResultPath,
             exp_result_summary_path: expResultSummaryPath,
@@ -1939,6 +2145,7 @@ export const ResearchRoutes = new Hono()
         atom_name: atom.atom_name,
         session_id: session.id,
         baseline_branch: body.baselineBranch,
+        baseline_commit: baseline,
         exp_branch: expId,
         exp_result_path: expResultPath,
         exp_result_summary_path: expResultSummaryPath,
@@ -1976,7 +2183,16 @@ export const ResearchRoutes = new Hono()
       const experiment = Database.use((db) =>
         db.select().from(ExperimentTable).where(eq(ExperimentTable.exp_id, expId)).get(),
       )
-      if (!experiment) {
+      const research = experiment
+        ? Database.use((db) =>
+            db
+              .select({ project: ResearchProjectTable.project_id })
+              .from(ResearchProjectTable)
+              .where(eq(ResearchProjectTable.research_project_id, experiment.research_project_id))
+              .get(),
+          )
+        : undefined
+      if (!experiment || research?.project !== Instance.project.id) {
         return c.json({ success: false, message: `experiment not found: ${expId}` }, 404)
       }
       const project = Database.use((db) =>
@@ -2007,9 +2223,15 @@ export const ResearchRoutes = new Hono()
       }
       const ready = await Session.get(updated.exp_session_id).catch(() => undefined)
       if (!ready || ready.time.archived) {
-        return c.json({ success: false, message: attached.reason ?? `experiment session is unavailable: ${expId}` }, 400)
+        return c.json(
+          { success: false, message: attached.reason ?? `experiment session is unavailable: ${expId}` },
+          400,
+        )
       }
-      return c.json({ session_id: updated.exp_session_id, created: updated.exp_session_id !== experiment.exp_session_id })
+      return c.json({
+        session_id: updated.exp_session_id,
+        created: updated.exp_session_id !== experiment.exp_session_id,
+      })
     },
   )
   .post(
@@ -2093,16 +2315,19 @@ export const ResearchRoutes = new Hono()
         db.select().from(ExperimentTable).where(eq(ExperimentTable.exp_id, expId)).get(),
       )
       if (!experiment) return c.json({ success: false, message: `experiment not found: ${expId}` }, 404)
-      if (!experiment.remote_server_id) return c.json({ success: false, message: `experiment has no remote server: ${expId}` }, 500)
+      if (!experiment.remote_server_id)
+        return c.json({ success: false, message: `experiment has no remote server: ${expId}` }, 500)
       const row = Database.use((db) =>
         db.select().from(RemoteServerTable).where(eq(RemoteServerTable.id, experiment.remote_server_id!)).get(),
       )
-      if (!row) return c.json({ success: false, message: `remote server not found: ${experiment.remote_server_id}` }, 404)
+      if (!row)
+        return c.json({ success: false, message: `remote server not found: ${experiment.remote_server_id}` }, 404)
 
-      const remoteCodePath = (body.remoteCodePath ?? experiment.remote_code_path ?? defaultRemoteCodePath(expId)).trim()
       try {
+        const server = normalizeRemoteServerConfig(JSON.parse(row.config))
+        const remoteCodePath = resolveRemoteCodePath(server, expId, body.remoteCodePath ?? experiment.remote_code_path)
         const result = await syncCodeToRemote({
-          server: normalizeRemoteServerConfig(JSON.parse(row.config)),
+          server,
           codePath: experiment.code_path,
           remoteCodePath,
           delete: body.delete,
@@ -2131,7 +2356,7 @@ export const ResearchRoutes = new Hono()
     describeRoute({
       summary: "Get experiment by session",
       description:
-        "Resolve the experiment linked to a session (walks up to parent session). Returns the experiment, its linked atom, and the atom's article. Each field is independently nullable.",
+        "Resolve the experiment linked to a session through session and collaboration ancestry. Returns the experiment, its linked atom, and the atom's article. Each field is independently nullable.",
       operationId: "research.experiment.bySession",
       responses: {
         200: {
@@ -2152,32 +2377,10 @@ export const ResearchRoutes = new Hono()
         return c.json({ success: false, message: `session not found: ${sessionId}` }, 404)
       }
 
-      const parentSessionId = (await Research.getParentSessionId(sessionId)) ?? sessionId
-
-      const experiment = Database.use((db) =>
-        db.select().from(ExperimentTable).where(eq(ExperimentTable.exp_session_id, parentSessionId)).get(),
-      )
+      const experiment = ExperimentWorkspace.resolve(sessionId)
       if (!experiment) {
         return c.json(null satisfies z.infer<typeof experimentSessionResponseSchema>)
       }
-
-      // Resolve status from experiment_execution_watch if available
-      const executionWatch = Database.use((db) =>
-        db
-          .select()
-          .from(ExperimentExecutionWatchTable)
-          .where(eq(ExperimentExecutionWatchTable.exp_id, experiment.exp_id))
-          .orderBy(desc(ExperimentExecutionWatchTable.time_updated))
-          .get(),
-      )
-      const executionStatusMap: Record<string, "pending" | "running" | "done" | "idle" | "failed"> = {
-        pending: "pending",
-        running: "running",
-        finished: "done",
-        failed: "failed",
-        canceled: "idle",
-      }
-      const resolvedStatus = executionWatch ? (executionStatusMap[executionWatch.status] ?? "pending") : "pending"
 
       const atom = experiment.atom_id
         ? (Database.use((db) => db.select().from(AtomTable).where(eq(AtomTable.atom_id, experiment.atom_id!)).get()) ??
@@ -2192,7 +2395,7 @@ export const ResearchRoutes = new Hono()
 
       return c.json({
         ...withRemoteServerConfig(experiment),
-        status: resolvedStatus,
+        status: ExperimentExecutionWatch.resolve(experiment.exp_id, experiment.status),
         atom,
         article,
       } satisfies z.infer<typeof experimentSessionResponseSchema>)
@@ -2202,7 +2405,8 @@ export const ResearchRoutes = new Hono()
     "/experiment/:expId/diff",
     describeRoute({
       summary: "Get experiment branch diff",
-      description: "Compare the experiment branch against its baseline branch and return file diffs grouped by commit.",
+      description:
+        "Compare the experiment branch against its fixed baseline commit and return file diffs grouped by commit.",
       operationId: "research.experiment.diff",
       responses: {
         200: {
@@ -2238,13 +2442,14 @@ export const ResearchRoutes = new Hono()
       if (expExists.exitCode !== 0) {
         return c.json({ success: false, message: `experiment branch "${expBranch}" not found` }, 400)
       }
-      const baseExists = await git(["rev-parse", "--verify", baselineBranch], { cwd: codePath })
+      const baseline = experiment.baseline_commit_sha ?? baselineBranch
+      const baseExists = await git(["rev-parse", "--verify", `${baseline}^{commit}`], { cwd: codePath })
       if (baseExists.exitCode !== 0) {
-        return c.json({ success: false, message: `baseline branch "${baselineBranch}" not found` }, 400)
+        return c.json({ success: false, message: `baseline commit "${baseline}" not found` }, 400)
       }
 
       // Get commit list: baseline..exp (newest first)
-      const logResult = await git(["log", "--format=%H%n%s%n%an%n%aI", `${baselineBranch}..${expBranch}`], {
+      const logResult = await git(["log", "--format=%H%n%s%n%an%n%aI", `${baseline}..${expBranch}`], {
         cwd: codePath,
       })
       if (logResult.exitCode !== 0) {
@@ -2300,6 +2505,7 @@ export const ResearchRoutes = new Hono()
             "application/json": {
               schema: resolver(
                 z.object({
+                  controllerSessionIds: z.array(z.string()),
                   atomSessionIds: z.array(z.string()),
                   expSessionIds: z.array(z.string()),
                   atoms: z.array(
@@ -2337,7 +2543,7 @@ export const ResearchRoutes = new Hono()
           .where(eq(ResearchProjectTable.research_project_id, researchProjectId))
           .get(),
       )
-      if (!project) {
+      if (!project || project.project_id !== Instance.project.id) {
         return c.json({ success: false, message: "research project not found" }, 404)
       }
 
@@ -2351,6 +2557,7 @@ export const ResearchRoutes = new Hono()
 
       const atomSessionIds: string[] = []
       const expSessionIds: string[] = []
+      const controllerSessionIds = ControllerAgent.list().map((agent) => agent.session_id)
 
       for (const atom of atoms) {
         if (atom.session_id) atomSessionIds.push(atom.session_id)
@@ -2383,6 +2590,7 @@ export const ResearchRoutes = new Hono()
       }))
 
       return c.json({
+        controllerSessionIds,
         atomSessionIds,
         expSessionIds,
         atoms: atomTree,
@@ -3058,21 +3266,30 @@ export const ResearchRoutes = new Hono()
     }),
     async (c) => {
       const expId = c.req.param("expId")
-      const experiment = Database.use((db) =>
-        db.select().from(ExperimentTable).where(eq(ExperimentTable.exp_id, expId)).get(),
-      )
+      const experiment = Database.transaction((tx) => {
+        const row = tx.select().from(ExperimentTable).where(eq(ExperimentTable.exp_id, expId)).get()
+        if (!row) return
+        const research = tx
+          .select({ project: ResearchProjectTable.project_id })
+          .from(ResearchProjectTable)
+          .where(eq(ResearchProjectTable.research_project_id, row.research_project_id))
+          .get()
+        if (research?.project !== Instance.project.id) return
+        const now = Date.now()
+        tx.insert(ResearchDeletionTable)
+          .values({ kind: "experiment", entity_id: expId, time_created: now, time_updated: now })
+          .onConflictDoNothing()
+          .run()
+        return row
+      })
       if (!experiment) {
         return c.json({ success: false, message: `experiment not found: ${expId}` }, 404)
       }
-      // Delete experiment watchers
-      Database.use((db) => db.delete(ExperimentWatchTable).where(eq(ExperimentWatchTable.exp_id, expId)).run())
-      Database.use((db) => db.delete(RemoteTaskTable).where(eq(RemoteTaskTable.exp_id, expId)).run())
-      Database.use((db) =>
-        db.delete(ExperimentExecutionWatchTable).where(eq(ExperimentExecutionWatchTable.exp_id, expId)).run(),
-      )
-      Database.use((db) => db.delete(ExperimentTable).where(eq(ExperimentTable.exp_id, expId)).run())
       if (experiment.exp_session_id) {
-        await Session.remove(experiment.exp_session_id).catch(() => {})
+        await Session.remove(experiment.exp_session_id)
+        if (await Session.get(experiment.exp_session_id).catch(() => undefined)) {
+          throw new Error(`Failed to remove session ${experiment.exp_session_id}`)
+        }
       }
       // Delete experiment results directory
       const expDir = path.join(Instance.directory, "exp_results", expId)
@@ -3083,6 +3300,15 @@ export const ResearchRoutes = new Hono()
         await git(["worktree", "remove", experiment.code_path, "--force"], { cwd: baseRepo }).catch(() => {})
         await git(["branch", "-D", experiment.exp_branch_name], { cwd: baseRepo }).catch(() => {})
       }
+      Database.transaction((tx) => {
+        tx.delete(ExperimentWatchTable).where(eq(ExperimentWatchTable.exp_id, expId)).run()
+        tx.delete(RemoteTaskTable).where(eq(RemoteTaskTable.exp_id, expId)).run()
+        tx.delete(ExperimentExecutionWatchTable).where(eq(ExperimentExecutionWatchTable.exp_id, expId)).run()
+        tx.delete(ExperimentTable).where(eq(ExperimentTable.exp_id, expId)).run()
+        tx.delete(ResearchDeletionTable)
+          .where(and(eq(ResearchDeletionTable.kind, "experiment"), eq(ResearchDeletionTable.entity_id, expId)))
+          .run()
+      })
       return c.json({ success: true })
     },
   )
@@ -3100,7 +3326,7 @@ export const ResearchRoutes = new Hono()
             },
           },
         },
-        ...errors(404),
+        ...errors(400, 404),
       },
     }),
     validator(
@@ -3108,6 +3334,7 @@ export const ResearchRoutes = new Hono()
       z.object({
         expName: z.string().optional(),
         baselineBranch: z.string().optional(),
+        expectedHeadSha: commitShaSchema.optional(),
         remoteServerId: z.string().nullable().optional(),
         codePath: z.string().optional(),
         remoteCodePath: z.string().nullable().optional(),
@@ -3125,8 +3352,20 @@ export const ResearchRoutes = new Hono()
       }
 
       const updates: Record<string, unknown> = { time_updated: Date.now() }
+      const baseline = body.baselineBranch
+        ? await CodeBranch.resolve(body.codePath ?? experiment.code_path, body.baselineBranch).catch(() => undefined)
+        : undefined
+      if (body.baselineBranch && !baseline) {
+        return c.json({ success: false, message: `baseline branch "${body.baselineBranch}" not found` }, 400)
+      }
+      if (baseline && body.expectedHeadSha && baseline !== body.expectedHeadSha) {
+        return c.json({ success: false, message: `baseline branch "${body.baselineBranch}" moved` }, 400)
+      }
       if (body.expName !== undefined) updates.exp_name = body.expName
-      if (body.baselineBranch !== undefined) updates.baseline_branch_name = body.baselineBranch
+      if (body.baselineBranch !== undefined) {
+        updates.baseline_branch_name = body.baselineBranch
+        updates.baseline_commit_sha = baseline
+      }
       if (body.remoteServerId !== undefined) updates.remote_server_id = body.remoteServerId
       if (body.codePath !== undefined) updates.code_path = body.codePath
       if (body.remoteCodePath !== undefined) updates.remote_code_path = body.remoteCodePath
@@ -3193,9 +3432,9 @@ export const ResearchRoutes = new Hono()
 
         let relations: (typeof AtomRelationTable.$inferSelect)[] = []
         if (atomIds.length > 0) {
-          const allRelations = Database.use((db) => db.select().from(AtomRelationTable).all())
+          const allRelations = normalizeLinks(Database.use((db) => db.select().from(AtomRelationTable).all()))
           relations = allRelations.filter(
-            (r) => atomIds.includes(r.atom_id_source) || atomIds.includes(r.atom_id_target),
+            (r) => atomIds.includes(r.atom_id_source) && atomIds.includes(r.atom_id_target),
           )
         }
 
@@ -3244,7 +3483,7 @@ export const ResearchRoutes = new Hono()
 
         // Create metadata
         const metadata = {
-          version: "1.0",
+          version: "2.0",
           exported_at: Date.now(),
           source_worktree: project.worktree,
           research_project: researchProject,
@@ -3603,6 +3842,7 @@ export const ResearchRoutes = new Hono()
                   atom_evidence_status: atom.atom_evidence_status,
                   atom_evidence_path: path.join(atomDir, "evidence.md"),
                   atom_evidence_assessment_path: path.join(atomDir, "evidence_assessment.md"),
+                  locked: atom.locked ?? false,
                   article_id: null, // Will be updated later
                   session_id: null, // Sessions are not imported
                   time_created: now,
@@ -3649,26 +3889,43 @@ export const ResearchRoutes = new Hono()
             }
           }
 
-          // Import atom relations
+          // Import atom relations, normalizing aliases from v1 archives.
+          const relations = new Map<
+            string,
+            {
+              atom_id_source: string
+              atom_id_target: string
+              relation_type: (typeof linkKinds)[number]
+              note: string | null
+              time_created: number
+              time_updated: number
+            }
+          >()
           for (const relation of metadata.atom_relations) {
             const newSourceId = oldToNewAtomId.get(relation.atom_id_source)
             const newTargetId = oldToNewAtomId.get(relation.atom_id_target)
             if (newSourceId && newTargetId) {
-              Database.use((db) =>
-                db
-                  .insert(AtomRelationTable)
-                  .values({
-                    atom_id_source: newSourceId,
-                    atom_id_target: newTargetId,
-                    relation_type: relation.relation_type,
-                    note: relation.note,
-                    time_created: now,
-                    time_updated: now,
-                  })
-                  .run(),
-              )
+              const kind = linkKind(relation.relation_type)
+              if (!kind) throw new Error(`Unknown atom relation type: ${relation.relation_type}`)
+              const key = `${newSourceId}\n${newTargetId}\n${kind}`
+              const current = relations.get(key)
+              relations.set(key, {
+                atom_id_source: newSourceId,
+                atom_id_target: newTargetId,
+                relation_type: kind,
+                note: current?.note ?? relation.note,
+                time_created: Math.min(current?.time_created ?? relation.time_created, relation.time_created),
+                time_updated: Math.max(current?.time_updated ?? relation.time_updated, relation.time_updated),
+              })
             }
           }
+          if (relations.size)
+            Database.use((db) =>
+              db
+                .insert(AtomRelationTable)
+                .values([...relations.values()])
+                .run(),
+            )
 
           // Import codes
           for (const code of metadata.codes) {
@@ -3707,6 +3964,7 @@ export const ResearchRoutes = new Hono()
                   exp_name: exp.exp_name,
                   exp_session_id: null, // Sessions are not imported
                   baseline_branch_name: exp.baseline_branch_name,
+                  baseline_commit_sha: exp.baseline_commit_sha ?? null,
                   exp_branch_name: exp.exp_branch_name,
                   exp_result_path: expDir,
                   atom_id: exp.atom_id ? (oldToNewAtomId.get(exp.atom_id) ?? null) : null,
@@ -3755,11 +4013,12 @@ export const ResearchRoutes = new Hono()
             for (const w of metadata.watches.experiment_execution_watches ?? []) {
               const newExpId = oldToNewExpId.get(w.exp_id)
               if (!newExpId) continue
+              const watchId = uniqueID()
               Database.use((db) =>
                 db
                   .insert(ExperimentExecutionWatchTable)
                   .values({
-                    watch_id: uniqueID(),
+                    watch_id: watchId,
                     exp_id: newExpId,
                     status: w.status,
                     stage: w.stage,
@@ -3776,6 +4035,7 @@ export const ResearchRoutes = new Hono()
                   })
                   .run(),
               )
+              ExperimentExecutionWatch.update({ watchId })
             }
 
             for (const w of metadata.watches.remote_tasks ?? []) {

@@ -155,20 +155,6 @@ async function pollAll() {
           }
         }
       }
-
-      // Update experiment status
-      const expStatus = run.state === "finished" ? "done" : "failed"
-      Database.use((db) =>
-        db
-          .update(ExperimentTable)
-          .set({
-            status: expStatus as any,
-            finished_at: now,
-            time_updated: now,
-          })
-          .where(eq(ExperimentTable.exp_id, watch.exp_id))
-          .run(),
-      )
     }
   }
 }
@@ -244,22 +230,6 @@ export async function forceRefreshWatch(
         await Filesystem.write(path.join(resultDir, "config.json"), run.config)
       }
     }
-  }
-
-  // If terminal, also update experiment status
-  if (isTerminal) {
-    const expStatus = run.state === "finished" ? "done" : "failed"
-    Database.use((db) =>
-      db
-        .update(ExperimentTable)
-        .set({
-          status: expStatus as any,
-          finished_at: now,
-          time_updated: now,
-        })
-        .where(eq(ExperimentTable.exp_id, watch.exp_id))
-        .run(),
-    )
   }
 
   return { success: true, message: `refreshed, wandb state: ${run.state}` }

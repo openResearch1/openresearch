@@ -29,6 +29,42 @@ test("returns default native agents when no config", async () => {
   })
 })
 
+test("composes shared prompts only into selected agents", async () => {
+  await using tmp = await tmpdir()
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const build = await Agent.get("build")
+      const plan = await Agent.get("plan")
+      const general = await Agent.get("general")
+      const explore = await Agent.get("explore")
+      const experiment = await Agent.get("experiment")
+      const research = await Agent.get("research")
+      const controller = await Agent.get("controller")
+
+      expect(build?.prompt).toBeUndefined()
+      expect(plan?.prompt).toBeUndefined()
+      expect(general?.prompt).toBeUndefined()
+      expect(explore?.prompt).not.toContain("## Interaction and response style")
+
+      expect(experiment?.prompt).toContain("## Interaction and response style")
+      expect(experiment?.prompt).toContain("## Workspace safety")
+      expect(experiment?.prompt).toContain("## Code editing")
+      expect(experiment?.prompt).toContain("You are the autonomous experiment agent")
+
+      expect(research?.prompt).toContain("## Interaction and response style")
+      expect(research?.prompt).toContain("## Workspace safety")
+      expect(research?.prompt).not.toContain("## Code editing")
+      expect(research?.prompt).toContain("## Atom model")
+
+      expect(controller?.prompt).toContain("## Interaction and response style")
+      expect(controller?.prompt).not.toContain("## Workspace safety")
+      expect(controller?.prompt).not.toContain("## Code editing")
+      expect(controller?.prompt).toContain("You are the Controller for an OpenResearch project")
+    },
+  })
+})
+
 test("build agent has correct default properties", async () => {
   await using tmp = await tmpdir()
   await Instance.provide({
@@ -104,32 +140,121 @@ test("general agent denies todo tools", async () => {
   })
 })
 
-test("resource agents have separate download and prepare boundaries", async () => {
+test("resource preparation agent owns acquisition through verification", async () => {
   await using tmp = await tmpdir()
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const download = await Agent.get("project_runtime_resource_download")
       const prepare = await Agent.get("experiment_resource_prepare")
       const old = await Agent.get("experiment_remote_download")
-
-      expect(download).toBeDefined()
-      expect(download?.mode).toBe("subagent")
-      expect(download?.native).toBe(true)
-      expect(evalPerm(download, "huggingface_search")).toBe("allow")
-      expect(evalPerm(download, "modelscope_search")).toBe("allow")
-      expect(evalPerm(download, "experiment_remote_task_start")).toBe("allow")
-      expect(evalPerm(download, "project_runtime_resource_upsert")).toBe("allow")
 
       expect(prepare).toBeDefined()
       expect(prepare?.mode).toBe("subagent")
       expect(prepare?.native).toBe(true)
-      expect(evalPerm(prepare, "huggingface_search")).toBe("deny")
-      expect(evalPerm(prepare, "modelscope_search")).toBe("deny")
+      expect(evalPerm(prepare, "huggingface_search")).toBe("allow")
+      expect(evalPerm(prepare, "modelscope_search")).toBe("allow")
       expect(evalPerm(prepare, "experiment_remote_task_start")).toBe("allow")
       expect(evalPerm(prepare, "project_runtime_resource_query")).toBe("allow")
+      expect(evalPerm(prepare, "project_runtime_resource_upsert")).toBe("allow")
+      expect(evalPerm(prepare, "read")).toBe("deny")
+      expect(evalPerm(prepare, "project_runtime_server_query")).toBe("deny")
 
+      expect(await Agent.get("project_runtime_resource_download")).toBeUndefined()
       expect(old).toBeUndefined()
+    },
+  })
+})
+
+test("research agent carries the shared Atom graph definition", async () => {
+  await using tmp = await tmpdir()
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const research = await Agent.get("research")
+      expect(evalPerm(research, "research_code_branch_query")).toBe("allow")
+      expect(research?.prompt).toContain("## Atom model")
+      expect(research?.prompt).toContain("`evaluated_by`")
+      expect(research?.prompt).not.toContain("expectedHeadSha")
+    },
+  })
+})
+
+test("experiment agent owns the autonomous remote lifecycle", async () => {
+  await using tmp = await tmpdir()
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const experiment = await Agent.get("experiment")
+
+      expect(experiment?.prompt).toContain("Never use a workflow")
+      expect(evalPerm(experiment, "workflow")).toBe("deny")
+      expect(experiment?.prompt).toContain("experiment_execution_watch_update")
+      expect(experiment?.prompt).toContain("listenForTerminal: true")
+      expect(experiment?.prompt).toContain("Sync local code with `experiment_code_sync`")
+      expect(experiment?.prompt).toContain('agent_type: "project_runtime_env_setup"')
+      expect(experiment?.prompt).toContain('subagent_type: "experiment_commit"')
+      expect(experiment?.prompt).toContain("exact returned `remoteCodePath`")
+      expect(experiment?.prompt).toContain("Never spawn environment setup for unsynced code")
+      expect(experiment?.prompt).toContain("Spawn at most one long-running child per turn")
+      expect(experiment?.prompt).toContain("one related unresolved `resources` batch")
+      expect(experiment?.prompt).toContain("exclusively owns inventory lookup")
+      expect(experiment?.prompt).toContain("--git-common-dir")
+      expect(experiment?.prompt).toContain("Aggressive Runtime Reuse")
+      expect(experiment?.prompt).toContain("runtime_success")
+      expect(experiment?.prompt).toContain("without SSH checks")
+      expect(experiment?.prompt).toContain("Code, algorithm, syntax, and parameter errors do not invalidate")
+      expect(experiment?.prompt).not.toContain("deploying_code")
+      expect(evalPerm(experiment, "remote_terminal_start")).toBe("deny")
+      expect(PermissionNext.evaluate("task", "experiment_plan", experiment!.permission).action).toBe("allow")
+      expect(PermissionNext.evaluate("task", "general", experiment!.permission).action).toBe("deny")
+      expect(PermissionNext.evaluate("spawn_agent", "project_runtime_env_setup", experiment!.permission).action).toBe(
+        "allow",
+      )
+      expect(PermissionNext.evaluate("spawn_agent", "general", experiment!.permission).action).toBe("deny")
+      expect(await Agent.get("experiment_deploy")).toBeUndefined()
+      expect(await Agent.get("experiment_setup_env")).toBeUndefined()
+      expect(await Agent.get("experiment_run")).toBeUndefined()
+      expect(await Agent.get("experiment_summary")).toBeUndefined()
+      expect(await Agent.get("experiment_success")).toBeUndefined()
+    },
+  })
+})
+
+test("experiment subagents keep focused permissions and contracts", async () => {
+  await using tmp = await tmpdir()
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const plan = await Agent.get("experiment_plan")
+      const env = await Agent.get("project_runtime_env_setup")
+      const resource = await Agent.get("experiment_resource_prepare")
+      const commit = await Agent.get("experiment_commit")
+
+      expect(evalPerm(plan, "bash")).toBe("deny")
+      expect(evalPerm(plan, "edit")).toBe("allow")
+      expect(PermissionNext.disabled(["edit", "write", "apply_patch"], plan!.permission).size).toBe(0)
+      expect(evalPerm(plan, "experiment_query")).toBe("allow")
+      expect(evalPerm(plan, "experiment_remote_task_start")).toBe("deny")
+      expect(evalPerm(env, "experiment_query")).toBe("allow")
+      expect(evalPerm(resource, "experiment_query")).toBe("allow")
+      expect(evalPerm(commit, "experiment_query")).toBe("allow")
+      expect(evalPerm(env, "question")).toBe("deny")
+      expect(evalPerm(env, "read")).toBe("deny")
+      expect(evalPerm(env, "glob")).toBe("deny")
+      expect(evalPerm(env, "grep")).toBe("deny")
+      expect(evalPerm(resource, "question")).toBe("deny")
+      expect(evalPerm(commit, "remote_terminal_start")).toBe("deny")
+      expect(env?.prompt).toContain("Run Prefix")
+      expect(env?.prompt).toContain("code already synced")
+      expect(env?.prompt).toContain("remoteCodePath")
+      expect(env?.prompt).toContain("`pip install .` and `pip install -e .`")
+      expect(env?.prompt).toContain("Preserve existing `spec.runtime_success`")
+      expect(resource?.prompt).toContain("complete physical lifecycle")
+      expect(resource?.prompt).toContain("must not be rechecked")
+      expect(resource?.prompt).toContain("Preserve existing inventory metadata and `verify.runtime_success`")
+      expect(resource?.prompt).toContain("listenForTerminal: true")
+      expect(commit?.prompt).toContain("Never run `git add .`")
+      expect(commit?.prompt).toContain("git rev-parse HEAD")
     },
   })
 })

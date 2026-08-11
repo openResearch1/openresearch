@@ -13,6 +13,7 @@ import { LSP } from "../lsp"
 import { Filesystem } from "../util/filesystem"
 import DESCRIPTION from "./apply_patch.txt"
 import { File } from "../file"
+import { AtomLock } from "../research/atom-lock"
 
 const PatchParams = z.object({
   patchText: z.string().describe("The full patch text that describes all changes to be made"),
@@ -156,6 +157,11 @@ export const ApplyPatchTool = Tool.define("apply_patch", {
           break
         }
       }
+    }
+
+    for (const change of fileChanges) {
+      AtomLock.assertPath(change.filePath)
+      if (change.movePath) AtomLock.assertPath(change.movePath)
     }
 
     // Build per-file metadata for UI rendering (used for both permission and result)

@@ -743,7 +743,7 @@ export function UserMessageDisplay(props: {
     if (!PART_MAPPING[p.type]) return false
     if (p.type === "text" || p.type === "file") return false
     if (p.type === "collab_return")
-      return ["child_done", "child_waiting", "remote_task_terminal"].includes(
+      return ["child_done", "child_failed", "child_waiting", "remote_task_terminal"].includes(
         (p as unknown as { kind: string }).kind,
       )
     return true
@@ -1197,7 +1197,10 @@ PART_MAPPING["collab_return"] = function CollabReturnPartDisplay(props) {
     }
 
   const visible = () =>
-    part().kind === "child_done" || part().kind === "child_waiting" || part().kind === "remote_task_terminal"
+    part().kind === "child_done" ||
+    part().kind === "child_failed" ||
+    part().kind === "child_waiting" ||
+    part().kind === "remote_task_terminal"
   if (!visible()) return null as unknown as JSX.Element
 
   const childHref = createMemo(() => {
@@ -1254,23 +1257,31 @@ PART_MAPPING["collab_return"] = function CollabReturnPartDisplay(props) {
   const title = () =>
     remote() ? part().headline : part().childName?.trim() || i18n.t("ui.tool.agent.childCompleted")
   const waiting = () => part().kind === "child_waiting"
-  const failed = () => remote() && part().payload?.status !== "finished"
+  const childFailed = () => part().kind === "child_failed"
+  const canceled = () =>
+    childFailed() && (part().payload?.reason === "canceled" || /\(canceled\)\s*$/.test(part().headline))
+  const failed = () => (childFailed() && !canceled()) || (remote() && part().payload?.status !== "finished")
   const label = (): string => {
     if (waiting()) return i18n.t("ui.tool.agent.waitingInteraction")
+    if (canceled()) return i18n.t("ui.tool.agent.status.canceled")
+    if (childFailed()) return i18n.t("ui.tool.agent.status.failed")
     const status = part().payload?.status
     if (remote()) return typeof status === "string" ? status : "terminal"
     return i18n.t("ui.tool.agent.status.done")
   }
+  const variant = () =>
+    childFailed() && !canceled() ? "error" : canceled() ? "muted" : waiting() || failed() ? "warning" : "success"
+  const icon = (): IconProps["name"] => (canceled() ? "circle-x" : waiting() || failed() ? "warning" : "check-small")
 
-  // Custom trigger: put the success chip BEFORE the title so the status
+  // Custom trigger: put the status chip BEFORE the title so the result
   // reads left-to-right as "Done: <childName>". The ToolTriggerRow helper
   // only accepts a plain string title, so we render the structured row
   // ourselves to keep the chip as the leading element in the main slot.
   const trigger = () => (
     <div data-slot="basic-tool-tool-info-structured">
       <div data-slot="basic-tool-tool-info-main">
-        <span data-slot="agent-card-chip" data-variant={waiting() || failed() ? "warning" : "success"}>
-          <Icon name={waiting() || failed() ? "warning" : "check-small"} size="small" />
+        <span data-slot="agent-card-chip" data-variant={variant()}>
+          <Icon name={icon()} size="small" />
           <span>{label()}</span>
         </span>
         <span data-slot="basic-tool-tool-title">{title()}</span>
@@ -1283,7 +1294,7 @@ PART_MAPPING["collab_return"] = function CollabReturnPartDisplay(props) {
     <div data-component="agent-tool-card">
       <ToolCall
         variant="panel"
-        icon={waiting() || failed() ? "warning" : "circle-check"}
+        icon={canceled() ? "circle-x" : waiting() || failed() ? "warning" : "circle-check"}
         animate
         springContent
         trigger={trigger()}
@@ -1292,7 +1303,11 @@ PART_MAPPING["collab_return"] = function CollabReturnPartDisplay(props) {
           <Show when={part().body?.trim()}>
             <div data-slot="agent-card-block">
               <div data-slot="agent-card-label">
-                {waiting() ? i18n.t("ui.tool.agent.waitingInteraction") : i18n.t("ui.tool.agent.childSummary")}
+                {waiting()
+                  ? i18n.t("ui.tool.agent.waitingInteraction")
+                  : childFailed()
+                    ? label()
+                    : i18n.t("ui.tool.agent.childSummary")}
               </div>
               <div data-slot="agent-card-body">
                 <Markdown text={part().body} cacheKey={part().id} />
@@ -1441,6 +1456,44 @@ ToolRegistry.register({
             </div>
           )}
         </Show>
+      </ToolCall>
+    )
+  },
+})
+
+ToolRegistry.register({
+  name: "experiment_remote_task_start",
+  render(props) {
+    const pending = createMemo(() => busy(props.status))
+    const reveal = useToolReveal(pending, () => props.reveal !== false)
+    const title = () => (typeof props.input.title === "string" ? props.input.title : undefined)
+    const command = () => (typeof props.input.command === "string" ? props.input.command : "")
+
+    return (
+      <ToolCall
+        variant="panel"
+        {...props}
+        icon="mcp"
+        animate
+        springContent
+        defaultOpen={props.defaultOpen ?? false}
+        trigger={
+          <div data-slot="basic-tool-tool-info-structured">
+            <div data-slot="basic-tool-tool-info-main">
+              <span data-slot="basic-tool-tool-title">
+                <TextShimmer text="Start remote task" active={pending()} />
+              </span>
+              <Show when={title()}>{(text) => <ToolText text={text()} animate={reveal()} />}</Show>
+            </div>
+          </div>
+        }
+      >
+        <div data-component="tool-output" data-scrollable>
+          <div class="text-11-regular text-text-weak pb-1">Command</div>
+          <pre class="text-11-regular text-text-base whitespace-pre-wrap break-words">
+            <code>{command()}</code>
+          </pre>
+        </div>
       </ToolCall>
     )
   },
@@ -2429,19 +2482,19 @@ ToolRegistry.register({
   },
 })
 
-ToolRegistry.register({
+const ResumeAgentTool = ToolRegistry.register({
   name: "resume_agent",
   render(props) {
     const data = useData()
     const i18n = useI18n()
     const metadata = () =>
-      (props.metadata ?? {}) as { agent_id?: string; session_id?: string }
+      (props.metadata ?? {}) as { agent_id?: string; session_id?: string; agentId?: string; sessionId?: string }
     const targetAgentId = () => {
       const fromInput = props.input.agent_id
       if (typeof fromInput === "string" && fromInput) return fromInput
-      return metadata().agent_id
+      return metadata().agent_id ?? metadata().agentId ?? props.input.atom_id
     }
-    const targetSessionId = () => metadata().session_id
+    const targetSessionId = () => metadata().session_id ?? metadata().sessionId
     const prompt = createMemo(() => {
       const value = props.input.prompt
       return typeof value === "string" && value.length > 0 ? value : undefined
@@ -2528,6 +2581,69 @@ ToolRegistry.register({
       </div>
     )
   },
+})
+
+ToolRegistry.register({
+  name: "cancel_agent",
+  render(props) {
+    const i18n = useI18n()
+    const pending = createMemo(() => busy(props.status))
+    const failed = createMemo(() => props.status === "completed" && props.metadata.ok === false)
+    const id = () => {
+      const value = props.input.agent_id ?? props.metadata.agent_id
+      return typeof value === "string" ? value : undefined
+    }
+    const reason = createMemo(() => {
+      if (failed() && props.output) return props.output
+      const value = props.input.reason
+      return typeof value === "string" && value.length > 0 ? value : undefined
+    })
+    const title = () => {
+      if (pending()) return i18n.t("ui.tool.cancel_agent")
+      if (failed()) return i18n.t("ui.tool.cancel_agent.failed")
+      return i18n.t("ui.tool.cancel_agent.requested")
+    }
+
+    return (
+      <div data-component="agent-tool-card">
+        <ToolCall
+          variant="panel"
+          icon="stop"
+          status={props.status}
+          animate
+          springContent
+          trigger={
+            <ToolTriggerRow
+              title={title()}
+              pending={pending()}
+              subtitle={id()}
+              animate={props.reveal}
+            />
+          }
+        >
+          <div data-component="agent-card">
+            <Show when={reason()}>
+              {(text) => (
+                <div data-slot="agent-card-block">
+                  <div data-slot="agent-card-label">
+                    {failed() ? i18n.t("ui.tool.agent.error") : i18n.t("ui.tool.agent.reason")}
+                  </div>
+                  <div data-slot="agent-card-body">
+                    <Markdown text={text()} />
+                  </div>
+                </div>
+              )}
+            </Show>
+          </div>
+        </ToolCall>
+      </div>
+    )
+  },
+})
+
+ToolRegistry.register({
+  name: "delegate_atom",
+  render: ResumeAgentTool.render,
 })
 
 function ShellToolRenderer(props: any) {

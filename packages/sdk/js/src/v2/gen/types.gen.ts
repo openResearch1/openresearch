@@ -729,6 +729,7 @@ export type CollabAgentPolicy = {
   maxChildren?: number
   progress_injection?: "none" | "latest" | "all"
   summarize?: boolean
+  detach_on_terminal?: boolean
 }
 
 export type CollabAgentSpec = {
@@ -763,6 +764,8 @@ export type CollabAgent = {
   name: string
   project_id: string
   root_agent_id: string
+  run_id: string | null
+  initiator: "human" | "agent" | null
   subagent_type: string
   status:
     | "idle"
@@ -808,6 +811,18 @@ export type EventCollabAgentStatus = {
       | "canceled"
     phase: "main_loop" | "awaiting_children" | "draining"
     active_children: number
+    initiator: "human" | "agent" | null
+  }
+}
+
+export type EventCollabAgentReparented = {
+  type: "collab.agent.reparented"
+  properties: {
+    info: CollabAgent
+    oldParentAgentId: string | null
+    newParentAgentId: string | null
+    oldRootAgentId: string
+    newRootAgentId: string
   }
 }
 
@@ -969,6 +984,22 @@ export type EventResearchAtomsUpdated = {
   type: "research.atoms.updated"
   properties: {
     researchProjectId: string
+  }
+}
+
+export type EventResearchPathsUpdated = {
+  type: "research.paths.updated"
+  properties: {
+    researchProjectId: string
+    researchPathId: string
+  }
+}
+
+export type EventResearchResultsUpdated = {
+  type: "research.results.updated"
+  properties: {
+    researchProjectId: string
+    researchResultId: string
   }
 }
 
@@ -1244,6 +1275,7 @@ export type Event =
   | EventFileWatcherUpdated
   | EventCollabAgentCreated
   | EventCollabAgentStatus
+  | EventCollabAgentReparented
   | EventCollabAgentCompleted
   | EventCollabAgentFailed
   | EventCollabMessagePosted
@@ -1252,6 +1284,8 @@ export type Event =
   | EventWorkflowUpdated
   | EventTodoUpdated
   | EventResearchAtomsUpdated
+  | EventResearchPathsUpdated
+  | EventResearchResultsUpdated
   | EventPtyCreated
   | EventPtyUpdated
   | EventPtyExited
@@ -1767,10 +1801,6 @@ export type Config = {
   experimental?: {
     disable_paste_summary?: boolean
     /**
-     * Enable the batch tool
-     */
-    batch_tool?: boolean
-    /**
      * Enable OpenTelemetry spans for AI SDK calls (using the 'experimental_telemetry' flag)
      */
     openTelemetry?: boolean
@@ -2089,6 +2119,7 @@ export type CollabMessage = {
   id: string
   recipient_agent_id: string
   sender_agent_id: string | null
+  run_id: string | null
   kind:
     | "child_done"
     | "child_failed"
@@ -2100,7 +2131,7 @@ export type CollabMessage = {
     | "user_input"
     | "system"
   payload: unknown
-  status: "pending" | "consumed" | "dropped"
+  status: "pending" | "processing" | "consumed" | "dropped"
   time_created: number
   time_updated: number
   time_consumed: number | null
@@ -2118,6 +2149,11 @@ export type CollabSessionAgentResponse = {
 export type CollabCancelResponse = {
   agent_id: string
   canceled: boolean
+}
+
+export type CollabStopResponse = {
+  agent_id: string
+  stopped: boolean
 }
 
 export type ProviderAuthMethod = {
@@ -4348,6 +4384,241 @@ export type ResearchProjectGetResponses = {
 
 export type ResearchProjectGetResponse = ResearchProjectGetResponses[keyof ResearchProjectGetResponses]
 
+export type ResearchControllerSessionCreateData = {
+  body?: never
+  path: {
+    researchProjectId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/research/project/{researchProjectId}/controller/session"
+}
+
+export type ResearchControllerSessionCreateErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ResearchControllerSessionCreateError =
+  ResearchControllerSessionCreateErrors[keyof ResearchControllerSessionCreateErrors]
+
+export type ResearchControllerSessionCreateResponses = {
+  /**
+   * Created Controller session
+   */
+  200: {
+    session_id: string
+    agent_id: string
+  }
+}
+
+export type ResearchControllerSessionCreateResponse =
+  ResearchControllerSessionCreateResponses[keyof ResearchControllerSessionCreateResponses]
+
+export type ResearchPathsListData = {
+  body?: never
+  path: {
+    researchProjectId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/research/project/{researchProjectId}/paths"
+}
+
+export type ResearchPathsListErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ResearchPathsListError = ResearchPathsListErrors[keyof ResearchPathsListErrors]
+
+export type ResearchPathsListResponses = {
+  /**
+   * Research Paths
+   */
+  200: Array<{
+    research_path_id: string
+    research_project_id: string
+    creator_session_id: string
+    title: string
+    brief: string
+    summary: string | null
+    status: "active" | "completed" | "cancelled"
+    time_created: number
+    time_updated: number
+    atoms: Array<{
+      role: "seed" | "member"
+      atom_id: string
+      atom_name: string
+      atom_type: "fact" | "method" | "theorem" | "verification"
+      atom_evidence_type: "math" | "experiment"
+      atom_evidence_status: "pending" | "in_progress" | "proven" | "disproven"
+      locked: boolean
+      session_id: string | null
+    }>
+    relations: Array<{
+      atom_id_source: string
+      atom_id_target: string
+      relation_type:
+        | "motivates"
+        | "grounds"
+        | "formalized_by"
+        | "derives"
+        | "analyzed_by"
+        | "evaluated_by"
+        | "contradicts"
+        | "other"
+      note: string | null
+    }>
+    stages: Array<{
+      index: number
+      groups: Array<{
+        atom_ids: Array<string>
+        cyclic: boolean
+      }>
+    }>
+  }>
+}
+
+export type ResearchPathsListResponse = ResearchPathsListResponses[keyof ResearchPathsListResponses]
+
+export type ResearchResultsListData = {
+  body?: never
+  path: {
+    researchProjectId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/research/project/{researchProjectId}/results"
+}
+
+export type ResearchResultsListErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ResearchResultsListError = ResearchResultsListErrors[keyof ResearchResultsListErrors]
+
+export type ResearchResultsListResponses = {
+  /**
+   * Accepted Research Results
+   */
+  200: Array<{
+    research_result_id: string
+    research_project_id: string
+    source_session_id: string
+    reviewer_session_id: string
+    title: string
+    summary: string
+    evaluation: string
+    time_created: number
+    time_updated: number
+    atoms: Array<{
+      atom_id: string
+      atom_name: string
+      available: boolean
+      atom_type: "fact" | "method" | "theorem" | "verification" | null
+      atom_evidence_type: "math" | "experiment" | null
+      atom_evidence_status: "pending" | "in_progress" | "proven" | "disproven" | null
+      locked: boolean | null
+      session_id: string | null
+    }>
+    relations: Array<{
+      atom_id_source: string
+      atom_id_target: string
+      relation_type:
+        | "motivates"
+        | "grounds"
+        | "formalized_by"
+        | "derives"
+        | "analyzed_by"
+        | "evaluated_by"
+        | "contradicts"
+        | "other"
+      note: string | null
+    }>
+  }>
+}
+
+export type ResearchResultsListResponse = ResearchResultsListResponses[keyof ResearchResultsListResponses]
+
+export type ResearchResultGetData = {
+  body?: never
+  path: {
+    researchProjectId: string
+    researchResultId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/research/project/{researchProjectId}/result/{researchResultId}"
+}
+
+export type ResearchResultGetErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ResearchResultGetError = ResearchResultGetErrors[keyof ResearchResultGetErrors]
+
+export type ResearchResultGetResponses = {
+  /**
+   * Accepted Research Result
+   */
+  200: {
+    research_result_id: string
+    research_project_id: string
+    source_session_id: string
+    reviewer_session_id: string
+    title: string
+    summary: string
+    evaluation: string
+    time_created: number
+    time_updated: number
+    atoms: Array<{
+      atom_id: string
+      atom_name: string
+      available: boolean
+      atom_type: "fact" | "method" | "theorem" | "verification" | null
+      atom_evidence_type: "math" | "experiment" | null
+      atom_evidence_status: "pending" | "in_progress" | "proven" | "disproven" | null
+      locked: boolean | null
+      session_id: string | null
+    }>
+    relations: Array<{
+      atom_id_source: string
+      atom_id_target: string
+      relation_type:
+        | "motivates"
+        | "grounds"
+        | "formalized_by"
+        | "derives"
+        | "analyzed_by"
+        | "evaluated_by"
+        | "contradicts"
+        | "other"
+      note: string | null
+    }>
+  }
+}
+
+export type ResearchResultGetResponse = ResearchResultGetResponses[keyof ResearchResultGetResponses]
+
 export type ResearchAtomsListData = {
   body?: never
   path: {
@@ -4384,6 +4655,7 @@ export type ResearchAtomsListResponses = {
       atom_evidence_status: string
       atom_evidence_path: string | null
       atom_evidence_assessment_path: string | null
+      locked: boolean
       article_id: string | null
       session_id: string | null
       time_created: number
@@ -4392,7 +4664,15 @@ export type ResearchAtomsListResponses = {
     relations: Array<{
       atom_id_source: string
       atom_id_target: string
-      relation_type: string
+      relation_type:
+        | "motivates"
+        | "grounds"
+        | "formalized_by"
+        | "derives"
+        | "analyzed_by"
+        | "evaluated_by"
+        | "contradicts"
+        | "other"
       note: string | null
       time_created: number
       time_updated: number
@@ -4444,6 +4724,7 @@ export type ResearchAtomCreateResponses = {
     atom_evidence_status: string
     atom_evidence_path: string | null
     atom_evidence_assessment_path: string | null
+    locked: boolean
     article_id: string | null
     session_id: string | null
     time_created: number
@@ -4457,7 +4738,18 @@ export type ResearchRelationDeleteData = {
   body?: {
     source_atom_id: string
     target_atom_id: string
-    relation_type: "motivates" | "formalizes" | "derives" | "analyzes" | "validates" | "contradicts" | "other"
+    relation_type:
+      | "motivates"
+      | "grounds"
+      | "formalized_by"
+      | "derives"
+      | "analyzed_by"
+      | "evaluated_by"
+      | "contradicts"
+      | "other"
+      | "formalizes"
+      | "analyzes"
+      | "validates"
   }
   path: {
     researchProjectId: string
@@ -4485,7 +4777,15 @@ export type ResearchRelationDeleteResponses = {
   200: {
     source_atom_id: string
     target_atom_id: string
-    relation_type: "motivates" | "formalizes" | "derives" | "analyzes" | "validates" | "contradicts" | "other"
+    relation_type:
+      | "motivates"
+      | "grounds"
+      | "formalized_by"
+      | "derives"
+      | "analyzed_by"
+      | "evaluated_by"
+      | "contradicts"
+      | "other"
     deleted: true
   }
 }
@@ -4496,8 +4796,30 @@ export type ResearchRelationUpdateData = {
   body?: {
     source_atom_id: string
     target_atom_id: string
-    relation_type: "motivates" | "formalizes" | "derives" | "analyzes" | "validates" | "contradicts" | "other"
-    next_relation_type: "motivates" | "formalizes" | "derives" | "analyzes" | "validates" | "contradicts" | "other"
+    relation_type:
+      | "motivates"
+      | "grounds"
+      | "formalized_by"
+      | "derives"
+      | "analyzed_by"
+      | "evaluated_by"
+      | "contradicts"
+      | "other"
+      | "formalizes"
+      | "analyzes"
+      | "validates"
+    next_relation_type:
+      | "motivates"
+      | "grounds"
+      | "formalized_by"
+      | "derives"
+      | "analyzed_by"
+      | "evaluated_by"
+      | "contradicts"
+      | "other"
+      | "formalizes"
+      | "analyzes"
+      | "validates"
   }
   path: {
     researchProjectId: string
@@ -4529,7 +4851,15 @@ export type ResearchRelationUpdateResponses = {
   200: {
     atom_id_source: string
     atom_id_target: string
-    relation_type: string
+    relation_type:
+      | "motivates"
+      | "grounds"
+      | "formalized_by"
+      | "derives"
+      | "analyzed_by"
+      | "evaluated_by"
+      | "contradicts"
+      | "other"
     note: string | null
     time_created: number
     time_updated: number
@@ -4542,7 +4872,18 @@ export type ResearchRelationCreateData = {
   body?: {
     source_atom_id: string
     target_atom_id: string
-    relation_type: "motivates" | "formalizes" | "derives" | "analyzes" | "validates" | "contradicts" | "other"
+    relation_type:
+      | "motivates"
+      | "grounds"
+      | "formalized_by"
+      | "derives"
+      | "analyzed_by"
+      | "evaluated_by"
+      | "contradicts"
+      | "other"
+      | "formalizes"
+      | "analyzes"
+      | "validates"
     note?: string
   }
   path: {
@@ -4575,7 +4916,15 @@ export type ResearchRelationCreateResponses = {
   200: {
     atom_id_source: string
     atom_id_target: string
-    relation_type: string
+    relation_type:
+      | "motivates"
+      | "grounds"
+      | "formalized_by"
+      | "derives"
+      | "analyzed_by"
+      | "evaluated_by"
+      | "contradicts"
+      | "other"
     note: string | null
     time_created: number
     time_updated: number
@@ -4599,6 +4948,10 @@ export type ResearchAtomDeleteData = {
 
 export type ResearchAtomDeleteErrors = {
   /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
    * Not found
    */
   404: NotFoundError
@@ -4618,10 +4971,59 @@ export type ResearchAtomDeleteResponses = {
 
 export type ResearchAtomDeleteResponse = ResearchAtomDeleteResponses[keyof ResearchAtomDeleteResponses]
 
+export type ResearchAtomLockData = {
+  body?: {
+    locked: boolean
+  }
+  path: {
+    researchProjectId: string
+    atomId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/research/project/{researchProjectId}/atom/{atomId}/lock"
+}
+
+export type ResearchAtomLockErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ResearchAtomLockError = ResearchAtomLockErrors[keyof ResearchAtomLockErrors]
+
+export type ResearchAtomLockResponses = {
+  /**
+   * Updated atom lock state
+   */
+  200: {
+    atom_id: string
+    research_project_id: string
+    atom_name: string
+    atom_type: string
+    atom_claim_path: string | null
+    atom_evidence_type: string
+    atom_evidence_status: string
+    atom_evidence_path: string | null
+    atom_evidence_assessment_path: string | null
+    locked: boolean
+    article_id: string | null
+    session_id: string | null
+    time_created: number
+    time_updated: number
+  }
+}
+
+export type ResearchAtomLockResponse = ResearchAtomLockResponses[keyof ResearchAtomLockResponses]
+
 export type ResearchAtomUpdateData = {
   body?: {
     evidence_status?: "pending" | "in_progress" | "proven" | "disproven"
     evidence_type?: "math" | "experiment"
+    article_id?: string | null
   }
   path: {
     researchProjectId: string
@@ -4661,6 +5063,7 @@ export type ResearchAtomUpdateResponses = {
     atom_evidence_status: string
     atom_evidence_path: string | null
     atom_evidence_assessment_path: string | null
+    locked: boolean
     article_id: string | null
     session_id: string | null
     time_created: number
@@ -4891,6 +5294,7 @@ export type ResearchSessionAtomGetResponses = {
       atom_evidence_status: string
       atom_evidence_path: string | null
       atom_evidence_assessment_path: string | null
+      locked: boolean
       article_id: string | null
       session_id: string | null
       time_created: number
@@ -4903,6 +5307,7 @@ export type ResearchSessionAtomGetResponses = {
         exp_name: string
         exp_session_id: string | null
         baseline_branch_name: string | null
+        baseline_commit_sha: string | null
         exp_branch_name: string | null
         exp_result_path: string | null
         atom_id: string | null
@@ -5022,8 +5427,16 @@ export type ResearchBranchesResponses = {
    */
   200: Array<{
     branch: string
+    ref: string
+    headSha: string
+    subject: string
+    committedAt: string
+    current: boolean
+    default: boolean
     displayName: string
     experimentId: string | null
+    experimentName: string | null
+    experimentStatus: string | null
   }>
 }
 
@@ -5184,7 +5597,8 @@ export type ResearchExperimentCreateData = {
   body?: {
     atomId: string
     expName: string
-    baselineBranch?: string
+    baselineBranch: string
+    expectedHeadSha: string
     remoteServerId?: string
     codePath: string
   }
@@ -5220,6 +5634,7 @@ export type ResearchExperimentCreateResponses = {
     atom_name: string
     session_id: string
     baseline_branch: string
+    baseline_commit: string
     exp_branch: string
     exp_result_path: string
     exp_result_summary_path: string
@@ -5383,6 +5798,7 @@ export type ResearchExperimentBySessionResponses = {
     exp_name: string
     exp_session_id: string | null
     baseline_branch_name: string | null
+    baseline_commit_sha: string | null
     exp_branch_name: string | null
     exp_result_path: string | null
     atom_id: string | null
@@ -5448,6 +5864,7 @@ export type ResearchExperimentBySessionResponses = {
       atom_evidence_status: string
       atom_evidence_path: string | null
       atom_evidence_assessment_path: string | null
+      locked: boolean
       article_id: string | null
       session_id: string | null
       time_created: number
@@ -5537,6 +5954,7 @@ export type ResearchProjectSessionTreeResponses = {
    * Session tree
    */
   200: {
+    controllerSessionIds: Array<string>
     atomSessionIds: Array<string>
     expSessionIds: Array<string>
     atoms: Array<{
@@ -6044,6 +6462,7 @@ export type ResearchExperimentWatchListResponses = {
       status: "pending" | "running" | "finished" | "failed" | "crashed" | "canceled"
       resource_key: string | null
       target_path: string | null
+      command: string
       screen_name: string
       log_path: string | null
       error_message: string | null
@@ -6303,6 +6722,7 @@ export type ResearchExperimentUpdateData = {
   body?: {
     expName?: string
     baselineBranch?: string
+    expectedHeadSha?: string
     remoteServerId?: string | null
     codePath?: string
     remoteCodePath?: string | null
@@ -6318,6 +6738,10 @@ export type ResearchExperimentUpdateData = {
 }
 
 export type ResearchExperimentUpdateErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
   /**
    * Not found
    */
@@ -6338,6 +6762,7 @@ export type ResearchExperimentUpdateResponses = {
     exp_name: string
     exp_session_id: string | null
     baseline_branch_name: string | null
+    baseline_commit_sha: string | null
     exp_branch_name: string | null
     exp_result_path: string | null
     atom_id: string | null
@@ -6658,6 +7083,40 @@ export type CollabAgentCancelResponses = {
 }
 
 export type CollabAgentCancelResponse = CollabAgentCancelResponses[keyof CollabAgentCancelResponses]
+
+export type CollabAgentStopData = {
+  body?: never
+  path: {
+    agentId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/collab/agent/{agentId}/stop"
+}
+
+export type CollabAgentStopErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type CollabAgentStopError = CollabAgentStopErrors[keyof CollabAgentStopErrors]
+
+export type CollabAgentStopResponses = {
+  /**
+   * Controller stopped
+   */
+  200: CollabStopResponse
+}
+
+export type CollabAgentStopResponse = CollabAgentStopResponses[keyof CollabAgentStopResponses]
 
 export type PermissionReplyData = {
   body?: {

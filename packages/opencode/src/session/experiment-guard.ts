@@ -34,6 +34,15 @@ export async function ensureGitignore(codePath: string): Promise<boolean> {
   return true
 }
 
+async function ensureWorktreeIgnore(codePath: string) {
+  const result = await git(["rev-parse", "--git-path", "info/exclude"], { cwd: codePath })
+  if (result.exitCode !== 0) return
+  const file = path.resolve(codePath, result.text().trim())
+  const existing = await fs.readFile(file, "utf-8").catch(() => "")
+  if (existing.split("\n").some((line) => line.trim() === ".openresearch_worktrees/")) return
+  await fs.appendFile(file, `${existing && !existing.endsWith("\n") ? "\n" : ""}.openresearch_worktrees/\n`)
+}
+
 export class ExperimentBranchError extends Error {
   constructor(
     public readonly expId: string,
@@ -58,7 +67,7 @@ export function gitErr(result: { stderr?: Buffer; text?: () => string }, fallbac
 /**
  * Ensure the code path is a usable git repository.
  * If not initialised, runs git init, ensures .gitignore, and creates an initial commit.
- * If already initialised, ensures .gitignore has required rules.
+ * Existing repositories are not committed or otherwise moved.
  */
 export async function ensureRepoInitialized(codePath: string): Promise<{ ok: true } | { ok: false; message: string }> {
   const hasGit = await Filesystem.exists(path.join(codePath, ".git"))
@@ -82,29 +91,10 @@ export async function ensureRepoInitialized(codePath: string): Promise<{ ok: tru
     if (commit.exitCode !== 0) {
       return { ok: false, message: `failed to git commit: ${gitErr(commit, "unknown error")}` }
     }
-  } else {
-    const gitignoreChanged = await ensureGitignore(codePath)
-    if (gitignoreChanged) {
-      await git(["add", ".gitignore"], { cwd: codePath })
-      await git(["commit", "-m", "update .gitignore"], { cwd: codePath, env: GIT_ENV })
-    }
   }
 
+  await ensureWorktreeIgnore(codePath)
   return { ok: true }
-}
-
-export async function setExperimentStatus(
-  sessionID: string,
-  status: "pending" | "running" | "done" | "idle" | "failed",
-): Promise<void> {
-  const parentSessionId = (await Research.getParentSessionId(sessionID)) ?? sessionID
-  const experiment = Database.use((db) =>
-    db.select().from(ExperimentTable).where(eq(ExperimentTable.exp_session_id, parentSessionId)).get(),
-  )
-  if (!experiment) return
-  Database.use((db) =>
-    db.update(ExperimentTable).set({ status }).where(eq(ExperimentTable.exp_id, experiment.exp_id)).run(),
-  )
 }
 
 export type ExperimentReadyResult =

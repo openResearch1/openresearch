@@ -8,8 +8,8 @@ Required actions:
 2. Read `related_atom_ids` from workflow context.
 3. If either side is empty, record that linking was skipped.
 4. Otherwise invoke `research_tree_link`.
-   - Pass the new atom IDs as the source side.
-   - Pass the related existing atom IDs as the target side.
+   - Pass the new atom IDs and related existing atom IDs as two unordered groups.
+   - Do not prescribe edge direction; `research_tree_link` must orient each relation from its semantics.
 
 Context writes required before `workflow.next`:
 

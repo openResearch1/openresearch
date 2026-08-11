@@ -3,6 +3,12 @@ import { dict as en } from "./en"
 type Keys = keyof typeof en
 
 export const dict = {
+  "session.collab.stop.button": "Controller stoppen",
+  "session.collab.stop.title": "Controller stoppen",
+  "session.collab.stop.confirm": "Aktuellen Controller und seine automatisch abgeleiteten Aufgaben stoppen?",
+  "session.collab.stop.description": "Von Menschen gesteuerte Läufe und entfernte Prozesse werden fortgesetzt.",
+  "session.collab.stop.stopping": "Wird gestoppt...",
+  "session.collab.stop.failed": "Controller konnte nicht gestoppt werden",
   "command.category.suggested": "Vorgeschlagen",
   "command.category.view": "Ansicht",
   "command.category.project": "Projekt",

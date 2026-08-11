@@ -27,6 +27,12 @@ function text(value: unknown) {
   return JSON.stringify(value)
 }
 
+function merge(value: string | null, next: Record<string, unknown> | null | undefined) {
+  if (next === undefined) return value
+  if (next === null) return null
+  return JSON.stringify({ ...(value ? JSON.parse(value) : {}), ...next })
+}
+
 function server(remoteServerId: string) {
   const row = Database.use((db) =>
     db.select().from(RemoteServerTable).where(eq(RemoteServerTable.id, remoteServerId)).get(),
@@ -442,7 +448,7 @@ export const ProjectRuntimeResourceUpsertTool = Tool.define("project_runtime_res
     source: data.nullable().optional(),
     verify: data.nullable().optional(),
     fingerprint: z.string().nullable().optional(),
-    status: status.default("pending"),
+    status: status.optional(),
     lastVerifiedAt: z.number().nullable().optional(),
     errorMessage: z.string().nullable().optional(),
   }),
@@ -471,13 +477,13 @@ export const ProjectRuntimeResourceUpsertTool = Tool.define("project_runtime_res
           .set({
             runtime_exp_id: runtime.exp_id,
             type: params.type,
-            source: text(params.source),
+            source: params.source === undefined ? existing.source : text(params.source),
             target_path: params.targetPath,
-            verify: text(params.verify),
-            fingerprint: params.fingerprint ?? null,
-            status: params.status,
-            last_verified_at: params.lastVerifiedAt ?? null,
-            error_message: params.errorMessage ?? null,
+            verify: merge(existing.verify, params.verify),
+            fingerprint: params.fingerprint === undefined ? existing.fingerprint : params.fingerprint,
+            status: params.status ?? existing.status,
+            last_verified_at: params.lastVerifiedAt === undefined ? existing.last_verified_at : params.lastVerifiedAt,
+            error_message: params.errorMessage === undefined ? existing.error_message : params.errorMessage,
             time_updated: now,
           })
           .where(eq(ProjectRuntimeResourceTable.resource_id, existing.resource_id))
@@ -498,7 +504,7 @@ export const ProjectRuntimeResourceUpsertTool = Tool.define("project_runtime_res
             target_path: params.targetPath,
             verify: text(params.verify),
             fingerprint: params.fingerprint ?? null,
-            status: params.status,
+            status: params.status ?? "pending",
             last_verified_at: params.lastVerifiedAt ?? null,
             error_message: params.errorMessage ?? null,
             time_created: now,

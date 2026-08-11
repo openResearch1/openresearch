@@ -581,7 +581,7 @@ describe("tool.experiment-remote-task lifecycle", () => {
     })
   })
 
-  test("registers one durable terminal listener and posts one completion message", async () => {
+  test("registers one durable direct listener and posts one completion message", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
       directory: tmp.path,
@@ -612,7 +612,12 @@ describe("tool.experiment-remote-task lifecycle", () => {
 
           const get = await ExperimentRemoteTaskGetTool.init()
           const first = await get.execute(
-            { expId: "exp-1", taskId: started.metadata.taskId, listenForTerminal: true },
+            {
+              expId: "exp-1",
+              taskId: started.metadata.taskId,
+              listenForTerminal: true,
+              waitTimeoutMs: 1000,
+            },
             context,
           )
           expect(first.metadata.listening).toBe(true)
@@ -627,14 +632,14 @@ describe("tool.experiment-remote-task lifecycle", () => {
           expect(again.metadata.duplicate).toBe(true)
           const listeners = Database.use((db) => db.select().from(RemoteTaskListenerTable).all())
           expect(listeners).toHaveLength(1)
-          expect(listeners[0].mode).toBe("collab")
-          expect(Collab.workflowAsyncState(session.id).hasRemoteTaskListeners).toBe(true)
+          expect(listeners[0].mode).toBe("direct")
+          expect(Collab.workflowAsyncState(session.id).hasRemoteTaskListeners).toBe(false)
 
           ExperimentRemoteTask.update({ taskId: started.metadata.taskId, status: "finished", errorMessage: null })
 
           expect(Database.use((db) => db.select().from(RemoteTaskListenerTable).all())).toHaveLength(0)
           const node = Collab.getBySession(session.id)!
-          const messages = CollabMessage.list(node.id, { kind: "remote_task_terminal" })
+          const messages = CollabMessage.list(node.id, { kind: "session_remote_task_terminal" })
           expect(messages).toHaveLength(1)
           expect(messages[0].status).toBe("pending")
           expect(messages[0].payload_json).toMatchObject({
@@ -644,11 +649,11 @@ describe("tool.experiment-remote-task lifecycle", () => {
           })
           expect(Collab.workflowAsyncState(session.id)).toMatchObject({
             hasRemoteTaskListeners: false,
-            hasPendingWakeMessages: true,
+            hasPendingWakeMessages: false,
           })
 
           ExperimentRemoteTask.update({ taskId: started.metadata.taskId, status: "finished" })
-          expect(CollabMessage.list(node.id, { kind: "remote_task_terminal" })).toHaveLength(1)
+          expect(CollabMessage.list(node.id, { kind: "session_remote_task_terminal" })).toHaveLength(1)
         } finally {
           CollabAutoWake.setEnabled(true)
         }

@@ -9,6 +9,7 @@ export namespace SessionRetry {
   export const RETRY_MAX_DELAY = 2_147_483_647 // max 32-bit signed integer for setTimeout
 
   export async function sleep(ms: number, signal: AbortSignal): Promise<void> {
+    if (signal.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError")
     return new Promise((resolve, reject) => {
       const abortHandler = () => {
         clearTimeout(timeout)

@@ -1,4 +1,10 @@
 export const dict = {
+  "session.collab.stop.button": "Detener Controller",
+  "session.collab.stop.title": "Detener Controller",
+  "session.collab.stop.confirm": "¿Detener el Controller actual y sus tareas derivadas automáticamente?",
+  "session.collab.stop.description": "Las ejecuciones controladas por personas y los procesos remotos continuarán.",
+  "session.collab.stop.stopping": "Deteniendo...",
+  "session.collab.stop.failed": "No se pudo detener el Controller",
   "command.category.suggested": "Sugerido",
   "command.category.view": "Ver",
   "command.category.project": "Proyecto",

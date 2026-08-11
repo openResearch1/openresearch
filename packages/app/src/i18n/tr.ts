@@ -3,6 +3,12 @@ import { dict as en } from "./en"
 type Keys = keyof typeof en
 
 export const dict = {
+  "session.collab.stop.button": "Controller'ı durdur",
+  "session.collab.stop.title": "Controller'ı durdur",
+  "session.collab.stop.confirm": "Geçerli Controller ve otomatik olarak türettiği görevler durdurulsun mu?",
+  "session.collab.stop.description": "İnsan denetimindeki çalıştırmalar ve uzak süreçler devam edecek.",
+  "session.collab.stop.stopping": "Durduruluyor...",
+  "session.collab.stop.failed": "Controller durdurulamadı",
   "command.category.suggested": "Önerilen",
   "command.category.view": "Görünüm",
   "command.category.project": "Proje",

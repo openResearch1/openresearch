@@ -25,10 +25,13 @@ test("task tool child-session link does not trigger stale show errors", async ({
         .filter({ hasText: /open child session/i })
         .first()
       await expect(link).toBeVisible({ timeout: 30_000 })
+      const token = crypto.randomUUID()
+      await page.evaluate((value) => Reflect.set(window, "__opencodeSessionNavigation", value), token)
       await link.click()
 
       await expect(page).toHaveURL(new RegExp(`/session/${child.sessionID}(?:[/?#]|$)`), { timeout: 30_000 })
       await page.waitForTimeout(1000)
+      expect(await page.evaluate(() => Reflect.get(window, "__opencodeSessionNavigation"))).toBe(token)
       expect(errs).toEqual([])
     } finally {
       page.off("pageerror", onError)

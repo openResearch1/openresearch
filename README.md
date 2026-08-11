@@ -58,12 +58,13 @@ OpenResearch 将研究表示为由多个 **科学原子** 构成的图谱 ([Open
 原子之间通过类型化关系连接，例如：
 
 - `motivates`
-- `formalizes`
+- `grounds`
+- `formalized_by`
 - `derives`
-- `analyzes`
-- `supports`
+- `analyzed_by`
+- `evaluated_by`
 - `contradicts`
-- `verifies`
+- `other`
 
 这种结构不仅记录最终结论，也保留研究过程中真正重要的部分：  
 **中间推理、失败尝试、设计决策、局部修正和未解决矛盾。**

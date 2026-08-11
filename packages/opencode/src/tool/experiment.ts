@@ -11,19 +11,19 @@ import { ensureRepoInitialized, GIT_ENV } from "../session/experiment-guard"
 import { ExperimentExecutionWatch } from "../research/experiment-execution-watch"
 import { Session } from "@/session"
 import { Bus } from "@/bus"
+import { CodeBranch } from "@/research/code-branch"
+
+const sha = z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/, "expectedHeadSha must be a full Git commit SHA")
 
 export const ExperimentCreateTool = Tool.define("experiment_create", {
   description:
     "Create a new experiment for a given atom in the current research project. " +
-    "This will create a dedicated session, set up result paths, and link the experiment to the atom.",
+    "Requires a local branch and exact HEAD SHA from research_code_branch_query, then creates a dedicated worktree pinned to that commit.",
   parameters: z.object({
     atomId: z.string().describe("The atom ID to create an experiment for"),
     expName: z.string().describe("A human-readable name for the experiment"),
-    baselineBranch: z
-      .string()
-      .optional()
-      .default("master")
-      .describe("The baseline branch name to base the experiment on (default: master)"),
+    baselineBranch: z.string().describe("The local baseline branch returned by research_code_branch_query"),
+    expectedHeadSha: sha.describe("The exact branch HEAD SHA returned by research_code_branch_query"),
     remoteServerId: z.string().optional().describe("Optional remote server ID to run the experiment on"),
     codePath: z.string().describe("The local code directory path for the experiment."),
   }),
@@ -53,17 +53,6 @@ export const ExperimentCreateTool = Tool.define("experiment_create", {
       }
     }
 
-    const expId = crypto.randomUUID()
-    const session = await Session.create({ title: `Exp: ${params.expName}` })
-
-    const expDir = path.join(Instance.directory, "exp_results", expId)
-    const expResultPath = path.join(expDir, "result.wandb")
-    const expResultSummaryPath = path.join(expDir, "summary.md")
-    const expPlanPath = path.join(expDir, "plan.md")
-
-    await Filesystem.write(path.join(expDir, ".keep"), "")
-    await Filesystem.write(expPlanPath, "")
-
     // Ensure repo is initialised and create worktree for the experiment
     const initResult = await ensureRepoInitialized(params.codePath)
     if (!initResult.ok) {
@@ -74,17 +63,34 @@ export const ExperimentCreateTool = Tool.define("experiment_create", {
       }
     }
 
-    const baselineExists = await git(["rev-parse", "--verify", params.baselineBranch], { cwd: params.codePath })
-    if (baselineExists.exitCode !== 0) {
+    const baseline = await CodeBranch.resolve(params.codePath, params.baselineBranch).catch(() => undefined)
+    if (!baseline) {
       return {
         title: "Failed",
         output: `Baseline branch "${params.baselineBranch}" not found at ${params.codePath}`,
         metadata: { expId: undefined as string | undefined, agentId: undefined as string | undefined },
       }
     }
+    if (baseline !== params.expectedHeadSha) {
+      return {
+        title: "Failed",
+        output: `Baseline branch "${params.baselineBranch}" moved from ${params.expectedHeadSha} to ${baseline}. Query branches again before creating the experiment.`,
+        metadata: { expId: undefined as string | undefined, agentId: undefined as string | undefined },
+      }
+    }
+
+    const expId = crypto.randomUUID()
+    const session = await Session.create({ title: `Exp: ${params.expName}` })
+    const expDir = path.join(Instance.directory, "exp_results", expId)
+    const expResultPath = path.join(expDir, "result.wandb")
+    const expResultSummaryPath = path.join(expDir, "summary.md")
+    const expPlanPath = path.join(expDir, "plan.md")
+
+    await Filesystem.write(path.join(expDir, ".keep"), "")
+    await Filesystem.write(expPlanPath, "")
 
     const worktreePath = path.join(params.codePath, ".openresearch_worktrees", expId)
-    const createWorktree = await git(["worktree", "add", worktreePath, params.baselineBranch, "-b", expId], {
+    const createWorktree = await git(["worktree", "add", "-b", expId, worktreePath, baseline], {
       cwd: params.codePath,
       env: GIT_ENV,
     })
@@ -107,6 +113,7 @@ export const ExperimentCreateTool = Tool.define("experiment_create", {
           atom_id: params.atomId,
           exp_session_id: session.id,
           baseline_branch_name: params.baselineBranch,
+          baseline_commit_sha: baseline,
           exp_branch_name: expId,
           exp_result_path: expResultPath,
           exp_result_summary_path: expResultSummaryPath,
@@ -141,6 +148,7 @@ export const ExperimentCreateTool = Tool.define("experiment_create", {
         `- Session ID: ${session.id}`,
         attached.agentId ? `- Agent ID: ${attached.agentId}` : null,
         `- Baseline branch: ${params.baselineBranch}`,
+        `- Baseline commit: ${baseline}`,
         `- Experiment branch: ${expId}`,
         `- Result path: ${expResultPath}`,
         `- Summary path: ${expResultSummaryPath}`,
