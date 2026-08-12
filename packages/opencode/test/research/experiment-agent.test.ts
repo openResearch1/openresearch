@@ -1115,11 +1115,152 @@ describe("research.experiment-agent", () => {
 
         const settled = CollabAgentNode.load(parent.id)
         expect(settled.status).toBe("idle")
+        expect(settled.error).toBeNull()
         expect(settled.initiator).toBeNull()
         expect(CollabMessage.list(parent.id, { kind: "cancel" })).toHaveLength(1)
         expect(CollabMessage.list(child.id, { kind: "cancel" })).toHaveLength(1)
         expect(CollabMessage.list(grandchild.id, { kind: "cancel" })).toHaveLength(1)
         expect(CollabMessage.list(settled.parent_agent_id!, { kind: "child_failed" })).toHaveLength(0)
+      },
+    })
+  })
+
+  test("recovers an interrupted human run before resuming and spawning", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const item = await seed()
+        const attached = await ExperimentAgent.attach(item.expId)
+        const parent = CollabAgentNode.activate(attached.agentId!, undefined, "human")
+        const session = await Collab.createSubSession({ title: "interrupted child" })
+        const child = CollabAgentNode.create({
+          id: Identifier.ascending("collab_agent"),
+          sessionId: session.id,
+          parentAgentId: parent.id,
+          name: "interrupted child",
+          projectId: Instance.project.id,
+          rootAgentId: parent.root_agent_id,
+          subagentType: "general",
+          spec: { initialPrompt: "wait" },
+        })
+        const nested = await Collab.createSubSession({ title: "nested interrupted child" })
+        const grandchild = CollabAgentNode.create({
+          id: Identifier.ascending("collab_agent"),
+          sessionId: nested.id,
+          parentAgentId: child.id,
+          name: "nested interrupted child",
+          projectId: Instance.project.id,
+          rootAgentId: parent.root_agent_id,
+          subagentType: "general",
+          spec: { initialPrompt: "wait deeper" },
+        })
+        const task = ExperimentRemoteTask.create({
+          expId: item.expId,
+          kind: "env_setup",
+          title: "Install dependency",
+          server: "{}",
+          remoteRoot: "/tmp",
+          screenName: "install",
+          command: "pip install dependency",
+        })
+        ExperimentRemoteTask.update({ taskId: task.task_id, status: "running" })
+        ExperimentRemoteTaskListener.register({ taskId: task.task_id, agentId: parent.id })
+        expect(ExperimentRemoteTaskListener.has(parent.id, "collab")).toBeDefined()
+
+        ResearchSessionControl.assertAbort(item.exp!.id)
+        expect(CollabMessage.drain(parent.id)[0]?.status).toBe("processing")
+        CollabAgentNode.transition(parent.id, "blocked_on_children", {
+          phase: "awaiting_children",
+          error: { code: "CANCELED", message: "Canceled by human" },
+        })
+        CollabAgentNode.bumpActiveChildren(parent.id, 3)
+
+        const recovered = await ExperimentAgent.recover(parent.id)
+        expect(recovered?.status).toBe("idle")
+        expect(recovered?.error).toBeNull()
+        expect(recovered?.active_children).toBe(0)
+        expect(CollabAgentNode.load(child.id).status).toBe("canceled")
+        expect(CollabAgentNode.load(grandchild.id).status).toBe("canceled")
+        expect(ExperimentRemoteTaskListener.has(parent.id)).toBeUndefined()
+        expect(ExperimentRemoteTask.get(task.task_id)?.status).toBe("running")
+
+        const start = spyOn(CollabLoop, "start").mockResolvedValue()
+        try {
+          const resumed = await Collab.resume({ agentId: parent.id, prompt: "continue the experiment" })
+          expect(resumed.status).toBe("running")
+          expect(resumed.error).toBeNull()
+
+          const spawned = await Collab.spawn({
+            parentSessionId: item.exp!.id,
+            name: "replacement child",
+            subagentType: "general",
+            spec: { initialPrompt: "continue" },
+          })
+          expect(spawned.parent_agent_id).toBe(parent.id)
+          expect(spawned.status).toBe("pending")
+        } finally {
+          start.mockRestore()
+        }
+      },
+    })
+  })
+
+  test("direct human spawn repairs a legacy idle canceled experiment", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const item = await seed()
+        const attached = await ExperimentAgent.attach(item.expId)
+        const legacy = CollabAgentNode.transition(attached.agentId!, "idle", {
+          error: { code: "CANCELED", message: "Canceled by human" },
+          timeEnded: Date.now(),
+        })
+        expect(legacy.error?.code).toBe("CANCELED")
+
+        const release = ExperimentAgent.claimHuman(item.exp!.id)
+        const start = spyOn(CollabLoop, "start").mockResolvedValue()
+        try {
+          const child = await Collab.spawn({
+            parentSessionId: item.exp!.id,
+            name: "child after legacy cancel",
+            subagentType: "general",
+            spec: { initialPrompt: "continue" },
+            startParent: "human",
+          })
+          const parent = CollabAgentNode.load(legacy.id)
+          expect(parent.status).toBe("running")
+          expect(parent.initiator).toBe("human")
+          expect(parent.error).toBeNull()
+          expect(child.parent_agent_id).toBe(parent.id)
+          expect(child.status).toBe("pending")
+        } finally {
+          start.mockRestore()
+          release()
+        }
+      },
+    })
+  })
+
+  test("startup recovery drains an interrupted human experiment", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const item = await seed()
+        const attached = await ExperimentAgent.attach(item.expId)
+        const active = CollabAgentNode.activate(attached.agentId!, undefined, "human")
+        CollabAgentNode.transition(active.id, "blocked_on_children", {
+          phase: "awaiting_children",
+          error: { code: "CANCELED", message: "Canceled by human" },
+        })
+
+        await CollabRecovery.scan()
+
+        const recovered = CollabAgentNode.load(active.id)
+        expect(recovered.status).toBe("idle")
+        expect(recovered.error).toBeNull()
       },
     })
   })

@@ -3,6 +3,15 @@ import type { ResearchAtomsListResponse } from "@opencode-ai/sdk/v2"
 type Atom = ResearchAtomsListResponse["atoms"][number]
 type Relation = ResearchAtomsListResponse["relations"][number]
 
+export function stale(
+  id: string,
+  paths: readonly { research_path_id: string }[] | undefined,
+  state: { ready: boolean; loading: boolean; error: boolean },
+) {
+  if (!state.ready || state.loading || state.error || !paths || id === "all") return false
+  return !paths.some((path) => path.research_path_id === id)
+}
+
 export function scope(atoms: Atom[], relations: Relation[], members?: ReadonlySet<string>) {
   if (!members) return { atoms, relations, external: new Set<string>() }
 

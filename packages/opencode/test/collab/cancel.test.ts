@@ -23,6 +23,7 @@ async function node(input: {
   initiator?: "human" | "agent"
   status?: "pending" | "running" | "blocked_on_children" | "waiting_interaction" | "idle" | "completed" | "failed" | "canceled"
   activeParent?: boolean
+  startParent?: "human"
   parentGeneration?: number
   agent?: string
   policy?: "fail_fast" | "continue" | "retry_once"
@@ -41,6 +42,7 @@ async function node(input: {
     status: input.status ?? "running",
     initiator: input.initiator,
     activeParent: input.activeParent,
+    startParent: input.startParent,
     parentGeneration: input.parentGeneration,
   })
 }
@@ -496,6 +498,16 @@ describe("Collab cancel propagation", () => {
             parent: parent.id,
             root: parent.id,
             activeParent: true,
+            parentGeneration: CollabAgentNode.generation(parent.spec),
+          }),
+        ).rejects.toThrow("terminating")
+        await expect(
+          node({
+            name: "late-human-child",
+            parent: parent.id,
+            root: parent.id,
+            activeParent: true,
+            startParent: "human",
             parentGeneration: CollabAgentNode.generation(parent.spec),
           }),
         ).rejects.toThrow("terminating")

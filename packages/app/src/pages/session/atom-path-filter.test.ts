@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import type { ResearchAtomsListResponse } from "@opencode-ai/sdk/v2"
 
-import { scope } from "./atom-path-filter"
+import { scope, stale } from "./atom-path-filter"
 
 type Atom = ResearchAtomsListResponse["atoms"][number]
 type Relation = ResearchAtomsListResponse["relations"][number]
@@ -64,5 +64,21 @@ describe("path graph scope", () => {
     expect(result.atoms).toEqual([])
     expect(result.relations).toEqual([])
     expect(result.external.size).toBe(0)
+  })
+})
+
+describe("path selection lock", () => {
+  const paths = [{ research_path_id: "path" }]
+
+  test("keeps the selected path during initialization, refresh, and errors", () => {
+    expect(stale("path", paths, { ready: false, loading: false, error: false })).toBe(false)
+    expect(stale("path", [], { ready: true, loading: true, error: false })).toBe(false)
+    expect(stale("path", [], { ready: true, loading: false, error: true })).toBe(false)
+  })
+
+  test("resets only after a successful response confirms deletion", () => {
+    expect(stale("path", paths, { ready: true, loading: false, error: false })).toBe(false)
+    expect(stale("all", [], { ready: true, loading: false, error: false })).toBe(false)
+    expect(stale("path", [], { ready: true, loading: false, error: false })).toBe(true)
   })
 })

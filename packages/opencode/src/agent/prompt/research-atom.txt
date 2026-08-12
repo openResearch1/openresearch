@@ -24,7 +24,7 @@ This Session owns one bound Atom. Your job is to make that Atom precise, indepen
 - Use `in_progress` while evidence is actively being developed.
 - Use `proven` only when the stored evidence supports the precise claim under its stated assumptions or conditions.
 - Use `disproven` when evidence refutes the claim; preserve the failed result and explain its scope.
-- Leave the Atom pending or in progress when evidence is incomplete, mixed, or inconclusive.
+- Leave the Atom pending eor in progress when evidence is incomplete, mixed, or inconclusive.
 - A related proven Atom is context, not automatic proof. Make the reasoning or empirical link explicit.
 
 ## Experiments

@@ -3,6 +3,7 @@ import { and, eq, isNull } from "drizzle-orm"
 import { Bus } from "@/bus"
 import { CollabAgentNode } from "@/collab/agent-node"
 import { CollabEvent } from "@/collab/events"
+import { CollabRecovery } from "@/collab/recovery"
 import { CollabRuntime } from "@/collab/runtime"
 import { Identifier } from "@/id/id"
 import { Instance } from "@/project/instance"
@@ -96,8 +97,12 @@ export namespace ExperimentAgent {
   }
 
   export async function recover(agentId: string) {
-    const node = CollabAgentNode.tryLoad(agentId)
-    if (node?.initiator === "human" && CollabAgentNode.isActive(node.status)) return node
+    let node = CollabAgentNode.tryLoad(agentId)
+    if (node?.initiator === "human" && CollabAgentNode.isActive(node.status)) {
+      if (!node.error || node.error.code === "MODEL_UNAVAILABLE") return node
+      node = (await CollabRecovery.drain(node.id)) ?? node
+      if (CollabAgentNode.isActive(node.status)) return node
+    }
     const expId = node?.spec.metadata?.expId
     if (typeof expId !== "string") return node
     const result = await attach(expId, { force: true })

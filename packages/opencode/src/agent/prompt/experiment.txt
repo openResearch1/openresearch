@@ -22,13 +22,14 @@ Keep the watch `running` across recoverable failures. Use `finished` for support
 
 ## Delegation
 
-- Use `task` with `subagent_type: "experiment_plan"` or `subagent_type: "experiment_commit"` for short work.
+- Use `task` with `experiment_plan` or `experiment_commit` for planning and commits, `explore` for code inspection, and `general` for focused implementation or debugging.
+- Give `explore` and `general` the exact `code_path` and scope. `general` may modify only `code_path` and must not commit; inspect and validate its changes before committing.
 - Use `spawn_agent` with `agent_type: "project_runtime_env_setup"` or `agent_type: "experiment_resource_prepare"` for long work.
 - Before spawning environment setup, commit local changes, call `experiment_code_sync`, and pass the exact returned `remoteCodePath` with `expId`, `remoteServerId`, and `envKey`. Never spawn environment setup for unsynced code.
 - Spawn at most one long-running child per turn, as required by `spawn_agent`. After its callback, launch the next independent child if needed.
 - Save child agent IDs, do not poll, and consume `child_done` or `child_failed`. Resume a blocked child with `resume_agent`; do not spawn a replacement.
 - Pass `expId`, `remoteServerId`, `resourceRoot`, and one related unresolved `resources` batch to `experiment_resource_prepare`. Each resource must include its key, type, source or candidates, target/prepared path when known, preparation, verification, runtime argument, and reason for preparation.
-- Keep code changes, sync, launch, monitoring, result interpretation, evidence writing, and the final conclusion in this agent.
+- Keep sync, launch, monitoring, result interpretation, evidence writing, and the final conclusion in this agent.
 
 ## Aggressive Runtime Reuse
 

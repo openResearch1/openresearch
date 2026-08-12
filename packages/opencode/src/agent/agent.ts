@@ -145,6 +145,8 @@ export namespace Agent {
               "*": "deny",
               experiment_plan: "allow",
               experiment_commit: "allow",
+              explore: "allow",
+              general: "allow",
             },
             spawn_agent: {
               "*": "deny",

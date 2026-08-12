@@ -192,7 +192,10 @@ test("experiment agent owns the autonomous remote lifecycle", async () => {
       expect(experiment?.prompt).toContain("listenForTerminal: true")
       expect(experiment?.prompt).toContain("Sync local code with `experiment_code_sync`")
       expect(experiment?.prompt).toContain('agent_type: "project_runtime_env_setup"')
-      expect(experiment?.prompt).toContain('subagent_type: "experiment_commit"')
+      expect(experiment?.prompt).toContain("`experiment_commit`")
+      expect(experiment?.prompt).toContain("`explore` for code inspection")
+      expect(experiment?.prompt).toContain("`general` for focused implementation")
+      expect(experiment?.prompt).toContain("`general` may modify only `code_path` and must not commit")
       expect(experiment?.prompt).toContain("exact returned `remoteCodePath`")
       expect(experiment?.prompt).toContain("Never spawn environment setup for unsynced code")
       expect(experiment?.prompt).toContain("Spawn at most one long-running child per turn")
@@ -206,7 +209,8 @@ test("experiment agent owns the autonomous remote lifecycle", async () => {
       expect(experiment?.prompt).not.toContain("deploying_code")
       expect(evalPerm(experiment, "remote_terminal_start")).toBe("deny")
       expect(PermissionNext.evaluate("task", "experiment_plan", experiment!.permission).action).toBe("allow")
-      expect(PermissionNext.evaluate("task", "general", experiment!.permission).action).toBe("deny")
+      expect(PermissionNext.evaluate("task", "explore", experiment!.permission).action).toBe("allow")
+      expect(PermissionNext.evaluate("task", "general", experiment!.permission).action).toBe("allow")
       expect(PermissionNext.evaluate("spawn_agent", "project_runtime_env_setup", experiment!.permission).action).toBe(
         "allow",
       )

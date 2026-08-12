@@ -335,7 +335,9 @@ export namespace CollabAgentNode {
         if ((parent.spec_json as AgentSpec).metadata?.stoppedByUser === true) {
           throw new Error(`Parent agent ${parentId} was stopped by the user`)
         }
-        if (terminating(parent.error_json)) throw new Error(`Parent agent ${parentId} is terminating`)
+        if (isActive(parent.status) && terminating(parent.error_json)) {
+          throw new Error(`Parent agent ${parentId} is terminating`)
+        }
         if (generation(parent.spec_json as AgentSpec) !== input.parentGeneration) {
           throw new Error(`Parent agent ${parentId} changed before child creation`)
         }
@@ -985,7 +987,7 @@ export namespace CollabAgentNode {
           initiator: human ? null : current.initiator,
           phase: input.phase,
           result_json: input.result ?? null,
-          error_json: input.error ?? null,
+          error_json: human ? null : (input.error ?? null),
           time_ended: input.timeEnded,
           time_updated: now,
         })
