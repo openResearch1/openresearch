@@ -103,16 +103,64 @@ async function exec(server: RemoteServerConfig, script: string, timeout = 120000
   return { ok: proc.exitCode === 0, output: out.trim(), code: proc.exitCode ?? 1 }
 }
 
-export function control(root: string, taskId: string) {
+export function control(root: string, taskId: string, screenName: string) {
   const dir = `${root.replace(/\/$/, "")}/.openresearch/tasks/${taskId}`
   return {
     dir,
     logPath: `${dir}/task.log`,
+    exitPath: `${dir}/exit-${screenName}`,
+    pendingPath: `${dir}/exit-${screenName}.pending`,
   }
 }
 
 export function session(_taskId: string) {
   return `openresearch-${Date.now()}-${randomBytes(3).toString("hex")}`
+}
+
+export function remoteTaskScript(input: {
+  server: RemoteServerConfig
+  command: string
+  exitPath: string
+  pendingPath: string
+}) {
+  return [
+    `screen -S "$STY" -X logfile flush 1 >/dev/null 2>&1 || true`,
+    `printf 'START %s\n' "$(date)"`,
+    ...taskEnv(input.server),
+    "set +e",
+    `bash -lc ${sh(input.command)}`,
+    "code=$?",
+    `tmp=${sh(input.exitPath)}.tmp.$$`,
+    `if printf '%s\n' "$code" > "$tmp" && mv -f -- "$tmp" ${sh(input.exitPath)}; then rm -f ${sh(input.pendingPath)}; else printf 'STATUS_WRITE_FAILED:%s\n' ${sh(input.exitPath)} >&2; fi`,
+    `printf 'EXIT_CODE:%s\n' "$code"`,
+    `exit "$code"`,
+  ].join("\n")
+}
+
+export function startRemoteTaskScript(input: {
+  server: RemoteServerConfig
+  taskId: string
+  remoteRoot: string
+  screenName: string
+  command: string
+}) {
+  const paths = control(input.remoteRoot, input.taskId, input.screenName)
+  const screenName = sh(input.screenName)
+  const task = remoteTaskScript({
+    server: input.server,
+    command: input.command,
+    exitPath: paths.exitPath,
+    pendingPath: paths.pendingPath,
+  })
+  return [
+    "set -euo pipefail",
+    `mkdir -p ${sh(paths.dir)}`,
+    `touch ${sh(paths.logPath)}`,
+    `rm -f ${sh(paths.exitPath)}`,
+    `touch ${sh(paths.pendingPath)}`,
+    `screen -S ${screenName} -X quit >/dev/null 2>&1 || true`,
+    `screen -L -Logfile ${sh(paths.logPath.replaceAll("%", "%%"))} -dmS ${screenName} bash -lc ${sh(task)}`,
+  ].join("\n")
 }
 
 export async function startRemoteTask(input: {
@@ -123,23 +171,8 @@ export async function startRemoteTask(input: {
   command: string
 }) {
   await ensureTunnel(input.server)
-  const paths = control(input.remoteRoot, input.taskId)
-  const screenName = sh(input.screenName)
-  const task = [
-    `echo START $(date) >> ${sh(paths.logPath)}`,
-    ...taskEnv(input.server),
-    `${input.command} 2>&1 | tee -a ${sh(paths.logPath)}`,
-    `code=\${PIPESTATUS[0]}`,
-    `echo EXIT_CODE:$code >> ${sh(paths.logPath)}`,
-    `exit $code`,
-  ].join("\n")
-  const remote = [
-    "set -euo pipefail",
-    `mkdir -p ${sh(paths.dir)}`,
-    `screen -S ${screenName} -X quit >/dev/null 2>&1 || true`,
-    `screen -dmS ${screenName} bash -lc ${sh(task)}`,
-  ].join("\n")
-  const result = await exec(input.server, remote)
+  const paths = control(input.remoteRoot, input.taskId, input.screenName)
+  const result = await exec(input.server, startRemoteTaskScript(input))
   return { ...result, ...paths }
 }
 
@@ -147,51 +180,87 @@ export async function inspectRemoteTask(input: {
   server: RemoteServerConfig
   logPath: string
   screenName: string
+  exitPath?: string
+  pendingPath?: string
   targetPath?: string | null
 }) {
   return exec(input.server, inspectRemoteTaskScript(input))
 }
 
-export function inspectRemoteTaskScript(input: { logPath: string; screenName: string; targetPath?: string | null }) {
-  const match = `.${input.screenName}`
+export function inspectRemoteTaskScript(input: {
+  logPath: string
+  screenName: string
+  exitPath?: string
+  pendingPath?: string
+  targetPath?: string | null
+}) {
   return [
     "set -euo pipefail",
     `printf '__SCREEN__\n'`,
-    `out=$(screen -ls 2>/dev/null || true)`,
-    `line=$(printf '%s\n' "$out" | grep -F -- ${sh(match)} || true)`,
-    `if printf '%s\n' "$line" | grep -F -- '(Detached)' >/dev/null 2>&1; then printf 'detached'; elif printf '%s\n' "$line" | grep -F -- '(Attached)' >/dev/null 2>&1; then printf 'attached'; elif printf '%s\n' "$line" | grep -F -- '(Dead' >/dev/null 2>&1; then printf 'dead'; elif [ -n "$line" ]; then printf 'unknown'; else printf 'stopped'; fi`,
+    `out=$(LC_ALL=C screen -ls 2>/dev/null || true)`,
+    `line=$(printf '%s\n' "$out" | awk -v name=${sh(input.screenName)} '$1 ~ /^[0-9]+\\./ { value=$1; sub(/^[^.]*\\./, "", value); if (value == name) { print; exit } }')`,
+    `if [ -n "$line" ]; then printf '%s' "$line"; else printf 'stopped'; fi`,
     `printf '\n__TARGET__\n'`,
     input.targetPath
       ? `if [ -e ${sh(input.targetPath)} ]; then printf 'present'; else printf 'missing'; fi`
       : `printf 'unknown'`,
+    `printf '\n__EXIT__\n'`,
+    input.exitPath && input.pendingPath
+      ? `if [ -f ${sh(input.exitPath)} ]; then cat ${sh(input.exitPath)}; elif [ -f ${sh(input.pendingPath)} ]; then printf 'pending'; else printf 'legacy'; fi`
+      : `printf 'legacy'`,
     `printf '\n__TAIL__\n'`,
     `if [ -f ${sh(input.logPath)} ]; then tail -n 40 ${sh(input.logPath)}; fi`,
   ].join("\n")
 }
 
+export function screenState(value: string) {
+  const state = value.trim()
+  if (["attached", "detached", "dead", "running", "stopped", "unknown"].includes(state)) return state
+  if (/\((?:multi,\s*)?detached\)/i.test(state)) return "detached"
+  if (/\((?:multi,\s*)?attached\)/i.test(state)) return "attached"
+  if (/\((?:dead(?:\s[^)]*)?|removed)\)/i.test(state)) return "dead"
+  if (/\((?:remote or dead|private)\)/i.test(state)) return "unknown"
+  if (state) return "running"
+  return ""
+}
+
 export function parseInspectOutput(output: string) {
-  const screenAt = output.lastIndexOf("__SCREEN__\n")
-  const targetAt = output.lastIndexOf("\n__TARGET__\n")
-  const tailAt = output.lastIndexOf("\n__TAIL__\n")
+  const screenAt = output.indexOf("__SCREEN__\n")
+  const targetAt = output.indexOf("\n__TARGET__\n", screenAt)
+  const exitAt = output.indexOf("\n__EXIT__\n", targetAt)
+  const tailAt = output.indexOf("\n__TAIL__\n", targetAt)
 
   if (screenAt === -1 || targetAt === -1 || tailAt === -1 || screenAt > targetAt || targetAt > tailAt) {
     return {
       screen: "",
+      screenLine: "",
       target: "",
+      code: undefined,
+      managed: false,
       tail: output.trim(),
     }
   }
 
+  const status =
+    exitAt === -1 || exitAt > tailAt ? "legacy" : output.slice(exitAt + "\n__EXIT__\n".length, tailAt).trim()
+  const code = /^\d+$/.test(status) ? Number(status) : undefined
+  const line = output.slice(screenAt + "__SCREEN__\n".length, targetAt).trim()
+
   return {
-    screen: output.slice(screenAt + "__SCREEN__\n".length, targetAt).trim(),
-    target: output.slice(targetAt + "\n__TARGET__\n".length, tailAt).trim(),
+    screen: screenState(line),
+    screenLine: line,
+    target: output
+      .slice(targetAt + "\n__TARGET__\n".length, exitAt === -1 || exitAt > tailAt ? tailAt : exitAt)
+      .trim(),
+    code,
+    managed: status !== "legacy",
     tail: output.slice(tailAt + "\n__TAIL__\n".length).trim(),
   }
 }
 
 export function exitCodeFromTail(tail: string) {
   const lines = tail.split("\n")
-  const start = lines.findLastIndex((line) => line.trimStart().startsWith("START"))
+  const start = lines.findLastIndex((line) => /^START(?:\s|$)/.test(line.trimStart()))
   const text = (start === -1 ? lines : lines.slice(start)).join("\n")
   const match = [...text.matchAll(/EXIT_CODE:(\d+)/g)].at(-1)
   if (!match) return

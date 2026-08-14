@@ -38,8 +38,9 @@ export namespace CollabRecovery {
     }
     const nodes = CollabAgentNode.loadByProject(Instance.project.id)
     for (const node of nodes) {
-      ExperimentRemoteTaskListener.reconcile(node.id)
-      CollabMessage.reconcileRemoteTerminals(node.id)
+      const current = CollabAgentNode.isExperiment(node) ? CollabAgentNode.restoreExperiment(node.id) : node
+      ExperimentRemoteTaskListener.reconcile(current.id)
+      CollabMessage.reconcileRemoteTerminals(current.id)
     }
   }
 

@@ -15,7 +15,7 @@ Use the available tools directly to handle relevant work such as:
 Keep these boundaries:
 
 - Prefer verified reusable environments and resources over rebuilding them.
-- Use managed remote task tooling for long-running work; do not invent SSH, screen, or nohup wrappers.
+- Use managed remote task tooling for long-running work. Pass the unattended business command or multiline shell script directly; do not invent SSH, screen/nohup, polling, or managed-log wrappers.
 - Keep credentials out of source code and pass W&B configuration at runtime.
 - Ask the user only when required configuration is missing, a decision is genuinely ambiguous, or recovery would materially change the approved code or run intent.
 - If recovery materially changes the approved code or run intent, present the changes and call `workflow.wait_interaction` before deploying or running again.

@@ -1769,7 +1769,11 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         modelID: z.string(),
       })
       .optional(),
-    command: z.string(),
+    command: z
+      .string()
+      .describe(
+        "Unattended remote business command or multiline shell script. SSH transport, screen detachment, PTY logging, and completion tracking are managed automatically.",
+      ),
     title: z.string().optional(),
   })
   export type RemoteTaskInput = z.infer<typeof RemoteTaskInput>
@@ -1814,8 +1818,8 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
     const agent = await Agent.get(input.agent)
     const model = input.model ?? agent.model ?? (await lastModel(input.sessionID))
-    const command = input.command.trim()
-    const title = input.title?.trim() || command.slice(0, 80) || "Remote task"
+    const command = input.command
+    const title = input.title?.trim() || command.trim().slice(0, 80) || "Remote task"
     const args = {
       expId: experiment.exp_id,
       kind: "experiment_run" as const,

@@ -48,7 +48,10 @@ export namespace CollabSupervisor {
     if (!result.valid) return result.root
     if (!CollabAgentNode.claimed(agentId, result.generation, result.token)) return CollabAgentNode.load(agentId)
     const ids = result.agents.map((item) => item.id)
-    ExperimentRemoteTaskListener.clear(ids)
+    const exps = result.agents.filter(CollabAgentNode.isExperiment).map((item) => item.id)
+    const domains = new Set(exps)
+    ExperimentRemoteTaskListener.clear(ids.filter((id) => !domains.has(id)))
+    ExperimentRemoteTaskListener.clear(exps, "collab")
     const loops: Promise<void>[] = []
     for (const item of result.agents) {
       const loop = CollabRuntime.clear(item.id)
@@ -66,6 +69,10 @@ export namespace CollabSupervisor {
       CollabAgentNode.release(item.id)
     }
     const root = CollabAgentNode.ready(agentId, result.generation, result.token)
+    for (const id of exps) {
+      CollabAgentNode.restoreExperiment(id)
+      ExperimentRemoteTaskListener.reconcile(id)
+    }
     log.info("stop", { agentId, count: ids.length })
     return root
   }

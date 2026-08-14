@@ -64,6 +64,7 @@ export namespace ResearchSessionControl {
     if (SessionOwnership.current(sessionID) !== "human") return false
     const node = CollabAgentNode.loadBySessionId(sessionID)
     if (!node?.parent_agent_id || CollabAgentNode.isActive(node.status) || node.active_children > 0) return false
+    if (CollabAgentNode.isExperiment(node) && node.spec.metadata?.stoppedByUser !== true) return true
     const parent = CollabAgentNode.tryLoad(node.parent_agent_id)
     return !!parent && CollabAgentNode.isActive(parent.status)
   }

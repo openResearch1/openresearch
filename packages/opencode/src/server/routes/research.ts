@@ -3178,7 +3178,8 @@ export const ResearchRoutes = new Hono()
       if (!tasks.length) {
         return c.json({ success: false, message: `remote task not found for: ${watchId}` }, 404)
       }
-      const result = await forceRefreshRemoteTask(watch.exp_id, { preserveStage: true })
+      const refreshed = await forceRefreshRemoteTask(watch.exp_id, { preserveStage: true })
+      const result = { success: refreshed.success, message: refreshed.message }
       if (!result.success && result.message.includes("not found")) {
         return c.json(result, 404)
       }

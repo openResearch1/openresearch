@@ -8,6 +8,7 @@ import { SessionTable } from "@/session/session.sql"
 import { SessionDeletionTable } from "@/session/deletion.sql"
 import { SessionOwnershipTable } from "@/session/ownership.sql"
 import { Log } from "@/util/log"
+import { RemoteTaskListenerTable } from "@/research/remote-task-listener.sql"
 import { CollabAgentTable, CollabMessageTable } from "./collab.sql"
 import { ControllerPolicy } from "./controller-policy"
 import type {
@@ -49,6 +50,14 @@ export namespace CollabAgentNode {
   function experiment(row: Pick<Row, "subagent_type" | "spec_json">) {
     const metadata = (row.spec_json as AgentSpec).metadata
     return row.subagent_type === "experiment" && typeof metadata?.atomId === "string" && typeof metadata.expId === "string"
+  }
+
+  export function isExperiment(node: Pick<AgentInfo, "subagent_type" | "spec">) {
+    return (
+      node.subagent_type === "experiment" &&
+      typeof node.spec.metadata?.atomId === "string" &&
+      typeof node.spec.metadata.expId === "string"
+    )
   }
 
   function structural(rows: Row[], row: Row, root: Row): ControllerRole | "blocked" {
@@ -422,7 +431,8 @@ export namespace CollabAgentNode {
                 .from(CollabAgentTable)
                 .where(eq(CollabAgentTable.id, parent.parent_agent_id))
                 .get()
-              if (!ancestor || !isActive(ancestor.status)) {
+              const independent = experiment(parent) && (parent.spec_json as AgentSpec).metadata?.stoppedByUser !== true
+              if (!ancestor || (!isActive(ancestor.status) && !independent)) {
                 throw new Error(`Parent agent ${parentId} has no active Atom`)
               }
               if (isActive(parent.status)) {
@@ -713,9 +723,25 @@ export namespace CollabAgentNode {
           and(
             inArray(CollabMessageTable.recipient_agent_id, [...ids]),
             inArray(CollabMessageTable.status, ["pending", "processing"]),
+            ne(CollabMessageTable.kind, "session_remote_task_terminal"),
           ),
         )
         .run()
+
+      const exps = tree.filter((item) => ids.has(item.id) && experiment(item)).map((item) => item.id)
+      const rest = [...ids].filter((id) => !exps.includes(id))
+      if (rest.length) {
+        tx.update(CollabMessageTable)
+          .set({ status: "dropped", claim_id: null, time_updated: now })
+          .where(
+            and(
+              inArray(CollabMessageTable.recipient_agent_id, rest),
+              inArray(CollabMessageTable.status, ["pending", "processing"]),
+              eq(CollabMessageTable.kind, "session_remote_task_terminal"),
+            ),
+          )
+          .run()
+      }
 
       return {
         root: rows.find((item) => item.id === root.id) ?? root,
@@ -844,6 +870,74 @@ export namespace CollabAgentNode {
       }),
     )
     log.info("restarted", { id: agentId })
+    return info
+  }
+
+  export function restoreExperiment(id: string) {
+    const result = Database.transaction((tx) => {
+      const current = tx.select().from(CollabAgentTable).where(eq(CollabAgentTable.id, id)).get()
+      if (!current) throw new NotFoundError({ message: `Agent not found: ${id}` })
+      const spec = current.spec_json as AgentSpec
+      if (!experiment(current) || spec.metadata?.stoppedByUser !== true) {
+        return { row: current, restored: false }
+      }
+      const root = tx.select().from(CollabAgentTable).where(eq(CollabAgentTable.id, current.root_agent_id)).get()
+      const metadata = root ? (root.spec_json as AgentSpec).metadata : undefined
+      if (root?.status === "canceled" && metadata?.stoppedByUser === true && metadata.stopReady !== true) {
+        return { row: current, restored: false }
+      }
+      const now = Date.now()
+      tx.delete(RemoteTaskListenerTable)
+        .where(
+          and(
+            eq(RemoteTaskListenerTable.agent_id, id),
+            eq(RemoteTaskListenerTable.mode, "collab"),
+          ),
+        )
+        .run()
+      tx.update(CollabMessageTable)
+        .set({ status: "dropped", claim_id: null, time_updated: now })
+        .where(
+          and(
+            eq(CollabMessageTable.recipient_agent_id, id),
+            inArray(CollabMessageTable.status, ["pending", "processing"]),
+            ne(CollabMessageTable.kind, "session_remote_task_terminal"),
+          ),
+        )
+        .run()
+      const row = tx
+        .update(CollabAgentTable)
+        .set({
+          status: "idle",
+          run_id: null,
+          initiator: null,
+          phase: "main_loop",
+          spec_json: clearStop(spec),
+          result_json: null,
+          error_json: null,
+          active_children: 0,
+          time_started: null,
+          time_ended: null,
+          time_updated: now,
+        })
+        .where(eq(CollabAgentTable.id, id))
+        .returning()
+        .get()!
+      return { row, restored: true }
+    })
+    const info = fromRow(result.row)
+    if (!result.restored) return info
+    Database.effect(() =>
+      Bus.publish(CollabEvent.AgentStatus, {
+        agentId: info.id,
+        rootAgentId: info.root_agent_id,
+        status: info.status,
+        phase: info.phase,
+        active_children: info.active_children,
+        initiator: info.initiator,
+      }),
+    )
+    log.info("restored experiment", { id })
     return info
   }
 

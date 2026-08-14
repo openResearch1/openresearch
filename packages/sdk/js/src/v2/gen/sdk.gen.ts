@@ -2348,7 +2348,7 @@ export class Session2 extends HeyApiClient {
   /**
    * Start remote experiment task
    *
-   * Start an experiment_run remote task for the experiment linked to the session.
+   * Start an experiment_run remote task from an unattended command or multiline shell script. SSH transport, detached execution, PTY logging, and completion tracking are managed automatically.
    */
   public remoteTask<ThrowOnError extends boolean = false>(
     parameters: {

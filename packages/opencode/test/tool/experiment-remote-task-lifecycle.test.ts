@@ -27,25 +27,46 @@ const inspectRemoteTaskMock = mock(async () => ({
 }))
 
 mock.module("../../src/research/remote-task-runner", () => ({
+  control: (root: string, taskId: string, screenName: string) => {
+    const dir = `${root.replace(/\/$/, "")}/.openresearch/tasks/${taskId}`
+    return {
+      dir,
+      logPath: `${dir}/task.log`,
+      exitPath: `${dir}/exit-${screenName}`,
+      pendingPath: `${dir}/exit-${screenName}.pending`,
+    }
+  },
   session: (taskId: string) => `openresearch${taskId.slice(0, 8)}`,
   wrapRemoteScript: (_server: unknown, script: string) => script,
   startRemoteTask: startRemoteTaskMock,
   inspectRemoteTask: inspectRemoteTaskMock,
   readRemoteTaskLog: mock(async () => ({ ok: true, output: "", code: 0 })),
   parseInspectOutput(output: string) {
-    const screenAt = output.lastIndexOf("__SCREEN__\n")
-    const targetAt = output.lastIndexOf("\n__TARGET__\n")
-    const tailAt = output.lastIndexOf("\n__TAIL__\n")
+    const screenAt = output.indexOf("__SCREEN__\n")
+    const targetAt = output.indexOf("\n__TARGET__\n", screenAt)
+    const exitAt = output.indexOf("\n__EXIT__\n", targetAt)
+    const tailAt = output.indexOf("\n__TAIL__\n", targetAt)
     if (screenAt === -1 || targetAt === -1 || tailAt === -1 || screenAt > targetAt || targetAt > tailAt) {
       return {
         screen: "",
+        screenLine: "",
         target: "",
+        code: undefined,
+        managed: false,
         tail: output.trim(),
       }
     }
+    const status =
+      exitAt === -1 || exitAt > tailAt ? "legacy" : output.slice(exitAt + "\n__EXIT__\n".length, tailAt).trim()
+    const line = output.slice(screenAt + "__SCREEN__\n".length, targetAt).trim()
     return {
-      screen: output.slice(screenAt + "__SCREEN__\n".length, targetAt).trim(),
-      target: output.slice(targetAt + "\n__TARGET__\n".length, tailAt).trim(),
+      screen: line,
+      screenLine: line,
+      target: output
+        .slice(targetAt + "\n__TARGET__\n".length, exitAt === -1 || exitAt > tailAt ? tailAt : exitAt)
+        .trim(),
+      code: /^\d+$/.test(status) ? Number(status) : undefined,
+      managed: status !== "legacy",
       tail: output.slice(tailAt + "\n__TAIL__\n".length).trim(),
     }
   },
@@ -273,6 +294,186 @@ describe("tool.experiment-remote-task lifecycle", () => {
         )
         expect(task?.status).toBe("failed")
         expect(task?.error_message).toContain("EXIT_CODE:130")
+      },
+    })
+  })
+
+  test("uses managed exit status instead of screen state or log markers", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        await seed(tmp.path)
+        const { ExperimentRemoteTaskStartTool } = await import("../../src/tool/experiment-remote-task")
+        const { forceRefreshRemoteTask } = await import("../../src/research/experiment-remote-task-watcher")
+        const tool = await ExperimentRemoteTaskStartTool.init()
+        await tool.execute(
+          {
+            expId: "exp-1",
+            kind: "experiment_run",
+            title: "Train model",
+            remoteRoot: "/mnt/zhouzih",
+            command: "python train.py",
+          },
+          ctx,
+        )
+
+        inspectRemoteTaskMock.mockImplementation(async () => ({
+          ok: true,
+          output: "__SCREEN__\ndetached\n__TARGET__\nunknown\n__EXIT__\n7\n__TAIL__\nSTART\nEXIT_CODE:0",
+          code: 0,
+        }))
+
+        await forceRefreshRemoteTask("exp-1")
+        const task = Database.use((db) =>
+          db.select().from(RemoteTaskTable).where(eq(RemoteTaskTable.exp_id, "exp-1")).get(),
+        )
+        expect(task?.status).toBe("failed")
+        expect(task?.error_message).toContain("EXIT_CODE:0")
+      },
+    })
+  })
+
+  test("does not reuse shared log exit markers while managed status is pending", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        await seed(tmp.path)
+        const { ExperimentRemoteTaskStartTool } = await import("../../src/tool/experiment-remote-task")
+        const { forceRefreshRemoteTask } = await import("../../src/research/experiment-remote-task-watcher")
+        const tool = await ExperimentRemoteTaskStartTool.init()
+        await tool.execute(
+          {
+            expId: "exp-1",
+            kind: "experiment_run",
+            title: "Train model",
+            remoteRoot: "/mnt/zhouzih",
+            command: "python train.py",
+          },
+          ctx,
+        )
+
+        inspectRemoteTaskMock.mockImplementation(async () => ({
+          ok: true,
+          output: "__SCREEN__\ndetached\n__TARGET__\nunknown\n__EXIT__\npending\n__TAIL__\nSTART old\nEXIT_CODE:0",
+          code: 0,
+        }))
+
+        await forceRefreshRemoteTask("exp-1")
+        const task = Database.use((db) =>
+          db.select().from(RemoteTaskTable).where(eq(RemoteTaskTable.exp_id, "exp-1")).get(),
+        )
+        expect(task?.status).toBe("running")
+        expect(task?.error_message).toBeNull()
+      },
+    })
+  })
+
+  test("shows starting while the managed screen is registering", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        await seed(tmp.path)
+        const { ExperimentRemoteTaskGetTool, ExperimentRemoteTaskStartTool } = await import(
+          "../../src/tool/experiment-remote-task"
+        )
+        const start = await ExperimentRemoteTaskStartTool.init()
+        const started = await start.execute(
+          {
+            expId: "exp-1",
+            kind: "experiment_run",
+            title: "Train model",
+            remoteRoot: "/mnt/zhouzih",
+            command: "python train.py",
+          },
+          ctx,
+        )
+        inspectRemoteTaskMock.mockImplementation(async () => ({
+          ok: true,
+          output: "__SCREEN__\nstopped\n__TARGET__\nunknown\n__EXIT__\npending\n__TAIL__\nSTART",
+          code: 0,
+        }))
+
+        const get = await ExperimentRemoteTaskGetTool.init()
+        const result = await get.execute({ expId: "exp-1", taskId: started.metadata.taskId }, ctx)
+
+        expect(inspectRemoteTaskMock).toHaveBeenCalledTimes(1)
+        expect(result.metadata.screen).toBe("starting")
+        expect(result.output).toContain("Screen: starting")
+      },
+    })
+  })
+
+  test("reports inspection failures instead of unknown screen state", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        await seed(tmp.path)
+        const { ExperimentRemoteTaskGetTool, ExperimentRemoteTaskStartTool } = await import(
+          "../../src/tool/experiment-remote-task"
+        )
+        const start = await ExperimentRemoteTaskStartTool.init()
+        const started = await start.execute(
+          {
+            expId: "exp-1",
+            kind: "experiment_run",
+            title: "Train model",
+            remoteRoot: "/mnt/zhouzih",
+            command: "python train.py",
+          },
+          ctx,
+        )
+        inspectRemoteTaskMock.mockImplementation(async () => ({
+          ok: false,
+          output: "ssh unavailable",
+          code: 255,
+        }))
+
+        const get = await ExperimentRemoteTaskGetTool.init()
+        const result = await get.execute({ expId: "exp-1", taskId: started.metadata.taskId }, ctx)
+
+        expect(inspectRemoteTaskMock).toHaveBeenCalledTimes(1)
+        expect(result.metadata.screen).toBe("inspect_failed")
+        expect(result.metadata.screenInspectError).toBe("ssh unavailable")
+        expect(result.output).toContain("remote task inspect failed: ssh unavailable")
+      },
+    })
+  })
+
+  test("applies the stop grace window to ambiguous screen states", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        await seed(tmp.path)
+        const { ExperimentRemoteTaskStartTool } = await import("../../src/tool/experiment-remote-task")
+        const { forceRefreshRemoteTask } = await import("../../src/research/experiment-remote-task-watcher")
+        const tool = await ExperimentRemoteTaskStartTool.init()
+        await tool.execute(
+          {
+            expId: "exp-1",
+            kind: "experiment_run",
+            title: "Train model",
+            remoteRoot: "/mnt/zhouzih",
+            command: "python train.py",
+          },
+          ctx,
+        )
+        inspectRemoteTaskMock.mockImplementation(async () => ({
+          ok: true,
+          output: "__SCREEN__\nunknown\n__TARGET__\nunknown\n__EXIT__\npending\n__TAIL__\nSTART",
+          code: 0,
+        }))
+
+        await forceRefreshRemoteTask("exp-1")
+        const task = Database.use((db) =>
+          db.select().from(RemoteTaskTable).where(eq(RemoteTaskTable.exp_id, "exp-1")).get(),
+        )
+        expect(task?.status).toBe("running")
+        expect(typeof task?.stopped_at).toBe("number")
       },
     })
   })
@@ -624,12 +825,14 @@ describe("tool.experiment-remote-task lifecycle", () => {
           expect(first.metadata.duplicate).toBe(false)
           expect(first.metadata.phase).toBe("listening_terminal")
           expect(first.output).toContain("YOU MUST END YOUR TURN NOW")
+          expect(inspectRemoteTaskMock).toHaveBeenCalledTimes(1)
 
           const again = await get.execute(
             { expId: "exp-1", taskId: started.metadata.taskId, listenForTerminal: true },
             context,
           )
           expect(again.metadata.duplicate).toBe(true)
+          expect(inspectRemoteTaskMock).toHaveBeenCalledTimes(2)
           const listeners = Database.use((db) => db.select().from(RemoteTaskListenerTable).all())
           expect(listeners).toHaveLength(1)
           expect(listeners[0].mode).toBe("direct")
@@ -776,7 +979,7 @@ describe("tool.experiment-remote-task lifecycle", () => {
         const get = await ExperimentRemoteTaskGetTool.init()
         const result = await get.execute({ expId: "exp-1", taskId: cub.metadata.taskId, waitForTerminal: false }, ctx)
 
-        expect(inspectRemoteTaskMock).toHaveBeenCalledTimes(2)
+        expect(inspectRemoteTaskMock).toHaveBeenCalledTimes(1)
         expect(result.metadata.taskId).toBe(cub.metadata.taskId)
         expect(result.metadata.status).toBe("failed")
         expect(ExperimentRemoteTask.get(cub.metadata.taskId)?.status).toBe("failed")
