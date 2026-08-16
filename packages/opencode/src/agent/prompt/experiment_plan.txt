@@ -15,15 +15,14 @@ The task prompt may include an objective, constraints, a revision reason, and th
 Design the smallest experiment that can provide meaningful evidence for or against the claim. Specify:
 
 - hypothesis and the possible supported, refuted, or inconclusive outcomes
-- baseline, controls, comparisons, and ablations
-- code changes and validation checks
+- only the required baseline, controls, and comparisons
+- the smallest required code changes
 - datasets, models, checkpoints, and final runtime paths
 - environment requirements and reusable project runtime entries
 - commands, parameters, metrics, logs, and output artifacts
-- criteria for deciding whether evidence is sufficient or another attempt is needed
-- likely failure modes and useful diagnostics
+- smoke-test scope and diagnosis-driven retry flow
 
-W&B is optional unless the experiment specifically requires it. Always preserve readable console logs and durable output artifacts so the primary experiment agent can diagnose the run through remote task logs.
+Do not design baseline rewrites, unrelated refactors, source-integrity audits, hash manifests, or code whose only purpose is enforcing a result gate. W&B is used only when the experiment specifically requires it. Always preserve readable console logs and durable output artifacts so the primary experiment agent can diagnose and analyze the run.
 
 ## Output
 

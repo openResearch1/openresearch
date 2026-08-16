@@ -644,12 +644,10 @@ describe("research.experiment-agent", () => {
         expect(ExperimentRemoteTaskListener.has(child.id, "collab")).toBeDefined()
 
         let directory: string | undefined
-        const prompt = spyOn(SessionPrompt, "prompt").mockImplementation(
-          (async () => {
-            directory = Instance.directory
-            return undefined as never
-          }) as unknown as typeof SessionPrompt.prompt,
-        )
+        const prompt = spyOn(SessionPrompt, "prompt").mockImplementation((async (input: SessionPrompt.PromptInput) => {
+          directory = Instance.directory
+          return { info: { role: "assistant", parentID: input.messageID }, parts: [] } as never
+        }) as unknown as typeof SessionPrompt.prompt)
         const source = path.join(tmp.path, "source-collab")
         const detector = path.join(tmp.path, "detector-collab")
         await fs.mkdir(source)
@@ -678,9 +676,7 @@ describe("research.experiment-agent", () => {
           expect(directory).toBe(tmp.path)
           expect(prompt).toHaveBeenCalledTimes(1)
           expect(CollabAgentNode.load(child.id).status).toBe("completed")
-          expect(CollabMessage.list(child.id, { kind: "remote_task_terminal" })).toMatchObject([
-            { status: "consumed" },
-          ])
+          expect(CollabMessage.list(child.id, { kind: "remote_task_terminal" })).toMatchObject([{ status: "consumed" }])
           expect(CollabMessage.list(parent.id, { kind: "child_done" })).toHaveLength(1)
           expect(CollabAgentNode.load(parent.id).active_children).toBe(0)
         } finally {
@@ -709,17 +705,24 @@ describe("research.experiment-agent", () => {
           release = resolve
         })
         let calls = 0
-        const messages = spyOn(Session, "messages").mockImplementation(
-          (async (input: { sessionID: string; limit?: number }) => {
-            calls++
-            if (calls === 1) {
-              started()
-              await gate
-            }
-            return original(input)
-          }) as unknown as typeof Session.messages,
+        const messages = spyOn(Session, "messages").mockImplementation((async (input: {
+          sessionID: string
+          limit?: number
+        }) => {
+          calls++
+          if (calls === 1) {
+            started()
+            await gate
+          }
+          return original(input)
+        }) as unknown as typeof Session.messages)
+        const prompt = spyOn(SessionPrompt, "prompt").mockImplementation(
+          (async (input: SessionPrompt.PromptInput) =>
+            ({
+              info: { role: "assistant", parentID: input.messageID },
+              parts: [],
+            }) as never) as unknown as typeof SessionPrompt.prompt,
         )
-        const prompt = spyOn(SessionPrompt, "prompt").mockResolvedValue(undefined as never)
         const run = CollabLoop.start(child.id)
         try {
           await ready
@@ -742,9 +745,7 @@ describe("research.experiment-agent", () => {
           await run
           expect(prompt).toHaveBeenCalledTimes(1)
           expect(CollabAgentNode.load(child.id).status).toBe("completed")
-          expect(CollabMessage.list(child.id, { kind: "remote_task_terminal" })).toMatchObject([
-            { status: "consumed" },
-          ])
+          expect(CollabMessage.list(child.id, { kind: "remote_task_terminal" })).toMatchObject([{ status: "consumed" }])
         } finally {
           release()
           CollabRuntime.abort(child.id)
@@ -884,7 +885,13 @@ describe("research.experiment-agent", () => {
           providerID: "atom",
           modelID: "current",
         })
-        const prompt = spyOn(SessionPrompt, "prompt").mockResolvedValue(undefined as never)
+        const prompt = spyOn(SessionPrompt, "prompt").mockImplementation(
+          (async (input: SessionPrompt.PromptInput) =>
+            ({
+              info: { role: "assistant", parentID: input.messageID },
+              parts: [],
+            }) as never) as unknown as typeof SessionPrompt.prompt,
+        )
         try {
           await Collab.resume({
             agentId: child.id,
@@ -1234,12 +1241,10 @@ describe("research.experiment-agent", () => {
           }),
         ).toBe(true)
         const inputs: SessionPrompt.PromptInput[] = []
-        const prompt = spyOn(SessionPrompt, "prompt").mockImplementation(
-          (async (input: SessionPrompt.PromptInput) => {
-            inputs.push(input)
-            return undefined as never
-          }) as unknown as typeof SessionPrompt.prompt,
-        )
+        const prompt = spyOn(SessionPrompt, "prompt").mockImplementation((async (input: SessionPrompt.PromptInput) => {
+          inputs.push(input)
+          return { info: { role: "assistant", parentID: input.messageID }, parts: [] } as never
+        }) as unknown as typeof SessionPrompt.prompt)
         CollabAutoWake.setEnabled(true)
         try {
           CollabAutoWake.wake(item.exp!.id)
@@ -1528,7 +1533,13 @@ describe("research.experiment-agent", () => {
             parts: [{ type: "text", text: "continue with this model" }],
           }),
         ).toBe(true)
-        const prompt = spyOn(SessionPrompt, "prompt").mockResolvedValue(undefined as never)
+        const prompt = spyOn(SessionPrompt, "prompt").mockImplementation(
+          (async (input: SessionPrompt.PromptInput) =>
+            ({
+              info: { role: "assistant", parentID: input.messageID },
+              parts: [],
+            }) as never) as unknown as typeof SessionPrompt.prompt,
+        )
         try {
           await CollabLoop.start(active.id)
           expect(prompt.mock.calls[0]?.[0].model).toEqual({ providerID: "available", modelID: "replacement" })

@@ -160,7 +160,13 @@ describe("CollabAutoWake blocks root on active children", () => {
           if (e.properties.recipientAgentId !== childId || e.properties.kind !== "user_input") return
           done()
         })
-        const prompt = spyOn(SessionPrompt, "prompt").mockResolvedValue(undefined as never)
+        const prompt = spyOn(SessionPrompt, "prompt").mockImplementation(
+          (async (input: SessionPrompt.PromptInput) =>
+            ({
+              info: { role: "assistant", parentID: input.messageID },
+              parts: [],
+            }) as never) as unknown as typeof SessionPrompt.prompt,
+        )
 
         try {
           await Collab.resume({ agentId: childId, prompt: "new instruction" })
@@ -348,9 +354,11 @@ describe("CollabAutoWake confirms callback delivery", () => {
         CollabAutoWake.ensure()
         const item = await tree("cancel-root-turn")
         let finish: ((value: Awaited<ReturnType<typeof SessionPrompt.prompt>>) => void) | undefined
-        const prompt = spyOn(SessionPrompt, "prompt").mockImplementation(
-          (() => new Promise((resolve) => (finish = resolve))) as unknown as typeof SessionPrompt.prompt,
-        )
+        let messageID: string | undefined
+        const prompt = spyOn(SessionPrompt, "prompt").mockImplementation(((input: SessionPrompt.PromptInput) => {
+          messageID = input.messageID
+          return new Promise((resolve) => (finish = resolve))
+        }) as unknown as typeof SessionPrompt.prompt)
         const cancel = spyOn(SessionPrompt, "cancel")
 
         try {
@@ -375,6 +383,7 @@ describe("CollabAutoWake confirms callback delivery", () => {
           finish!({
             info: {
               role: "assistant",
+              parentID: messageID,
               error: new MessageV2.AbortedError({ message: "The operation was aborted." }).toObject(),
             },
             parts: [],
@@ -401,19 +410,19 @@ describe("CollabAutoWake confirms callback delivery", () => {
           CollabAutoWake.ensure()
           const item = await tree(`callback-${kind}`)
           let turns = 0
-          const prompt = spyOn(SessionPrompt, "prompt").mockImplementation(
-            (async (input: SessionPrompt.PromptInput) => {
-              turns++
-              return {
-                info: {
-                  role: "assistant",
-                  parentID: turns === 1 && kind === "stale" ? Identifier.ascending("message") : input.messageID,
-                  error: turns === 1 && kind === "error" ? { name: "APIError", data: { message: "retry" } } : undefined,
-                },
-                parts: [],
-              } as never
-            }) as unknown as typeof SessionPrompt.prompt,
-          )
+          const prompt = spyOn(SessionPrompt, "prompt").mockImplementation((async (
+            input: SessionPrompt.PromptInput,
+          ) => {
+            turns++
+            return {
+              info: {
+                role: "assistant",
+                parentID: turns === 1 && kind === "stale" ? Identifier.ascending("message") : input.messageID,
+                error: turns === 1 && kind === "error" ? { name: "APIError", data: { message: "retry" } } : undefined,
+              },
+              parts: [],
+            } as never
+          }) as unknown as typeof SessionPrompt.prompt)
 
           try {
             CollabAgentNode.finish({
@@ -432,9 +441,7 @@ describe("CollabAutoWake confirms callback delivery", () => {
 
             for (let i = 0; i < 300 && turns < 2; i++) await Bun.sleep(10)
             expect(turns).toBe(2)
-            expect(CollabMessage.list(item.root, { kind: "child_done" }).map((msg) => msg.status)).toEqual([
-              "consumed",
-            ])
+            expect(CollabMessage.list(item.root, { kind: "child_done" }).map((msg) => msg.status)).toEqual(["consumed"])
           } finally {
             prompt.mockRestore()
           }
@@ -450,12 +457,10 @@ describe("CollabAutoWake confirms callback delivery", () => {
         CollabAutoWake.ensure()
         const item = await tree("callback-canceled")
         let callback: SessionPrompt.PromptInput | undefined
-        const prompt = spyOn(SessionPrompt, "prompt").mockImplementation(
-          (async (input: SessionPrompt.PromptInput) => {
-            callback = input
-            return { info: { role: "assistant", parentID: input.messageID }, parts: [] } as never
-          }) as unknown as typeof SessionPrompt.prompt,
-        )
+        const prompt = spyOn(SessionPrompt, "prompt").mockImplementation((async (input: SessionPrompt.PromptInput) => {
+          callback = input
+          return { info: { role: "assistant", parentID: input.messageID }, parts: [] } as never
+        }) as unknown as typeof SessionPrompt.prompt)
 
         try {
           CollabAgentNode.finish({
@@ -518,7 +523,10 @@ describe("CollabAutoWake confirms callback delivery", () => {
         })
         const prompt = spyOn(SessionPrompt, "prompt").mockImplementation(
           (async (input: SessionPrompt.PromptInput) =>
-            ({ info: { role: "assistant", parentID: input.messageID }, parts: [] }) as never) as unknown as typeof SessionPrompt.prompt,
+            ({
+              info: { role: "assistant", parentID: input.messageID },
+              parts: [],
+            }) as never) as unknown as typeof SessionPrompt.prompt,
         )
 
         try {
@@ -640,9 +648,11 @@ describe("CollabAutoWake confirms callback delivery", () => {
           expect(turns).toBe(1)
           expect(CollabMessage.list(item.root, { kind: "child_done" })[0]?.status).toBe("consumed")
           expect(
-            (CollabMessage.list(item.root, { kind: "child_done" })[0]?.payload_json as {
-              deliveryMessageId?: string
-            }).deliveryMessageId,
+            (
+              CollabMessage.list(item.root, { kind: "child_done" })[0]?.payload_json as {
+                deliveryMessageId?: string
+              }
+            ).deliveryMessageId,
           ).not.toBe(payload.deliveryMessageId)
           expect(
             await MessageV2.get({ sessionID: item.session.id, messageID: payload.deliveryMessageId }).catch(
@@ -741,12 +751,10 @@ describe("CollabAutoWake confirms callback delivery", () => {
           finish: "stop",
         })
         let prompts = 0
-        const prompt = spyOn(SessionPrompt, "prompt").mockImplementation(
-          (async (input: SessionPrompt.PromptInput) => {
-            if (input.sessionID === item.session.id) prompts++
-            return {} as never
-          }) as unknown as typeof SessionPrompt.prompt,
-        )
+        const prompt = spyOn(SessionPrompt, "prompt").mockImplementation((async (input: SessionPrompt.PromptInput) => {
+          if (input.sessionID === item.session.id) prompts++
+          return {} as never
+        }) as unknown as typeof SessionPrompt.prompt)
 
         try {
           CollabAutoWake.setEnabled(true)
@@ -805,9 +813,9 @@ describe("CollabAutoWake confirms callback delivery", () => {
 
         try {
           expect(CollabMessage.redeliver(claims, Identifier.ascending("message"))).toBe(false)
-          expect(
-            (CollabMessage.list(root)[0].payload_json as { deliveryMessageId: string }).deliveryMessageId,
-          ).toBe(before)
+          expect((CollabMessage.list(root)[0].payload_json as { deliveryMessageId: string }).deliveryMessageId).toBe(
+            before,
+          )
         } finally {
           CollabMessage.retry([claims[0]], false)
           CollabMessage.drop(CollabMessage.drain(root))
@@ -906,28 +914,26 @@ describe("CollabAutoWake confirms callback delivery", () => {
         CollabAgentNode.transition(root, "running", { phase: "main_loop" })
 
         let turns = 0
-        const prompt = spyOn(SessionPrompt, "prompt").mockImplementation(
-          (async (input: SessionPrompt.PromptInput) => {
-            turns++
-            if (turns === 1) {
-              CollabMessage.post({
-                recipientAgentId: root,
-                senderAgentId: null,
-                kind: "session_remote_task_terminal",
-                payload: {
-                  taskId: "direct-task",
-                  expId: "exp",
-                  kind: "experiment_run",
-                  title: "task",
-                  status: "finished",
-                  logPath: null,
-                  errorMessage: null,
-                },
-              })
-            }
-            return { info: { role: "assistant", parentID: input.messageID }, parts: [] } as never
-          }) as unknown as typeof SessionPrompt.prompt,
-        )
+        const prompt = spyOn(SessionPrompt, "prompt").mockImplementation((async (input: SessionPrompt.PromptInput) => {
+          turns++
+          if (turns === 1) {
+            CollabMessage.post({
+              recipientAgentId: root,
+              senderAgentId: null,
+              kind: "session_remote_task_terminal",
+              payload: {
+                taskId: "direct-task",
+                expId: "exp",
+                kind: "experiment_run",
+                title: "task",
+                status: "finished",
+                logPath: null,
+                errorMessage: null,
+              },
+            })
+          }
+          return { info: { role: "assistant", parentID: input.messageID }, parts: [] } as never
+        }) as unknown as typeof SessionPrompt.prompt)
 
         try {
           CollabMessage.post({
@@ -1071,6 +1077,130 @@ describe("CollabAutoWake is robust under concurrent child completions", () => {
 })
 
 describe("CollabAutoWake delegates non-root agents to CollabLoop", () => {
+  test("redelivers callbacks whose message IDs were overtaken by an active turn", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        CollabAutoWake.ensure()
+        CollabAutoWake.setEnabled(false)
+        const item = await tree("stale-non-root-callback")
+        CollabAgentNode.transition(item.child.id, "running", { phase: "main_loop" })
+
+        const workerSession = await Session.create({ parentID: item.child.session_id, title: "worker" })
+        const worker = Identifier.ascending("collab_agent")
+        CollabAgentNode.create({
+          id: worker,
+          sessionId: workerSession.id,
+          parentAgentId: item.child.id,
+          name: "worker",
+          projectId: Instance.project.id,
+          rootAgentId: item.root,
+          subagentType: "general",
+          spec: { initialPrompt: "wait" },
+        })
+
+        for (const taskId of ["late-b", "late-c"]) {
+          CollabMessage.post({
+            recipientAgentId: item.child.id,
+            senderAgentId: null,
+            runId: item.child.run_id,
+            kind: "remote_task_terminal",
+            payload: {
+              taskId,
+              expId: "exp",
+              kind: "resource_download",
+              title: taskId,
+              status: "finished",
+              logPath: null,
+              errorMessage: null,
+            },
+          })
+        }
+        const before = CollabMessage.list(item.child.id, { kind: "remote_task_terminal" })
+        const old = before.map((msg) => (msg.payload_json as { deliveryMessageId: string }).deliveryMessageId)
+
+        const prior = await SessionPrompt.prompt({
+          sessionID: item.child.session_id,
+          agent: "general",
+          model: { providerID: "opencode", modelID: "kimi-k2.5-free" },
+          noReply: true,
+          parts: [{ type: "text", text: "active turn" }],
+        })
+        const assistant = await Session.updateMessage({
+          id: Identifier.ascending("message"),
+          sessionID: item.child.session_id,
+          role: "assistant",
+          parentID: prior.info.id,
+          mode: "general",
+          agent: "general",
+          modelID: "kimi-k2.5-free",
+          providerID: "opencode",
+          path: { cwd: projectRoot, root: projectRoot },
+          cost: 0,
+          tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+          time: { created: Date.now(), completed: Date.now() },
+          finish: "stop",
+        })
+        expect(old.every((id) => id < assistant.id)).toBe(true)
+
+        let turns = 0
+        const stream = spyOn(LLM, "stream").mockImplementation(async (input) => {
+          if (input.small) {
+            return {
+              text: Promise.resolve("title"),
+              fullStream: (async function* () {})(),
+            } as unknown as Awaited<ReturnType<typeof LLM.stream>>
+          }
+          turns++
+          return {
+            fullStream: (async function* () {
+              yield { type: "start" }
+              yield {
+                type: "finish-step",
+                finishReason: "stop",
+                usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+              }
+              yield { type: "finish" }
+            })(),
+          } as unknown as Awaited<ReturnType<typeof LLM.stream>>
+        })
+        const run = CollabLoop.start(item.child.id)
+
+        try {
+          for (let i = 0; i < 300; i++) {
+            const rows = CollabMessage.list(item.child.id, { kind: "remote_task_terminal" })
+            if (rows.length === 2 && rows.every((msg) => msg.status === "consumed")) break
+            await Bun.sleep(10)
+          }
+
+          const rows = CollabMessage.list(item.child.id, { kind: "remote_task_terminal" })
+          expect(rows.map((msg) => msg.status)).toEqual(["consumed", "consumed"])
+          const ids = rows.map((msg) => (msg.payload_json as { deliveryMessageId: string }).deliveryMessageId)
+          expect(new Set(ids).size).toBe(1)
+          expect(old).not.toContain(ids[0])
+          expect(turns).toBe(1)
+
+          const user = await MessageV2.get({ sessionID: item.child.session_id, messageID: ids[0] })
+          expect(user.parts.filter((part) => part.type === "collab_return")).toHaveLength(2)
+          const messages = await Session.messages({ sessionID: item.child.session_id })
+          expect(
+            messages.some((msg) => msg.info.role === "assistant" && !msg.info.error && msg.info.parentID === ids[0]),
+          ).toBe(true)
+          for (const id of old) {
+            expect(
+              await MessageV2.get({ sessionID: item.child.session_id, messageID: id }).catch(() => undefined),
+            ).toBeUndefined()
+          }
+        } finally {
+          Collab.runtime().abort(item.child.id)
+          await run
+          stream.mockRestore()
+          CollabAutoWake.setEnabled(true)
+        }
+      },
+    })
+  })
+
   test("posting child_done to a NON-root parent starts its loop", async () => {
     await Instance.provide({
       directory: projectRoot,
@@ -1131,7 +1261,13 @@ describe("CollabAutoWake delegates non-root agents to CollabLoop", () => {
         const unsub = Bus.subscribe(CollabEvent.MessageConsumed, (e) => {
           if (e.properties.recipientAgentId === parentId) mpCount++
         })
-        const prompt = spyOn(SessionPrompt, "prompt").mockResolvedValue(undefined as never)
+        const prompt = spyOn(SessionPrompt, "prompt").mockImplementation(
+          (async (input: SessionPrompt.PromptInput) =>
+            ({
+              info: { role: "assistant", parentID: input.messageID },
+              parts: [],
+            }) as never) as unknown as typeof SessionPrompt.prompt,
+        )
 
         try {
           await CollabMessage.post({

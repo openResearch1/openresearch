@@ -560,7 +560,7 @@ export const AtomBatchCreateTool = Tool.define("atom_batch_create", {
 export const AtomDeleteTool = Tool.define("atom_delete", {
   description:
     "Delete one or more atoms and all their related relations. " +
-    "This will permanently remove the atoms, their claim files, evidence files, and all relations pointing to or from these atoms.",
+    "This will permanently remove the atoms, their sessions, claim files, evidence files, and all relations pointing to or from these atoms.",
   parameters: z.object({
     atomIds: z.array(z.string()).describe("Array of atom IDs to delete"),
   }),
@@ -607,6 +607,10 @@ export const AtomDeleteTool = Tool.define("atom_delete", {
     }
 
     for (const atomId of validAtomIds) AtomLock.assert(atomMap.get(atomId)!)
+    const discard = async (sessionID: string) => {
+      await Session.remove(sessionID)
+      if (await Session.get(sessionID).catch(() => undefined)) throw new Error(`Failed to remove session ${sessionID}`)
+    }
 
     // Delete atom directories and files
     const deletePromises = validAtomIds.map(async (atomId) => {
@@ -637,7 +641,7 @@ export const AtomDeleteTool = Tool.define("atom_delete", {
         Database.use((db) => db.delete(ExperimentTable).where(eq(ExperimentTable.exp_id, exp.exp_id)).run())
         // Clean up experiment session
         if (exp.exp_session_id) {
-          await Session.remove(exp.exp_session_id).catch(() => {})
+          await discard(exp.exp_session_id)
         }
         // Delete experiment results directory
         const expDir = path.join(Instance.directory, "exp_results", exp.exp_id)
@@ -649,6 +653,9 @@ export const AtomDeleteTool = Tool.define("atom_delete", {
           await git(["branch", "-D", exp.exp_branch_name], { cwd: baseRepo }).catch(() => {})
         }
       }
+
+      const atom = atomMap.get(atomId)!
+      if (atom.session_id) await discard(atom.session_id)
     }
 
     // Delete atoms and related relations in a transaction

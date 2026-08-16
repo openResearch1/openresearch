@@ -442,7 +442,13 @@ describe("Collab durable inbox", () => {
           payload: { text: "use sender", model: { providerID: "sender", modelID: "current" } },
         })
         const get = spyOn(Provider, "getModel").mockResolvedValue({} as never)
-        const prompt = spyOn(SessionPrompt, "prompt").mockResolvedValue(undefined as never)
+        const prompt = spyOn(SessionPrompt, "prompt").mockImplementation(
+          (async (input: SessionPrompt.PromptInput) =>
+            ({
+              info: { role: "assistant", parentID: input.messageID },
+              parts: [],
+            }) as never) as unknown as typeof SessionPrompt.prompt,
+        )
         try {
           await CollabLoop.start(child.id)
           expect(prompt.mock.calls[0]?.[0]?.model).toEqual({ providerID: "sender", modelID: "current" })
@@ -487,7 +493,13 @@ describe("Collab durable inbox", () => {
             payload: { childAgentId: child.id, childName: child.name, summary: "done" },
           },
         })
-        const prompt = spyOn(SessionPrompt, "prompt").mockResolvedValue(undefined as never)
+        const prompt = spyOn(SessionPrompt, "prompt").mockImplementation(
+          (async (input: SessionPrompt.PromptInput) =>
+            ({
+              info: { role: "assistant", parentID: input.messageID },
+              parts: [],
+            }) as never) as unknown as typeof SessionPrompt.prompt,
+        )
         try {
           await CollabLoop.start(parent.id)
           expect(prompt.mock.calls[0]?.[0]?.model).toEqual({ providerID: "recipient", modelID: "flash" })
@@ -575,7 +587,10 @@ describe("Collab durable inbox", () => {
         const prompt = spyOn(SessionPrompt, "prompt").mockResolvedValue(
           {} as Awaited<ReturnType<typeof SessionPrompt.prompt>>,
         )
-        const loop = spyOn(SessionPrompt, "loop").mockResolvedValue(undefined as never)
+        const loop = spyOn(SessionPrompt, "loop").mockResolvedValue({
+          info: { role: "assistant", parentID: payload.messageId },
+          parts: [],
+        } as never)
         try {
           await CollabLoop.start(child.id)
           expect(loop).toHaveBeenCalledTimes(1)
