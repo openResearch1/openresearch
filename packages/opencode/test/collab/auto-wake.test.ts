@@ -15,6 +15,7 @@ import { Collab } from "../../src/collab"
 import { CollabAutoWake } from "../../src/collab/auto-wake"
 import { CollabEvent } from "../../src/collab/events"
 import { CollabLoop } from "../../src/collab/loop"
+import { CollabDelivery } from "../../src/collab/delivery"
 import { CollabSupervisor } from "../../src/collab/supervisor"
 import { buildChildDonePart, finalizeParts } from "../../src/collab/return-parts"
 
@@ -297,6 +298,83 @@ describe("CollabAutoWake blocks root on active children", () => {
 })
 
 describe("CollabAutoWake confirms callback delivery", () => {
+  test("drops a callback after its delivery refresh budget is exhausted", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        CollabAutoWake.setEnabled(false)
+        const item = await tree("callback-refresh-budget")
+        CollabMessage.post({
+          recipientAgentId: item.root,
+          senderAgentId: item.child.id,
+          kind: "child_done",
+          payload: { childAgentId: item.child.id, childName: item.child.name, summary: "done" },
+        })
+
+        const prompt = async (messageID?: string) =>
+          ({
+            info: { role: "assistant", parentID: `${messageID}-unrelated` },
+            parts: [],
+          }) as unknown as MessageV2.WithParts
+
+        try {
+          for (let attempt = 0; attempt < 3; attempt++) {
+            const claims = CollabMessage.drain(item.root)
+            const messageID = (claims[0].payload_json as { deliveryMessageId: string }).deliveryMessageId
+            await expect(
+              CollabDelivery.deliver({
+                node: CollabAgentNode.load(item.root),
+                msgs: claims,
+                messageID,
+                match: () => true,
+                prompt,
+              }),
+            ).rejects.toBeInstanceOf(CollabDelivery.Stale)
+            CollabMessage.retry(claims, false)
+          }
+
+          CollabMessage.post({
+            recipientAgentId: item.root,
+            senderAgentId: null,
+            kind: "remote_task_terminal",
+            payload: {
+              taskId: "fresh-task",
+              expId: "exp",
+              kind: "experiment_run",
+              title: "fresh",
+              status: "finished",
+              logPath: null,
+              errorMessage: null,
+            },
+          })
+          const claims = CollabMessage.drain(item.root)
+          const messageID = (claims[0].payload_json as { deliveryMessageId: string }).deliveryMessageId
+          const error = await CollabDelivery.deliver({
+            node: CollabAgentNode.load(item.root),
+            msgs: claims,
+            messageID,
+            match: () => true,
+            prompt,
+          }).catch((err) => err)
+          expect(error).toBeInstanceOf(CollabDelivery.Exhausted)
+          if (!(error instanceof CollabDelivery.Exhausted)) throw error
+          expect(error.claims).toHaveLength(1)
+          CollabMessage.drop(error.claims)
+          CollabMessage.retry(
+            claims.filter((msg) => !error.claims.some((claim) => claim.id === msg.id)),
+            false,
+          )
+
+          expect(CollabMessage.list(item.root, { kind: "child_done" })[0]?.status).toBe("dropped")
+          expect(CollabMessage.list(item.root, { kind: "remote_task_terminal" })[0]?.status).toBe("pending")
+          CollabMessage.drop(CollabMessage.drain(item.root))
+        } finally {
+          CollabAutoWake.setEnabled(true)
+        }
+      },
+    })
+  })
+
   test("latches root cancellation before scanning children", async () => {
     await Instance.provide({
       directory: projectRoot,
@@ -963,6 +1041,65 @@ describe("CollabAutoWake confirms callback delivery", () => {
           expect(turns).toBe(2)
           expect(CollabMessage.hasOutstandingWakeMsg(root)).toBe(false)
           expect(CollabMessage.hasOutstanding(root, "session_remote_task_terminal")).toBe(false)
+        } finally {
+          prompt.mockRestore()
+        }
+      },
+    })
+  })
+
+  test("drops a direct callback after its delivery refresh budget is exhausted", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        CollabAutoWake.ensure()
+        const session = await Session.create({ title: "direct-refresh-budget" })
+        const root = Identifier.ascending("collab_agent")
+        CollabAgentNode.create({
+          id: root,
+          sessionId: session.id,
+          parentAgentId: null,
+          name: "root",
+          projectId: Instance.project.id,
+          rootAgentId: root,
+          subagentType: "general",
+          spec: { initialPrompt: "root" },
+        })
+        CollabAgentNode.transition(root, "running", { phase: "main_loop" })
+        let turns = 0
+        const prompt = spyOn(SessionPrompt, "prompt").mockImplementation((async () => {
+          turns++
+          return {
+            info: { role: "assistant", parentID: Identifier.ascending("message") },
+            parts: [],
+          } as never
+        }) as unknown as typeof SessionPrompt.prompt)
+
+        try {
+          CollabMessage.post({
+            recipientAgentId: root,
+            senderAgentId: null,
+            kind: "session_remote_task_terminal",
+            payload: {
+              taskId: "stale-direct-task",
+              expId: "exp",
+              kind: "experiment_run",
+              title: "task",
+              status: "failed",
+              logPath: null,
+              errorMessage: "failed",
+            },
+          })
+
+          for (let i = 0; i < 500; i++) {
+            const row = CollabMessage.list(root, { kind: "session_remote_task_terminal" })[0]
+            if (row?.status === "dropped") break
+            await Bun.sleep(10)
+          }
+
+          expect(CollabMessage.list(root, { kind: "session_remote_task_terminal" })[0]?.status).toBe("dropped")
+          expect(turns).toBeGreaterThan(0)
+          expect(turns).toBeLessThan(10)
         } finally {
           prompt.mockRestore()
         }

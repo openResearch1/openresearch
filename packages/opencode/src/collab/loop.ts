@@ -195,6 +195,7 @@ export namespace CollabLoop {
     const identity = expected ?? { runId: node.run_id, parentId: node.parent_agent_id }
     if (!matches(node, identity)) return
     const session = await Session.get(node.session_id)
+    if (session.time.archived) return
     if (session.directory !== Instance.directory) {
       return Instance.provide({
         directory: session.directory,
@@ -593,6 +594,14 @@ export namespace CollabLoop {
           }
           if (err instanceof CollabDelivery.ClaimChanged || err instanceof CollabDelivery.Stale) {
             CollabMessage.retry(msgs, false)
+            continue
+          }
+          if (err instanceof CollabDelivery.Exhausted) {
+            CollabMessage.drop(err.claims)
+            CollabMessage.retry(
+              msgs.filter((msg) => !err.claims.some((claim) => claim.id === msg.id)),
+              false,
+            )
             continue
           }
           const fresh = CollabAgentNode.tryLoad(agentId)

@@ -492,7 +492,7 @@ export namespace CollabMessage {
     })
   }
 
-  export function redeliver(claims: Claim[], messageId: string) {
+  export function redeliver(claims: Claim[], messageId: string, failed = true) {
     if (!claims.length) return false
     const now = Date.now()
     return Database.transaction((tx) => {
@@ -524,10 +524,20 @@ export namespace CollabMessage {
         const stale = row.kind === "user_input" ? row.payload.messageId : row.payload.deliveryMessageId
         const payload =
           row.kind === "user_input"
-            ? { ...row.payload, messageId, ...(typeof stale === "string" ? { staleDeliveryMessageId: stale } : {}) }
+            ? {
+                ...row.payload,
+                messageId,
+                deliveryAttempts:
+                  (typeof row.payload.deliveryAttempts === "number" ? row.payload.deliveryAttempts : 0) +
+                  (failed ? 1 : 0),
+                ...(typeof stale === "string" ? { staleDeliveryMessageId: stale } : {}),
+              }
             : {
                 ...row.payload,
                 deliveryMessageId: messageId,
+                deliveryAttempts:
+                  (typeof row.payload.deliveryAttempts === "number" ? row.payload.deliveryAttempts : 0) +
+                  (failed ? 1 : 0),
                 ...(typeof stale === "string" ? { staleDeliveryMessageId: stale } : {}),
               }
         return tx

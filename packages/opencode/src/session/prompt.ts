@@ -422,7 +422,8 @@ export namespace SessionPrompt {
         !activeWorkflow &&
         lastAssistant?.finish &&
         !["tool-calls", "unknown"].includes(lastAssistant.finish) &&
-        lastUser.id < lastAssistant.id
+        (lastUser.time.created < lastAssistant.time.created ||
+          (lastUser.time.created === lastAssistant.time.created && lastUser.id < lastAssistant.id))
       ) {
         log.info("exiting loop", { sessionID })
         break

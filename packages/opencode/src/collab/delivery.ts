@@ -8,6 +8,13 @@ import type { AgentInfo } from "./types"
 export namespace CollabDelivery {
   export class ClaimChanged extends Error {}
   export class Stale extends Error {}
+  export class Exhausted extends Error {
+    constructor(readonly claims: CollabMessage.Row[]) {
+      super(`Callback delivery failed after ${MAX_ATTEMPTS} refresh attempts`)
+    }
+  }
+
+  const MAX_ATTEMPTS = 3
 
   async function derived(sessionID: string, current: string, target: string, seen = new Set<string>()) {
     if (current === target) return true
@@ -48,6 +55,19 @@ export namespace CollabDelivery {
     prompt: (messageID?: string) => Promise<MessageV2.WithParts>
   }) {
     let messageID = input.messageID
+    const ids = input.msgs.flatMap((msg) => {
+      const payload = msg.payload_json
+      if (typeof payload !== "object" || payload === null) return []
+      const id =
+        msg.kind === "user_input"
+          ? "messageId" in payload
+            ? payload.messageId
+            : undefined
+          : "deliveryMessageId" in payload
+            ? payload.deliveryMessageId
+            : undefined
+      return typeof id === "string" ? [id] : []
+    })
     const stale = input.msgs.flatMap((msg) => {
       const payload = msg.payload_json
       if (typeof payload !== "object" || payload === null) return []
@@ -59,6 +79,18 @@ export namespace CollabDelivery {
         Session.removeMessage({ sessionID: input.node.session_id, messageID: id }).catch(() => undefined),
       ),
     )
+    if (new Set(ids).size > 1) {
+      const next = Identifier.ascending("message")
+      if (!CollabMessage.redeliver(input.msgs, next, false)) {
+        throw new ClaimChanged("Callback delivery claim changed before batch refresh")
+      }
+      await Promise.all(
+        [...new Set(ids)].map((id) =>
+          Session.removeMessage({ sessionID: input.node.session_id, messageID: id }).catch(() => undefined),
+        ),
+      )
+      messageID = next
+    }
 
     for (let attempt = 0; attempt < 2; attempt++) {
       const exact = messageID
@@ -83,6 +115,21 @@ export namespace CollabDelivery {
         return { result, messageID }
       }
       if (attempt === 1) throw new Stale("Callback delivery did not produce its assistant turn")
+      const exhausted = input.msgs.filter((msg) => {
+        const payload = msg.payload_json
+        if (typeof payload !== "object" || payload === null) return false
+        return (
+          "deliveryAttempts" in payload &&
+          typeof payload.deliveryAttempts === "number" &&
+          payload.deliveryAttempts >= MAX_ATTEMPTS
+        )
+      })
+      if (exhausted.length > 0) {
+        if (messageID) {
+          await Session.removeMessage({ sessionID: input.node.session_id, messageID }).catch(() => undefined)
+        }
+        throw new Exhausted(exhausted)
+      }
 
       const next = Identifier.ascending("message")
       if (!CollabMessage.redeliver(input.msgs, next)) {

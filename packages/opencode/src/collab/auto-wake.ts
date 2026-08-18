@@ -179,6 +179,7 @@ export namespace CollabAutoWake {
     drive: (fresh: AgentInfo, current: Set<string>) => void | Promise<void>,
   ) {
     const session = await Session.get(node.session_id)
+    if (session.time.archived) return
     if (session.directory === Instance.directory) return drive(node, inflight)
     return Instance.provide({
       directory: session.directory,
@@ -321,7 +322,16 @@ export namespace CollabAutoWake {
       }
       CollabMessage.ack(msgs)
     } catch (err) {
+      if (err instanceof CollabDelivery.Exhausted) {
+        CollabMessage.drop(err.claims)
+        CollabMessage.retry(
+          msgs.filter((msg) => !err.claims.some((claim) => claim.id === msg.id)),
+          false,
+        )
+        return
+      }
       CollabMessage.retry(msgs, false)
+      if (err instanceof CollabDelivery.ClaimChanged || err instanceof CollabDelivery.Stale) return
       const fresh = CollabAgentNode.tryLoad(agentId)
       if (fresh && !CollabAgentNode.isStopped(fresh)) {
         CollabRuntime.schedule(agentId, 1000, () => void tryDriveDirectById(agentId, state().inflight))
@@ -635,6 +645,14 @@ export namespace CollabAutoWake {
         agentId,
         error: err instanceof Error ? err.message : String(err),
       })
+      if (err instanceof CollabDelivery.Exhausted) {
+        CollabMessage.drop(err.claims)
+        CollabMessage.retry(
+          msgs.filter((msg) => !err.claims.some((claim) => claim.id === msg.id)),
+          false,
+        )
+        return false
+      }
       const fresh = CollabAgentNode.tryLoad(agentId)
       if (fresh && CollabAgentNode.isActive(fresh.status)) {
         CollabMessage.retry(msgs, false)
