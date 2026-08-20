@@ -2,7 +2,7 @@ import { createEffect, createMemo, createSignal, For, on, Show } from "solid-js"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { SessionTurn } from "@opencode-ai/ui/session-turn"
 import { Icon } from "@opencode-ai/ui/icon"
-import { DataProvider } from "@opencode-ai/ui/context"
+import { DataProvider, useData } from "@opencode-ai/ui/context"
 import type { AssistantMessage, Message, UserMessage } from "@opencode-ai/sdk/v2"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
@@ -20,6 +20,7 @@ const CHAT_MAX_WIDTH = 900
 const CHAT_DEFAULT_WIDTH = 520
 
 export function AtomChatPanel(props: { atomSessionId: string; onClose: () => void; title?: string }) {
+  const parent = useData()
   const sdk = useSDK()
   const sync = useSync()
   const [panelWidth, setPanelWidth] = createSignal(CHAT_DEFAULT_WIDTH)
@@ -140,6 +141,7 @@ export function AtomChatPanel(props: { atomSessionId: string; onClose: () => voi
           directory={sdk.directory}
           onNavigateToSession={navigateToChildSession}
           onSessionHref={sessionHref}
+          onResolveAgentInfo={parent.resolveAgentInfo}
         >
           <AtomChatInner sessionID={currentSessionID()} canGoBack={canGoBack()} onGoBack={goBack} />
         </DataProvider>

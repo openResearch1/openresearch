@@ -39,6 +39,8 @@
 @import "../components/progress.css" layer(components);
 @import "../components/progress-circle.css" layer(components);
 @import "../components/radio-group.css" layer(components);
+@import "../components/research-tools.css" layer(components);
+@import "../components/remote-task-terminal-item.css" layer(components);
 @import "../components/resize-handle.css" layer(components);
 @import "../components/rolling-results.css" layer(components);
 @import "../components/select.css" layer(components);
@@ -49,6 +51,7 @@
 @import "../components/session-turn.css" layer(components);
 @import "../components/shell-submessage.css" layer(components);
 @import "../components/sticky-accordion-header.css" layer(components);
+@import "../components/subagent-session-item.css" layer(components);
 @import "../components/tabs.css" layer(components);
 @import "../components/tag.css" layer(components);
 @import "../components/text-reveal.css" layer(components);

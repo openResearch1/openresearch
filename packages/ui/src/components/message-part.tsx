@@ -1,10 +1,23 @@
-import { Component, createEffect, createMemo, createSignal, For, Match, on, Show, Switch, type JSX } from "solid-js"
+import {
+  Component,
+  createEffect,
+  createMemo,
+  createResource,
+  createSignal,
+  For,
+  Match,
+  on,
+  Show,
+  Switch,
+  type JSX,
+} from "solid-js"
 import stripAnsi from "strip-ansi"
 import { createStore } from "solid-js/store"
 import { Dynamic } from "solid-js/web"
 import {
   AgentPart,
   AssistantMessage,
+  CollabReturnPart,
   FilePart,
   Message as MessageType,
   Part as PartType,
@@ -17,6 +30,7 @@ import {
   QuestionInfo,
 } from "@opencode-ai/sdk/v2"
 import { useData } from "../context"
+import type { AgentInfo, AgentTarget } from "../context/data"
 import { useFileComponent } from "../context/file"
 import { useDialog } from "../context/dialog"
 import { type UiI18n, useI18n } from "../context/i18n"
@@ -41,6 +55,9 @@ import { COLLAPSIBLE_SPRING } from "./motion"
 import { busy, createThrottledValue, useToolFade, useContextToolPending } from "./tool-utils"
 import { ContextToolGroupHeader, ContextToolExpandedList, ContextToolRollingResults } from "./context-tool-results"
 import { ShellRollingResults } from "./shell-rolling-results"
+import { isResearchTool, registerResearchTools, ResearchToolError } from "./research-tools"
+import { RemoteTaskTerminalItem } from "./remote-task-terminal-item"
+import { SubagentSessionItem } from "./subagent-session-item"
 
 interface Diagnostic {
   range: {
@@ -127,6 +144,160 @@ function agentTitle(i18n: UiI18n, type?: string) {
   if (!type) return i18n.t("ui.tool.agent.default")
   return i18n.t("ui.tool.agent", { type })
 }
+
+function named(name: string | undefined) {
+  if (!name) return
+  const match = /^(atom|experiment|exp):\s*(.+)$/i.exec(name.trim())
+  if (!match) return
+  return { type: match[1]!.toLowerCase() === "atom" ? "atom" : "experiment", name: match[2]!.trim() }
+}
+
+function clean(name: string | undefined, type: string) {
+  if (!name) return
+  const prefix = type === "atom" ? /^(?:atom:\s*)+/i : type === "experiment" ? /^(?:(?:experiment|exp):\s*)+/i : undefined
+  if (!prefix) return name
+  return name.replace(prefix, "").trim() || name
+}
+
+function localAgentInfo(store: ReturnType<typeof useData>["store"], target: AgentTarget): AgentInfo | undefined {
+  const tools = Object.values(store.part)
+    .flat()
+    .filter((part): part is ToolPart => part.type === "tool")
+    .filter((part) => {
+      const meta = "metadata" in part.state ? part.state.metadata : undefined
+      const agent = meta?.agentId ?? meta?.agent_id
+      const session = meta?.sessionId ?? meta?.session_id
+      const atom = meta?.atomId ?? part.state.input.atom_id
+      const experiment = meta?.expId ?? part.state.input.expId
+      return (
+        (target.agentId && agent === target.agentId) ||
+        (target.sessionId && session === target.sessionId) ||
+        (target.atomId && atom === target.atomId) ||
+        (target.experimentId && experiment === target.experimentId)
+      )
+    })
+
+  const match = (tool: string) => tools.find((part) => part.tool === tool)
+  const callback = Object.values(store.part)
+    .flat()
+    .filter((part): part is CollabReturnPart => part.type === "collab_return")
+    .findLast(
+      (part) =>
+        (target.agentId && part.childAgentId === target.agentId) ||
+        (target.sessionId && part.childSessionId === target.sessionId),
+    )
+  const callbackInfo = named(callback?.childName)
+  if (callbackInfo) return { ...target, ...callbackInfo }
+
+  const session = target.sessionId ? store.session.find((item) => item.id === target.sessionId) : undefined
+  const sessionInfo = named(session?.title)
+  if (sessionInfo) return { ...target, ...sessionInfo }
+
+  const delegate = match("delegate_atom")
+  if (delegate) {
+    const atomId = target.atomId ?? (delegate.state.input.atom_id as string | undefined)
+    const atom = Object.values(store.part)
+      .flat()
+      .flatMap((part) => (part.type === "text" ? [part.metadata?.opencodeAtom] : []))
+      .find((value) => {
+        if (!value || typeof value !== "object") return false
+        return "atomId" in value && value.atomId === atomId
+      }) as { name?: unknown } | undefined
+    return {
+      ...target,
+      type: "atom",
+      name: typeof atom?.name === "string" ? atom.name : undefined,
+      atomId,
+    }
+  }
+
+  const experiment = match("experiment_create")
+  if (experiment) {
+    const meta = "metadata" in experiment.state ? experiment.state.metadata : undefined
+    return {
+      ...target,
+      type: "experiment",
+      name: typeof experiment.state.input.expName === "string" ? experiment.state.input.expName : undefined,
+      experimentId: target.experimentId ?? (meta?.expId as string | undefined),
+    }
+  }
+  const spawn = match("spawn_agent")
+  if (spawn) {
+    const type = spawn.state.input.agent_type ?? spawn.state.input.subagent_type
+    if (typeof type === "string" && type) {
+      return {
+        ...target,
+        type,
+        name: typeof spawn.state.input.name === "string" ? spawn.state.input.name : undefined,
+      }
+    }
+  }
+  const task = match("task")
+  if (task) {
+    const type = task.state.input.subagent_type
+    if (typeof type === "string" && type) {
+      return {
+        ...target,
+        type,
+        name: typeof task.state.input.description === "string" ? task.state.input.description : undefined,
+      }
+    }
+  }
+}
+
+function useAgentInfo(target: () => AgentTarget, forced?: () => string | undefined) {
+  const data = useData()
+  const local = createMemo(() => localAgentInfo(data.store, target()))
+  const [resolved] = createResource(
+    () => {
+      const value = target()
+      if (local()?.name) return
+      if (!value.agentId && !value.sessionId && !value.atomId && !value.experimentId) return
+      return value
+    },
+    (value) => data.resolveAgentInfo?.(value),
+  )
+  return createMemo(() => {
+    const found = local()?.name ? local() : (resolved() ?? local())
+    const type = forced?.() ?? found?.type ?? "agent"
+    return { ...target(), ...found, type, name: clean(found?.name, type) }
+  })
+}
+
+function hasCallback(
+  store: ReturnType<typeof useData>["store"],
+  partID: string | undefined,
+  agentId?: string,
+  sessionId?: string,
+) {
+  if (!partID || (!agentId && !sessionId)) return false
+  const launch = Object.values(store.part)
+    .flat()
+    .find((part): part is ToolPart => part.type === "tool" && part.id === partID)
+  if (!launch) return false
+  const order = new Map((store.message[launch.sessionID] ?? []).map((message, index) => [message.id, index]))
+  const start = order.get(launch.messageID)
+  if (start === undefined) return false
+  return Object.values(store.part)
+    .flat()
+    .filter((part): part is CollabReturnPart => part.type === "collab_return" && part.sessionID === launch.sessionID)
+    .some((part) => {
+      if (!["child_done", "child_failed", "child_waiting"].includes(part.kind)) return false
+      const match = (agentId && part.childAgentId === agentId) || (sessionId && part.childSessionId === sessionId)
+      if (!match) return false
+      const index = order.get(part.messageID)
+      return index !== undefined && index > start
+    })
+}
+
+function taskTitle(...values: unknown[]) {
+  return values
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .map((value) => value.trim().split("\n").find((line) => line.trim())?.replace(/^#+\s*/, ""))
+    .find((value): value is string => !!value)
+}
+
+const subagents = new Set(["task", "spawn_agent", "resume_agent", "delegate_atom"])
 
 export function getToolInfo(tool: string, input: any = {}): ToolInfo {
   const i18n = useI18n()
@@ -1011,6 +1182,8 @@ export const ToolRegistry = {
   render: getTool,
 }
 
+registerResearchTools(ToolRegistry.register)
+
 function ToolFileAccordion(props: { path: string; actions?: JSX.Element; children: JSX.Element }) {
   const value = createMemo(() => props.path || "tool-file")
 
@@ -1048,6 +1221,7 @@ function ToolFileAccordion(props: { path: string; actions?: JSX.Element; childre
 }
 
 PART_MAPPING["tool"] = function ToolPartDisplay(props) {
+  const data = useData()
   const i18n = useI18n()
   const part = props.part as ToolPart
   const hideQuestion = createMemo(() => part.tool === "question" && busy(part.state.status))
@@ -1068,6 +1242,41 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
           <Match when={part.state.status === "error" && part.state.error}>
             {(error) => {
               const cleaned = error().replace("Error: ", "")
+              if (subagents.has(part.tool)) {
+                const meta = part.state.status === "error" ? (part.state.metadata ?? {}) : {}
+                const agentId = meta.agentId ?? meta.agent_id
+                const sessionId = meta.sessionId ?? meta.session_id
+                const atomId = input().atom_id
+                const target: AgentTarget = {
+                  agentId: typeof agentId === "string" ? agentId : undefined,
+                  sessionId: typeof sessionId === "string" ? sessionId : undefined,
+                  atomId: typeof atomId === "string" ? atomId : undefined,
+                }
+                const info = localAgentInfo(data.store, target)
+                const raw =
+                  part.tool === "task"
+                    ? input().subagent_type
+                    : part.tool === "spawn_agent"
+                      ? (input().agent_type ?? input().subagent_type)
+                      : undefined
+                const agent =
+                  part.tool === "delegate_atom" ? "atom" : typeof raw === "string" && raw ? raw : (info?.type ?? "agent")
+                const title =
+                  part.tool === "task" || part.tool === "spawn_agent"
+                    ? taskTitle(input().description, input().name)
+                    : clean(info?.name, agent)
+                return (
+                  <SubagentSessionItem
+                    agent={agent}
+                    title={title ?? target.atomId ?? target.agentId ?? i18n.t("ui.tool.agent.default")}
+                    status={i18n.t("ui.tool.agent.status.failed")}
+                    statusTone="error"
+                    sessionId={typeof sessionId === "string" ? sessionId : undefined}
+                    tooltip={cleaned}
+                  />
+                )
+              }
+              if (isResearchTool(part.tool)) return <ResearchToolError tool={part.tool} error={cleaned} />
               if (part.tool === "question" && cleaned.includes("dismissed this question")) {
                 return (
                   <div style="width: 100%; display: flex; justify-content: flex-end;">
@@ -1181,7 +1390,6 @@ PART_MAPPING["reasoning"] = function ReasoningPartDisplay(props) {
 }
 
 PART_MAPPING["collab_return"] = function CollabReturnPartDisplay(props) {
-  const data = useData()
   const i18n = useI18n()
   const part = () =>
     props.part as unknown as {
@@ -1203,120 +1411,32 @@ PART_MAPPING["collab_return"] = function CollabReturnPartDisplay(props) {
     part().kind === "remote_task_terminal"
   if (!visible()) return null as unknown as JSX.Element
 
-  const childHref = createMemo(() => {
-    const sid = part().childSessionId
-    if (!sid) return
-    const direct = data.sessionHref?.(sid)
-    if (direct) return direct
-    if (typeof window === "undefined") return
-    const path = window.location.pathname
-    const idx = path.indexOf("/session")
-    if (idx === -1) return
-    return `${path.slice(0, idx)}/session/${sid}`
-  })
-
-  const onChildClick = (e: MouseEvent) => {
-    const sid = part().childSessionId
-    const url = childHref()
-    if (!sid || !url) return
-    e.stopPropagation()
-    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
-    const nav = data.navigateToSession
-    if (!nav || typeof window === "undefined") return
-    e.preventDefault()
-    const handled = nav(sid)
-    if (handled) return
-    const before = window.location.pathname + window.location.search + window.location.hash
-    setTimeout(() => {
-      const after = window.location.pathname + window.location.search + window.location.hash
-      if (after === before) window.location.assign(url)
-    }, 50)
+  if (part().kind === "remote_task_terminal") {
+    return <RemoteTaskTerminalItem headline={part().headline} body={part().body} payload={part().payload} />
   }
 
-  const openAction = () => {
-    const url = childHref()
-    if (!url) return undefined
-    return (
-      <a
-        data-slot="agent-card-open"
-        class="clickable subagent-link"
-        href={url}
-        onClick={onChildClick}
-      >
-        <span>{i18n.t("ui.tool.agent.openSession")}</span>
-        <Icon name="square-arrow-top-right" size="small" />
-      </a>
-    )
-  }
-
-  // Title = the child task's actual name (passed to spawn_agent). Falls back
-  // to the generic "Child completed" label if a name wasn't provided. This
-  // avoids the redundancy of having both a "Child completed" title and a
-  // "Done" chip saying the same thing.
-  const remote = () => part().kind === "remote_task_terminal"
-  const title = () =>
-    remote() ? part().headline : part().childName?.trim() || i18n.t("ui.tool.agent.childCompleted")
   const waiting = () => part().kind === "child_waiting"
   const childFailed = () => part().kind === "child_failed"
   const canceled = () =>
     childFailed() && (part().payload?.reason === "canceled" || /\(canceled\)\s*$/.test(part().headline))
-  const failed = () => (childFailed() && !canceled()) || (remote() && part().payload?.status !== "finished")
+  const failed = () => childFailed() && !canceled()
   const label = (): string => {
     if (waiting()) return i18n.t("ui.tool.agent.waitingInteraction")
     if (canceled()) return i18n.t("ui.tool.agent.status.canceled")
     if (childFailed()) return i18n.t("ui.tool.agent.status.failed")
-    const status = part().payload?.status
-    if (remote()) return typeof status === "string" ? status : "terminal"
     return i18n.t("ui.tool.agent.status.done")
   }
-  const variant = () =>
-    childFailed() && !canceled() ? "error" : canceled() ? "muted" : waiting() || failed() ? "warning" : "success"
-  const icon = (): IconProps["name"] => (canceled() ? "circle-x" : waiting() || failed() ? "warning" : "check-small")
-
-  // Custom trigger: put the status chip BEFORE the title so the result
-  // reads left-to-right as "Done: <childName>". The ToolTriggerRow helper
-  // only accepts a plain string title, so we render the structured row
-  // ourselves to keep the chip as the leading element in the main slot.
-  const trigger = () => (
-    <div data-slot="basic-tool-tool-info-structured">
-      <div data-slot="basic-tool-tool-info-main">
-        <span data-slot="agent-card-chip" data-variant={variant()}>
-          <Icon name={icon()} size="small" />
-          <span>{label()}</span>
-        </span>
-        <span data-slot="basic-tool-tool-title">{title()}</span>
-      </div>
-      <Show when={openAction()}>{(action) => action()}</Show>
-    </div>
-  )
+  const info = useAgentInfo(() => ({ agentId: part().childAgentId, sessionId: part().childSessionId }))
+  const title = createMemo(() => info().name ?? part().childName?.trim() ?? i18n.t("ui.tool.agent.childCompleted"))
 
   return (
-    <div data-component="agent-tool-card">
-      <ToolCall
-        variant="panel"
-        icon={canceled() ? "circle-x" : waiting() || failed() ? "warning" : "circle-check"}
-        animate
-        springContent
-        trigger={trigger()}
-      >
-        <div data-component="agent-card">
-          <Show when={part().body?.trim()}>
-            <div data-slot="agent-card-block">
-              <div data-slot="agent-card-label">
-                {waiting()
-                  ? i18n.t("ui.tool.agent.waitingInteraction")
-                  : childFailed()
-                    ? label()
-                    : i18n.t("ui.tool.agent.childSummary")}
-              </div>
-              <div data-slot="agent-card-body">
-                <Markdown text={part().body} cacheKey={part().id} />
-              </div>
-            </div>
-          </Show>
-        </div>
-      </ToolCall>
-    </div>
+    <SubagentSessionItem
+      agent={info().type}
+      title={title()}
+      status={label()}
+      statusTone={canceled() ? "muted" : waiting() ? "waiting" : failed() ? "error" : "success"}
+      sessionId={part().childSessionId}
+    />
   )
 }
 
@@ -1476,7 +1596,7 @@ ToolRegistry.register({
         icon="mcp"
         animate
         springContent
-        defaultOpen={props.defaultOpen ?? false}
+        defaultOpen={false}
         trigger={
           <div data-slot="basic-tool-tool-info-structured">
             <div data-slot="basic-tool-tool-info-main">
@@ -1533,10 +1653,6 @@ ToolRegistry.register({
       return items
     })
     const output = createMemo(() => (typeof props.output === "string" ? stripAnsi(props.output) : ""))
-    const open = createMemo(
-      () => pending() || meta().waited === true || ["failed", "crashed", "canceled"].includes(remote() ?? ""),
-    )
-
     return (
       <ToolCall
         variant="panel"
@@ -1544,7 +1660,7 @@ ToolRegistry.register({
         icon="mcp"
         animate
         springContent
-        defaultOpen={open()}
+        defaultOpen={false}
         trigger={
           <div data-slot="basic-tool-tool-info-structured">
             <div data-slot="basic-tool-tool-info-main">
@@ -2220,15 +2336,13 @@ ToolRegistry.register({
 ToolRegistry.register({
   name: "task",
   render(props) {
-    const data = useData()
     const i18n = useI18n()
     const childSessionId = () => props.metadata.sessionId as string | undefined
     const type = createMemo(() => {
       const raw = props.input.subagent_type
       if (typeof raw !== "string" || !raw) return undefined
-      return raw[0]!.toUpperCase() + raw.slice(1)
+      return raw
     })
-    const title = createMemo(() => agentTitle(i18n, type()))
     const description = createMemo(() => {
       const value = props.input.description
       if (typeof value === "string" && value.length > 0) return value
@@ -2240,119 +2354,22 @@ ToolRegistry.register({
       return undefined
     })
     const pending = createMemo(() => busy(props.status))
-
-    const href = createMemo(() => {
-      const sessionId = childSessionId()
-      if (!sessionId) return
-      const direct = data.sessionHref?.(sessionId)
-      if (direct) return direct
-      if (typeof window === "undefined") return
-      const path = window.location.pathname
-      const idx = path.indexOf("/session")
-      if (idx === -1) return
-      return `${path.slice(0, idx)}/session/${sessionId}`
-    })
-
-    const handleLinkClick = (e: MouseEvent) => {
-      const sessionId = childSessionId()
-      const url = href()
-      if (!sessionId || !url) return
-      e.stopPropagation()
-      if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
-      const nav = data.navigateToSession
-      if (!nav || typeof window === "undefined") return
-      e.preventDefault()
-      const handled = nav(sessionId)
-      if (handled) return
-      const before = window.location.pathname + window.location.search + window.location.hash
-      setTimeout(() => {
-        const after = window.location.pathname + window.location.search + window.location.hash
-        if (after === before) window.location.assign(url)
-      }, 50)
-    }
-
-    const openAction = () => {
-      const url = href()
-      if (!url) return undefined
-      return (
-        <a
-          data-slot="agent-card-open"
-          class="clickable subagent-link"
-          href={url}
-          onClick={handleLinkClick}
-        >
-          <span>{i18n.t("ui.tool.agent.openSession")}</span>
-          <Icon name="square-arrow-top-right" size="small" />
-        </a>
-      )
-    }
-
-    // Distinguish subtask from async collab (spawn_agent): while the subtask is
-    // running we show a "Waiting" chip to signal the parent turn is paused
-    // until the child returns. On completion/error the chip flips to
-    // "Done"/"Failed" so stale cards no longer claim to be waiting.
-    const chip = createMemo<{ variant: string; icon: IconProps["name"]; label: string }>(() => {
-      if (pending()) {
-        return { variant: "waiting", icon: "refresh", label: i18n.t("ui.tool.agent.waiting") }
-      }
-      if (props.status === "error") {
-        return { variant: "error", icon: "warning", label: i18n.t("ui.tool.agent.status.failed") }
-      }
-      return { variant: "success", icon: "check", label: i18n.t("ui.tool.agent.status.done") }
-    })
-
-    const trigger = () => (
-      <div data-slot="basic-tool-tool-info-structured">
-        <div data-slot="basic-tool-tool-info-main">
-          <span data-slot="agent-card-chip" data-variant={chip().variant}>
-            <Icon name={chip().icon} size="small" />
-            <span>{chip().label}</span>
-          </span>
-          <span data-slot="basic-tool-tool-title">
-            <TextShimmer text={title()} active={pending()} />
-          </span>
-          <Show when={description()}>
-            {(text) => <ToolText text={text()} delay={0.02} animate={props.reveal} />}
-          </Show>
-        </div>
-        <Show when={openAction()}>{(action) => action()}</Show>
-      </div>
-    )
+    const status = () =>
+      pending()
+        ? i18n.t("ui.tool.agent.waiting")
+        : props.status === "error"
+          ? i18n.t("ui.tool.agent.status.failed")
+          : i18n.t("ui.tool.agent.status.done")
 
     return (
-      <div data-component="agent-tool-card" data-kind="subtask">
-        <ToolCall
-          variant="panel"
-          icon="task"
-          status={props.status}
-          animate
-          springContent
-          trigger={trigger()}
-        >
-          <div data-component="agent-card">
-            <Show when={prompt()}>
-              {(text) => (
-                <div data-slot="agent-card-block">
-                  <div data-slot="agent-card-label">{i18n.t("ui.tool.agent.prompt")}</div>
-                  <div data-slot="agent-card-body">
-                    <Markdown text={text()} />
-                  </div>
-                </div>
-              )}
-            </Show>
-            <Show when={childSessionId()}>
-              {(sid) => (
-                <div data-slot="agent-card-meta">
-                  <span>
-                    <span data-slot="agent-card-meta-key">{i18n.t("ui.tool.agent.sessionId")}:</span>{" "}
-                    <code>{sid()}</code>
-                  </span>
-                </div>
-              )}
-            </Show>
-          </div>
-        </ToolCall>
-      </div>
+      <SubagentSessionItem
+        agent={type() ?? "agent"}
+        title={taskTitle(description(), prompt()) ?? i18n.t("ui.tool.agent.default")}
+        status={status()}
+        statusTone={pending() ? "waiting" : props.status === "error" ? "error" : "success"}
+        sessionId={childSessionId()}
+        active={pending()}
+      />
     )
   },
 })
@@ -2362,122 +2379,37 @@ ToolRegistry.register({
   render(props) {
     const data = useData()
     const i18n = useI18n()
+    const childAgentId = () => props.metadata.agentId as string | undefined
     const childSessionId = () => props.metadata.sessionId as string | undefined
-    const agentId = () => props.metadata.agentId as string | undefined
     const type = createMemo(() => {
       const raw = props.input.agent_type ?? props.input.subagent_type
       if (typeof raw !== "string" || !raw) return undefined
-      return raw[0]!.toUpperCase() + raw.slice(1)
+      return raw
     })
-    const title = createMemo(() => agentTitle(i18n, type()))
     const taskName = createMemo(() => {
       const name = props.input.name
       return typeof name === "string" && name.length > 0 ? name : undefined
     })
-    const prompt = createMemo(() => {
-      const value = props.input.prompt
-      return typeof value === "string" && value.length > 0 ? value : undefined
-    })
     const pending = createMemo(() => busy(props.status))
-
-    const href = createMemo(() => {
-      const sessionId = childSessionId()
-      if (!sessionId) return
-      const direct = data.sessionHref?.(sessionId)
-      if (direct) return direct
-      if (typeof window === "undefined") return
-      const path = window.location.pathname
-      const idx = path.indexOf("/session")
-      if (idx === -1) return
-      return `${path.slice(0, idx)}/session/${sessionId}`
-    })
-
-    const handleLinkClick = (e: MouseEvent) => {
-      const sessionId = childSessionId()
-      const url = href()
-      if (!sessionId || !url) return
-      e.stopPropagation()
-      if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
-      const nav = data.navigateToSession
-      if (!nav || typeof window === "undefined") return
-      e.preventDefault()
-      const handled = nav(sessionId)
-      if (handled) return
-      const before = window.location.pathname + window.location.search + window.location.hash
-      setTimeout(() => {
-        const after = window.location.pathname + window.location.search + window.location.hash
-        if (after === before) window.location.assign(url)
-      }, 50)
-    }
-
-    const openAction = () => {
-      const url = href()
-      if (!url) return undefined
-      return (
-        <a
-          data-slot="agent-card-open"
-          class="clickable subagent-link"
-          href={url}
-          onClick={handleLinkClick}
-        >
-          <span>{i18n.t("ui.tool.agent.openSession")}</span>
-          <Icon name="square-arrow-top-right" size="small" />
-        </a>
-      )
-    }
+    const settled = createMemo(() =>
+      hasCallback(data.store, props.partID, childAgentId(), childSessionId()),
+    )
+    const status = () =>
+      pending()
+        ? i18n.t("ui.tool.agent.status.create")
+        : props.status === "error"
+          ? i18n.t("ui.tool.agent.status.failed")
+          : i18n.t("ui.tool.agent.status.dispatched")
 
     return (
-      <div data-component="agent-tool-card">
-        <ToolCall
-          variant="panel"
-          icon="task"
-          status={props.status}
-          animate
-          springContent
-          trigger={
-            <ToolTriggerRow
-              title={title()}
-              pending={pending()}
-              subtitle={taskName()}
-              action={openAction()}
-              animate={props.reveal}
-            />
-          }
-        >
-          <div data-component="agent-card">
-            <Show when={prompt()}>
-              {(text) => (
-                <div data-slot="agent-card-block">
-                  <div data-slot="agent-card-label">{i18n.t("ui.tool.agent.prompt")}</div>
-                  <div data-slot="agent-card-body">
-                    <Markdown text={text()} />
-                  </div>
-                </div>
-              )}
-            </Show>
-            <Show when={agentId() || childSessionId()}>
-              <div data-slot="agent-card-meta">
-                <Show when={agentId()}>
-                  {(id) => (
-                    <span>
-                      <span data-slot="agent-card-meta-key">{i18n.t("ui.tool.agent.agentId")}:</span>{" "}
-                      <code>{id()}</code>
-                    </span>
-                  )}
-                </Show>
-                <Show when={childSessionId()}>
-                  {(sid) => (
-                    <span>
-                      <span data-slot="agent-card-meta-key">{i18n.t("ui.tool.agent.sessionId")}:</span>{" "}
-                      <code>{sid()}</code>
-                    </span>
-                  )}
-                </Show>
-              </div>
-            </Show>
-          </div>
-        </ToolCall>
-      </div>
+      <SubagentSessionItem
+        agent={type() ?? "agent"}
+        title={taskName() ?? i18n.t("ui.tool.agent.default")}
+        status={status()}
+        statusTone={props.status === "error" ? "error" : "running"}
+        sessionId={childSessionId()}
+        active={props.status !== "error" && (pending() || !settled())}
+      />
     )
   },
 })
@@ -2488,97 +2420,83 @@ const ResumeAgentTool = ToolRegistry.register({
     const data = useData()
     const i18n = useI18n()
     const metadata = () =>
-      (props.metadata ?? {}) as { agent_id?: string; session_id?: string; agentId?: string; sessionId?: string }
+      (props.metadata ?? {}) as {
+        ok?: boolean
+        status?: string
+        agent_id?: string
+        session_id?: string
+        agentId?: string
+        sessionId?: string
+        atomId?: string
+        expId?: string
+      }
     const targetAgentId = () => {
       const fromInput = props.input.agent_id
       if (typeof fromInput === "string" && fromInput) return fromInput
-      return metadata().agent_id ?? metadata().agentId ?? props.input.atom_id
+      return metadata().agent_id ?? metadata().agentId
     }
     const targetSessionId = () => metadata().session_id ?? metadata().sessionId
-    const prompt = createMemo(() => {
-      const value = props.input.prompt
-      return typeof value === "string" && value.length > 0 ? value : undefined
-    })
-    const pending = createMemo(() => busy(props.status))
-
-    const href = createMemo(() => {
-      const sessionId = targetSessionId()
-      if (!sessionId) return
-      const direct = data.sessionHref?.(sessionId)
-      if (direct) return direct
-      if (typeof window === "undefined") return
-      const path = window.location.pathname
-      const idx = path.indexOf("/session")
-      if (idx === -1) return
-      return `${path.slice(0, idx)}/session/${sessionId}`
-    })
-
-    const handleLinkClick = (e: MouseEvent) => {
-      const sessionId = targetSessionId()
-      const url = href()
-      if (!sessionId || !url) return
-      e.stopPropagation()
-      if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
-      const nav = data.navigateToSession
-      if (!nav || typeof window === "undefined") return
-      e.preventDefault()
-      const handled = nav(sessionId)
-      if (handled) return
-      const before = window.location.pathname + window.location.search + window.location.hash
-      setTimeout(() => {
-        const after = window.location.pathname + window.location.search + window.location.hash
-        if (after === before) window.location.assign(url)
-      }, 50)
+    const targetAtomId = () => {
+      const value = metadata().atomId ?? props.input.atom_id
+      return typeof value === "string" ? value : undefined
     }
-
-    const openAction = () => {
-      const url = href()
-      if (!url) return undefined
-      return (
-        <a
-          data-slot="agent-card-open"
-          class="clickable subagent-link"
-          href={url}
-          onClick={handleLinkClick}
-        >
-          <span>{i18n.t("ui.tool.agent.openSession")}</span>
-          <Icon name="square-arrow-top-right" size="small" />
-        </a>
-      )
+    const pending = createMemo(() => busy(props.status))
+    const delegate = () => props.tool === "delegate_atom"
+    const info = useAgentInfo(
+      () => ({
+        agentId: targetAgentId(),
+        sessionId: targetSessionId(),
+        atomId: targetAtomId(),
+        experimentId: metadata().expId,
+      }),
+      () => (delegate() ? "atom" : undefined),
+    )
+    const remote = () => {
+      const status = props.metadata.status
+      return typeof status === "string" ? status.toLowerCase() : undefined
+    }
+    const running = () => ["active", "pending", "running"].includes(remote() ?? "")
+    const terminal = () =>
+      ["completed", "done", "finished", "failed", "canceled", "cancelled"].includes(remote() ?? "")
+    const dispatched = () => (delegate() ? running() : metadata().ok === true)
+    const settled = createMemo(() =>
+      hasCallback(data.store, props.partID, targetAgentId(), targetSessionId()),
+    )
+    const active = () => pending() || (dispatched() && !settled())
+    const statusTone = () => {
+      if (pending() || dispatched()) return "running" as const
+      if (!delegate() && metadata().ok === false) return "error" as const
+      if (["completed", "done", "finished"].includes(remote() ?? "")) return "success" as const
+      if (remote() === "failed") return "error" as const
+      if (remote() === "canceled" || remote() === "cancelled") return "muted" as const
+      if (["busy", "waiting", "waiting_interaction", "blocked_on_children"].includes(remote() ?? "")) {
+        return "waiting" as const
+      }
+      return "neutral" as const
+    }
+    const status = () => {
+      if (pending()) return i18n.t("ui.tool.agent.status.resume")
+      if (!delegate() && metadata().ok === false) return i18n.t("ui.tool.agent.status.failed")
+      if (["completed", "done", "finished"].includes(remote() ?? "")) return i18n.t("ui.tool.agent.status.done")
+      if (remote() === "failed") return i18n.t("ui.tool.agent.status.failed")
+      if (remote() === "canceled" || remote() === "cancelled") return i18n.t("ui.tool.agent.status.canceled")
+      if (["busy", "waiting", "waiting_interaction", "blocked_on_children"].includes(remote() ?? "")) {
+        return i18n.t("ui.tool.agent.waiting")
+      }
+      if (dispatched()) return i18n.t("ui.tool.agent.status.dispatched")
+      if (terminal()) return i18n.t("ui.tool.agent.status.done")
+      return i18n.t("ui.tool.agent.status.failed")
     }
 
     return (
-      <div data-component="agent-tool-card">
-        <ToolCall
-          variant="panel"
-          icon="refresh"
-          status={props.status}
-          animate
-          springContent
-          trigger={
-            <ToolTriggerRow
-              title={i18n.t("ui.tool.resume_agent")}
-              pending={pending()}
-              subtitle={targetAgentId()}
-              action={openAction()}
-              animate={props.reveal}
-            />
-          }
-        >
-          <div data-component="agent-card">
-            <Show when={prompt()}>
-              {(text) => (
-                <div data-slot="agent-card-block">
-                  <div data-slot="agent-card-label">{i18n.t("ui.tool.agent.instruction")}</div>
-                  <div data-slot="agent-card-body">
-                    <Markdown text={text()} />
-                  </div>
-                </div>
-              )}
-            </Show>
-          </div>
-        </ToolCall>
-      </div>
+      <SubagentSessionItem
+        agent={info().type}
+        title={info().name ?? targetAtomId() ?? targetAgentId() ?? i18n.t("ui.tool.agent.default")}
+        status={status()}
+        statusTone={statusTone()}
+        sessionId={targetSessionId()}
+        active={active()}
+      />
     )
   },
 })
