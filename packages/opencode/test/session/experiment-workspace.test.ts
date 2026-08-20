@@ -14,7 +14,7 @@ import type { Tool } from "../../src/tool/tool"
 import { tmpdir } from "../fixture/fixture"
 
 describe("session.experiment-workspace", () => {
-  test("resolves compact code context for sessions, tasks, and collab peers", async () => {
+  test("resolves code context and policy for sessions, tasks, and collab peers", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
       directory: tmp.path,
@@ -141,12 +141,22 @@ describe("session.experiment-workspace", () => {
           spec: { initialPrompt: "" },
         })
 
-        const expected = `<experiment-workspace code_path=${JSON.stringify(code)}>Use code_path for experiment code operations. Other workspace files may be read for context.</experiment-workspace>`
-        expect(ExperimentWorkspace.prompt(root)).toBe(expected)
-        expect(ExperimentWorkspace.prompt(child)).toBe(expected)
-        expect(ExperimentWorkspace.prompt(peer)).toBe(expected)
-        expect(ExperimentWorkspace.prompt(nested)).toBe(expected)
-        expect(expected.split("\n")).toHaveLength(1)
+        const workspace = `<experiment-workspace code_path=${JSON.stringify(code)}>Use code_path for experiment code operations. Other workspace files may be read for context.</experiment-workspace>`
+        const prompts = [
+          ExperimentWorkspace.prompt(root, "experiment"),
+          ExperimentWorkspace.prompt(child, "experiment_plan"),
+          ExperimentWorkspace.prompt(peer, "general"),
+          ExperimentWorkspace.prompt(nested, "explore"),
+        ]
+        expect(new Set(prompts).size).toBe(1)
+        expect(prompts[0]).toContain(workspace)
+        expect(prompts[0]).toContain("## Experiment code editing")
+        expect(prompts[0]).toContain("Treat each request as a delta over the inherited baseline")
+        expect(prompts[0]).toContain("Treat values and choices specific to one run as runtime inputs")
+        expect(prompts[0]).toContain("Do not create or run local unit or integration tests")
+        expect(ExperimentWorkspace.prompt(root, "project_runtime_env_setup")).toBe(workspace)
+        expect(ExperimentWorkspace.prompt(root, "experiment_resource_prepare")).toBe(workspace)
+        expect(ExperimentWorkspace.prompt(Identifier.descending("session"), "experiment")).toBeUndefined()
         expect(ExperimentWorkspace.resolve(peer)).toMatchObject({
           exp_id: exp,
           remote_code_path: "/remote/experiments/workspace-test",

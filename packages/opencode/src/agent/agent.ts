@@ -34,7 +34,6 @@ import PROMPT_DEEP_RESEARCH_SEARCH_VERIFY from "./prompt/deep_research_search_ve
 import PROMPT_DEEP_RESEARCH_GENERATE from "./prompt/deep_research_generate.txt"
 import PROMPT_INTERACTION from "./prompt/shared-interaction.txt"
 import PROMPT_WORKSPACE from "./prompt/shared-workspace-safety.txt"
-import PROMPT_CODE from "./prompt/shared-code-editing.txt"
 import { PermissionNext } from "@/permission/next"
 import { mergeDeep, pipe, sortBy, values } from "remeda"
 import { Global } from "@/global"
@@ -170,7 +169,7 @@ export namespace Agent {
           }),
           user,
         ),
-        prompt: [PROMPT_INTERACTION, PROMPT_WORKSPACE, PROMPT_CODE, PROMPT_EXPERIMENT].join("\n\n"),
+        prompt: [PROMPT_INTERACTION, PROMPT_WORKSPACE, PROMPT_EXPERIMENT].join("\n\n"),
         mode: "primary",
         native: true,
       },
@@ -259,6 +258,7 @@ export namespace Agent {
         permission: PermissionNext.merge(
           defaults,
           PermissionNext.fromConfig({
+            workflow: "deny",
             question: "allow",
             plan_enter: "allow",
             spawn_agent: "allow",
@@ -389,6 +389,8 @@ export namespace Agent {
           PermissionNext.fromConfig({
             todoread: "deny",
             todowrite: "deny",
+            spawn_agent: "deny",
+            workflow: "deny",
           }),
           user,
         ),

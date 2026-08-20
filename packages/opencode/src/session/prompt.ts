@@ -778,7 +778,7 @@ export namespace SessionPrompt {
 
       // Build system prompt, adding structured output instruction if needed
       const system = [...(await SystemPrompt.environment(model)), ...(await InstructionPrompt.system())]
-      const workspace = await ExperimentWorkspace.prompt(sessionID)
+      const workspace = await ExperimentWorkspace.prompt(sessionID, agent.name)
       if (workspace) {
         system.push(workspace)
       }

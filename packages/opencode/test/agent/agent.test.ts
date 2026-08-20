@@ -49,7 +49,8 @@ test("composes shared prompts only into selected agents", async () => {
 
       expect(experiment?.prompt).toContain("## Interaction and response style")
       expect(experiment?.prompt).toContain("## Workspace safety")
-      expect(experiment?.prompt).toContain("## Code editing")
+      expect(experiment?.prompt).not.toContain("## Code editing")
+      expect(experiment?.prompt).not.toContain("## Experiment code editing")
       expect(experiment?.prompt).toContain("You are the autonomous experiment agent")
 
       expect(research?.prompt).toContain("## Interaction and response style")
@@ -107,6 +108,8 @@ test("explore agent denies edit and write", async () => {
       expect(evalPerm(explore, "write")).toBe("deny")
       expect(evalPerm(explore, "todoread")).toBe("deny")
       expect(evalPerm(explore, "todowrite")).toBe("deny")
+      expect(evalPerm(explore, "spawn_agent")).toBe("deny")
+      expect(evalPerm(explore, "workflow")).toBe("deny")
     },
   })
 })
@@ -136,6 +139,8 @@ test("general agent denies todo tools", async () => {
       expect(general?.hidden).toBeUndefined()
       expect(evalPerm(general, "todoread")).toBe("deny")
       expect(evalPerm(general, "todowrite")).toBe("deny")
+      expect(evalPerm(general, "spawn_agent")).toBe("deny")
+      expect(evalPerm(general, "workflow")).toBe("deny")
     },
   })
 })
@@ -172,6 +177,7 @@ test("research agent carries the shared Atom graph definition", async () => {
     fn: async () => {
       const research = await Agent.get("research")
       expect(evalPerm(research, "research_code_branch_query")).toBe("allow")
+      expect(evalPerm(research, "workflow")).toBe("deny")
       expect(research?.prompt).toContain("## Atom model")
       expect(research?.prompt).toContain("`evaluated_by`")
       expect(research?.prompt).not.toContain("expectedHeadSha")
@@ -195,7 +201,8 @@ test("experiment agent owns the autonomous remote lifecycle", async () => {
       expect(experiment?.prompt).toContain("`experiment_commit`")
       expect(experiment?.prompt).toContain("`explore` for code inspection")
       expect(experiment?.prompt).toContain("`general` for focused implementation")
-      expect(experiment?.prompt).toContain("`general` may modify only `code_path` and must not commit")
+      expect(experiment?.prompt).toContain("Inspect changes returned by `general`")
+      expect(experiment?.prompt).toContain("Do not rewrite the baseline trainer")
       expect(experiment?.prompt).toContain("exact returned `remoteCodePath`")
       expect(experiment?.prompt).toContain("Never spawn environment setup for unsynced code")
       expect(experiment?.prompt).toContain("Spawn at most one long-running child per turn")
@@ -239,6 +246,9 @@ test("experiment subagents keep focused permissions and contracts", async () => 
       expect(PermissionNext.disabled(["edit", "write", "apply_patch"], plan!.permission).size).toBe(0)
       expect(evalPerm(plan, "experiment_query")).toBe("allow")
       expect(evalPerm(plan, "experiment_remote_task_start")).toBe("deny")
+      expect(plan?.prompt).toContain("whether code changes are required")
+      expect(plan?.prompt).toContain("Runtime Inputs:")
+      expect(plan?.prompt).not.toContain("Do not design baseline rewrites")
       expect(evalPerm(env, "experiment_query")).toBe("allow")
       expect(evalPerm(resource, "experiment_query")).toBe("allow")
       expect(evalPerm(commit, "experiment_query")).toBe("allow")

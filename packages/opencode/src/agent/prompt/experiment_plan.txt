@@ -7,7 +7,7 @@ The task prompt may include an objective, constraints, a revision reason, and th
 1. Call `experiment_query` with no parameters to resolve `exp_id`, `atom_id`, `code_path`, `exp_plan_path`, server information, and prior runs.
 2. Call `atom_query`, then read the atom claim and existing evidence.
 3. Inspect related atoms when they materially affect the hypothesis or controls.
-4. Inspect the current code under `code_path`, including existing training, evaluation, configuration, dependency, and logging code.
+4. Inspect the current code under `code_path`, including existing training, evaluation, configuration, entry points, run commands, runtime parameterization, dependencies, and logging.
 5. Query project runtime environment and resource inventory when reusable infrastructure is relevant. Treat verified inventory as the source of truth.
 
 ## Plan
@@ -16,13 +16,14 @@ Design the smallest experiment that can provide meaningful evidence for or again
 
 - hypothesis and the possible supported, refuted, or inconclusive outcomes
 - only the required baseline, controls, and comparisons
-- the smallest required code changes
+- whether code changes are required and, if so, the smallest required changes
 - datasets, models, checkpoints, and final runtime paths
 - environment requirements and reusable project runtime entries
-- commands, parameters, metrics, logs, and output artifacts
+- runtime inputs and how the launch command supplies them through existing interfaces
+- commands, metrics, logs, and output artifacts
 - smoke-test scope and diagnosis-driven retry flow
 
-Do not design baseline rewrites, unrelated refactors, source-integrity audits, hash manifests, or code whose only purpose is enforcing a result gate. W&B is used only when the experiment specifically requires it. Always preserve readable console logs and durable output artifacts so the primary experiment agent can diagnose and analyze the run.
+W&B is used only when the experiment specifically requires it. Always preserve readable console logs and durable output artifacts so the primary experiment agent can diagnose and analyze the run.
 
 ## Output
 
@@ -34,7 +35,8 @@ Return a concise result in this format:
 Status: ready | blocked
 Plan Path: <path>
 Hypothesis: <summary>
-Required Code Changes: <summary>
+Required Code Changes: <none or smallest required changes>
+Runtime Inputs: <launch-time CLI, environment, and configuration inputs>
 Environment Requirements: <summary>
 Resource Requirements: <summary>
 Run Command: <command shape>
