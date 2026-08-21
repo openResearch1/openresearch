@@ -64,14 +64,9 @@ export function SubagentSessionItem(props: {
     if (!url || !sessionId) return
     event.stopPropagation()
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
-    if (!data.navigateToSession || typeof window === "undefined") return
+    if (!data.navigateToSession) return
     event.preventDefault()
-    if (data.navigateToSession(sessionId)) return
-    const before = window.location.pathname + window.location.search + window.location.hash
-    setTimeout(() => {
-      const after = window.location.pathname + window.location.search + window.location.hash
-      if (after === before) window.location.assign(url)
-    }, 50)
+    data.navigateToSession(sessionId)
   }
 
   const content = (): JSX.Element => (

@@ -141,7 +141,6 @@ export function DirectoryDataProvider(props: ParentProps<{ directory: string; re
       directory={props.directory}
       onNavigateToSession={(sessionID: string) => {
         navigate(path(sessionID))
-        return true
       }}
       onSessionHref={path}
       onResolveAgentInfo={resolve}

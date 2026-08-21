@@ -7,7 +7,6 @@ import {
   Switch,
   createMemo,
   createEffect,
-  createComputed,
   on,
   onMount,
   untrack,
@@ -46,6 +45,7 @@ import { createSessionHistoryWindow, emptyUserMessages } from "@/pages/session/h
 import { useSessionCommands } from "@/pages/session/use-session-commands"
 import { useSessionHashScroll } from "@/pages/session/use-session-hash-scroll"
 import { same } from "@/utils/same"
+import * as MessageOrder from "@/utils/message"
 import { formatServerError } from "@/utils/server-errors"
 import { Icon } from "@opencode-ai/ui/icon"
 
@@ -204,17 +204,8 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
     return sync.session.history.loading(id)
   })
 
-  const userMessages = createMemo(
-    () => messages().filter((m) => m.role === "user") as UserMessage[],
-    emptyUserMessages,
-    { equals: same },
-  )
   const visibleUserMessages = createMemo(
-    () => {
-      const revert = revertMessageID()
-      if (!revert) return userMessages()
-      return userMessages().filter((m) => m.id < revert)
-    },
+    () => MessageOrder.prefix(messages(), revertMessageID()).filter((m): m is UserMessage => m.role === "user"),
     emptyUserMessages,
     {
       equals: same,
@@ -239,7 +230,6 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
       (next, prev) => {
         if (!prev) return
         if (next.dir === prev.dir && next.id === prev.id) return
-        if (prev.id) sync.session.evict(prev.id, prev.dir)
         if (!next.id) resetSessionModel(local)
       },
       { defer: true },
@@ -251,19 +241,7 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
     mobileTab: "session" as "session" | "changes",
     changes: "session" as "session" | "turn",
     newSessionWorktree: "main",
-    deferRender: false,
   })
-
-  createComputed((prev) => {
-    const key = sessionKey()
-    if (key !== prev) {
-      setStore("deferRender", true)
-      requestAnimationFrame(() => {
-        setTimeout(() => setStore("deferRender", false), 0)
-      })
-    }
-    return key
-  }, sessionKey())
 
   const turnDiffs = createMemo(() => lastUserMessage()?.summary?.diffs ?? [])
   const reviewDiffs = createMemo(() => (store.changes === "session" ? diffs() : turnDiffs()))
@@ -388,11 +366,35 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
     on([() => sdk.directory, () => params.id] as const, ([, id]) => {
       if (!id) return
       untrack(() => {
-        void sync.session.sync(id)
+        const cached = sync.data.message[id] !== undefined
+        const status = sync.data.session_status[id]?.type
+        void (cached && status !== "busy" && status !== "retry" ? sync.session.reload(id) : sync.session.sync(id))
         void sync.session.todo(id)
         void sync.session.workflow(id)
       })
     }),
+  )
+
+  createEffect(() => {
+    const id = params.id
+    if (!id) return
+    if (sync.data.message[id] !== undefined) return
+    untrack(() => void sync.session.sync(id))
+  })
+
+  createEffect(
+    on(
+      () => ({ id: params.id, status: sync.data.session_status[params.id ?? ""]?.type ?? "idle" }),
+      (next, prev) => {
+        if (!prev) return
+        if (!next.id || next.id !== prev.id) return
+        if (next.status !== "idle") return
+        if (prev.status !== "busy" && prev.status !== "retry") return
+        if (sync.data.message[next.id] === undefined) return
+        untrack(() => void sync.session.reload(next.id!))
+      },
+      { defer: true },
+    ),
   )
 
   createEffect(() => {
@@ -414,9 +416,9 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
 
   createEffect(
     on(
-      () => visibleUserMessages().at(-1)?.id,
-      (lastId, prevLastId) => {
-        if (lastId && prevLastId && lastId > prevLastId) {
+      () => visibleUserMessages().at(-1),
+      (last, prev) => {
+        if (last && prev && MessageOrder.compare(last, prev) > 0) {
           setStore("messageId", undefined)
         }
       },
@@ -647,7 +649,7 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
     loadingClass: string
     emptyClass: string
   }) => (
-    <Show when={!store.deferRender}>
+    <Show when={sessionKey()} keyed>
       <Switch>
         <Match when={store.changes === "turn" && !!params.id}>
           <SessionReviewTab
@@ -1172,7 +1174,21 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
                 <Show
                   when={activeMessage()}
                   fallback={
-                    <Show when={researchSessionKind()} keyed>
+                    <Show
+                      when={researchSessionKind()}
+                      keyed
+                      fallback={
+                        <Show when={!messagesReady()}>
+                          <div
+                            data-component="session-loading"
+                            class="h-full flex items-center justify-center text-13-regular text-text-weak"
+                          >
+                            {language.t("common.loading")}
+                            {language.t("common.loading.ellipsis")}
+                          </div>
+                        </Show>
+                      }
+                    >
                       {(kind) => <ResearchSessionView kind={kind} />}
                     </Show>
                   }
@@ -1249,7 +1265,7 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
             compact={props.remote}
             state={composer}
             collabActivity={collabActivity}
-            ready={!store.deferRender && messagesReady()}
+            ready={messagesReady()}
             centered={centered()}
             inputRef={(el) => {
               inputRef = el

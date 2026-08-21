@@ -14,6 +14,7 @@ import { createSessionComposerState } from "@/pages/session/composer/session-com
 import { useCollabActivity } from "@/pages/session/composer/session-collab-activity"
 import { createSessionHistoryWindow } from "@/pages/session/history-window"
 import { createTimelineStaging } from "@/pages/session/timeline-staging"
+import * as MessageOrder from "@/utils/message"
 
 const CHAT_MIN_WIDTH = 360
 const CHAT_MAX_WIDTH = 900
@@ -25,12 +26,17 @@ export function AtomChatPanel(props: { atomSessionId: string; onClose: () => voi
   const sync = useSync()
   const [panelWidth, setPanelWidth] = createSignal(CHAT_DEFAULT_WIDTH)
   const [dragging, setDragging] = createSignal(false)
+  const load = (id: string) => {
+    const cached = sync.data.message[id] !== undefined
+    const status = sync.data.session_status[id]?.type
+    return cached && status !== "busy" && status !== "retry" ? sync.session.reload(id) : sync.session.sync(id)
+  }
 
   // Sync session data so messages are loaded
   createEffect(
     on(
       () => props.atomSessionId,
-      (id) => void sync.session.sync(id),
+      (id) => void load(id),
     ),
   )
 
@@ -42,14 +48,15 @@ export function AtomChatPanel(props: { atomSessionId: string; onClose: () => voi
   })
   const canGoBack = createMemo(() => sessionStack().length > 0)
 
-  const navigateToChildSession = (sessionID: string): true => {
+  const navigateToChildSession = (sessionID: string) => {
     setSessionStack((prev) => [...prev, sessionID])
-    void sync.session.sync(sessionID)
-    return true
+    void load(sessionID)
   }
 
   const goBack = () => {
-    setSessionStack((prev) => prev.slice(0, -1))
+    const next = sessionStack().slice(0, -1)
+    setSessionStack(next)
+    void load(next.at(-1) ?? props.atomSessionId)
   }
 
   // Reset stack when root atom session changes
@@ -162,20 +169,35 @@ function AtomChatInner(props: { sessionID: string; canGoBack: boolean; onGoBack:
 
   const emptyMessages: Message[] = []
   const messages = createMemo(() => sync.data.message[props.sessionID] ?? emptyMessages)
-  const userMessages = createMemo(() => messages().filter((m): m is UserMessage => m.role === "user"))
+  const visible = createMemo(() => MessageOrder.prefix(messages(), sync.session.get(props.sessionID)?.revert?.messageID))
+  const userMessages = createMemo(() => visible().filter((m): m is UserMessage => m.role === "user"))
+  const order = createMemo(() => new Map(userMessages().map((message, index) => [message.id, index])))
   const sessionStatus = createMemo(() => sync.data.session_status[props.sessionID]?.type ?? "idle")
   const working = createMemo(() => sessionStatus() === "busy")
 
+  createEffect(
+    on(
+      sessionStatus,
+      (status, prev) => {
+        if (status !== "idle") return
+        if (prev !== "busy" && prev !== "retry") return
+        if (sync.data.message[props.sessionID] === undefined) return
+        void sync.session.reload(props.sessionID)
+      },
+      { defer: true },
+    ),
+  )
+
   // Find the last incomplete assistant message (still streaming/thinking)
   const pending = createMemo(() =>
-    messages().findLast(
+    visible().findLast(
       (item): item is AssistantMessage => item.role === "assistant" && typeof item.time.completed !== "number",
     ),
   )
 
   // Determine which user message is "active" (its assistant reply is being generated)
   const activeMessageID = createMemo(() => {
-    const allMessages = messages()
+    const allMessages = visible()
     const message = pending()
     if (message?.parentID) {
       const parent = allMessages.find((item) => item.id === message.parentID)
@@ -199,7 +221,7 @@ function AtomChatInner(props: { sessionID: string; canGoBack: boolean; onGoBack:
 
   const historyWindow = createSessionHistoryWindow({
     sessionID: () => props.sessionID,
-    messagesReady: () => messages().length > 0,
+    messagesReady: () => sync.data.message[props.sessionID] !== undefined,
     visibleUserMessages: userMessages,
     historyMore,
     historyLoading,
@@ -338,7 +360,7 @@ function AtomChatInner(props: { sessionID: string; canGoBack: boolean; onGoBack:
                   const queued = createMemo(() => {
                     if (active()) return false
                     const activeID = activeMessageID()
-                    if (activeID) return messageID > activeID
+                    if (activeID) return (order().get(messageID) ?? -1) > (order().get(activeID) ?? -1)
                     return false
                   })
                   return (

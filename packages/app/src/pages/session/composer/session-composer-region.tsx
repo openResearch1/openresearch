@@ -1,6 +1,5 @@
 import { Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js"
 import { useNavigate } from "@solidjs/router"
-import { createStore } from "solid-js/store"
 import { useSessionID } from "@/context/session-id"
 import { useSpring } from "@opencode-ai/ui/motion-spring"
 import { PromptInput } from "@/components/prompt-input"
@@ -71,44 +70,7 @@ export function SessionComposerRegion(props: {
     setSessionHandoff(sessionKey(), { prompt: previewPrompt() })
   })
 
-  const [gate, setGate] = createStore({
-    ready: false,
-  })
-  let timer: number | undefined
-  let frame: number | undefined
-
-  const clear = () => {
-    if (timer !== undefined) {
-      window.clearTimeout(timer)
-      timer = undefined
-    }
-    if (frame !== undefined) {
-      cancelAnimationFrame(frame)
-      frame = undefined
-    }
-  }
-
-  createEffect(() => {
-    sessionKey()
-    const ready = props.ready
-    const delay = 140
-
-    clear()
-    setGate("ready", false)
-    if (!ready) return
-
-    frame = requestAnimationFrame(() => {
-      frame = undefined
-      timer = window.setTimeout(() => {
-        setGate("ready", true)
-        timer = undefined
-      }, delay)
-    })
-  })
-
-  onCleanup(clear)
-
-  const open = createMemo(() => gate.ready && props.state.dock() && !props.state.closing())
+  const open = createMemo(() => props.ready && props.state.dock() && !props.state.closing())
   const config = createMemo(() =>
     open()
       ? {
@@ -123,7 +85,7 @@ export function SessionComposerRegion(props: {
   const progress = useSpring(() => (open() ? 1 : 0), config)
   const value = createMemo(() => Math.max(0, Math.min(1, progress())))
   const [height, setHeight] = createSignal(320)
-  const dock = createMemo(() => (gate.ready && props.state.dock()) || value() > 0.001)
+  const dock = createMemo(() => (props.ready && props.state.dock()) || value() > 0.001)
   const full = createMemo(() => Math.max(78, height()))
   const [contentRef, setContentRef] = createSignal<HTMLDivElement>()
 

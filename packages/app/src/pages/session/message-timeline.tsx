@@ -6,7 +6,6 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { SessionTurn } from "@opencode-ai/ui/session-turn"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import type { AssistantMessage, Message as MessageType, Part, TextPart, UserMessage } from "@opencode-ai/sdk/v2"
-import { Binary } from "@opencode-ai/util/binary"
 import { getFilename } from "@opencode-ai/util/path"
 import { shouldMarkBoundaryGesture, normalizeWheelDelta } from "@/pages/session/message-gesture"
 import { createTimelineStaging } from "@/pages/session/timeline-staging"
@@ -136,12 +135,14 @@ export function MessageTimeline(props: {
     ),
   )
   const sessionStatus = createMemo(() => sync.data.session_status[sessionID() ?? ""]?.type ?? "idle")
+  const order = createMemo(
+    () => new Map(sessionMessages().filter((message) => message.role === "user").map((message, index) => [message.id, index])),
+  )
   const activeMessageID = createMemo(() => {
     const messages = sessionMessages()
     const message = pending()
     if (message?.parentID) {
-      const result = Binary.search(messages, message.parentID, (item) => item.id)
-      const parent = result.found ? messages[result.index] : messages.find((item) => item.id === message.parentID)
+      const parent = messages.find((item) => item.id === message.parentID)
       if (parent?.role === "user") return parent.id
     }
 
@@ -322,7 +323,7 @@ export function MessageTimeline(props: {
                   const queued = createMemo(() => {
                     if (active()) return false
                     const activeID = activeMessageID()
-                    if (activeID) return messageID > activeID
+                    if (activeID) return (order().get(messageID) ?? -1) > (order().get(activeID) ?? -1)
                     return false
                   })
                   const comments = createMemo(() => messageComments(sync.data.part[messageID] ?? []), [], {

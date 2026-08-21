@@ -4,7 +4,6 @@ import { useData } from "../context"
 import { useFileComponent } from "../context/file"
 
 import { same } from "@opencode-ai/util/array"
-import { Binary } from "@opencode-ai/util/binary"
 import { getDirectory, getFilename } from "@opencode-ai/util/path"
 import { createEffect, createMemo, createSignal, For, on, onCleanup, ParentProps, Show } from "solid-js"
 import { Dynamic } from "solid-js/web"
@@ -24,6 +23,8 @@ import { SessionRetry } from "./session-retry"
 import { Tooltip } from "./tooltip"
 import { createAutoScroll } from "../hooks"
 import { useI18n } from "../context/i18n"
+import { assistants } from "./session-turn-messages"
+
 function record(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value)
 }
@@ -160,13 +161,18 @@ export function SessionTurn(
 
   const emptyParts: PartType[] = []
 
-  const allMessages = createMemo(() => list(data.store.message?.[props.sessionID], emptyMessages))
+  const allMessages = createMemo(() => {
+    const messages = list(data.store.message?.[props.sessionID], emptyMessages)
+    const revert = data.store.session.find((session) => session.id === props.sessionID)?.revert?.messageID
+    if (!revert) return messages
+    const index = messages.findIndex((message) => message.id === revert)
+    if (index === -1) return messages
+    return messages.slice(0, index)
+  })
 
   const messageIndex = createMemo(() => {
     const messages = allMessages() ?? emptyMessages
-    const result = Binary.search(messages, props.messageID, (m) => m.id)
-
-    const index = result.found ? result.index : messages.findIndex((m) => m.id === props.messageID)
+    const index = messages.findIndex((m) => m.id === props.messageID)
     if (index < 0) return -1
 
     const msg = messages[index]
@@ -230,17 +236,7 @@ export function SessionTurn(
       if (!msg) return emptyAssistant
 
       const messages = allMessages() ?? emptyMessages
-      const index = messageIndex()
-      if (index < 0) return emptyAssistant
-
-      const result: AssistantMessage[] = []
-      for (let i = index + 1; i < messages.length; i++) {
-        const item = messages[i]
-        if (!item) continue
-        if (item.role === "user") break
-        if (item.role === "assistant" && item.parentID === msg.id) result.push(item as AssistantMessage)
-      }
-      return result
+      return assistants(messages, msg.id)
     },
     emptyAssistant,
     { equals: same },

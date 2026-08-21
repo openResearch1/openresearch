@@ -86,6 +86,12 @@ function createGlobalSync() {
 
   let active = true
   let projectWritten = false
+  const revisions = new Map<string, number>()
+  const revision = (directory: string, sessionID: string) => revisions.get(`${directory}\n${sessionID}`) ?? 0
+  const bump = (directory: string, sessionID: string) => {
+    const key = `${directory}\n${sessionID}`
+    revisions.set(key, (revisions.get(key) ?? 0) + 1)
+  }
 
   onCleanup(() => {
     active = false
@@ -346,7 +352,24 @@ function createGlobalSync() {
           .then((x) => setStore("lsp", x.data ?? []))
       },
     })
-    if (event.type === "session.deleted") eventDirectories.delete(event.properties.info.id)
+    if (
+      routed.sessionID &&
+      [
+        "message.updated",
+        "message.removed",
+        "message.part.updated",
+        "message.part.removed",
+        "message.part.delta",
+        "session.status",
+        "session.updated",
+        "session.deleted",
+      ].includes(event.type)
+    ) {
+      bump(routed.directory, routed.sessionID)
+    }
+    if (event.type === "session.deleted") {
+      eventDirectories.delete(event.properties.info.id)
+    }
   })
 
   onCleanup(unsub)
@@ -424,6 +447,10 @@ function createGlobalSync() {
     },
     workflow: {
       set: setSessionWorkflow,
+    },
+    message: {
+      revision,
+      bump,
     },
   }
 }

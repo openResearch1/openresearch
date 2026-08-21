@@ -46,6 +46,7 @@ import { createAim } from "@/utils/aim"
 import { setNavigate } from "@/utils/notification-click"
 import { Worktree as WorktreeState } from "@/utils/worktree"
 import { setSessionHandoff } from "@/pages/session/handoff"
+import * as MessageOrder from "@/utils/message"
 
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useTheme, type ColorScheme } from "@opencode-ai/ui/theme"
@@ -676,7 +677,7 @@ export default function Layout(props: ParentProps) {
       seen: lru,
       keep: sessionID,
       limit: PREFETCH_MAX_SESSIONS_PER_DIR,
-      preserve: directory === params.dir && params.id ? [params.id] : undefined,
+      preserve: directory === currentDir() && params.id ? [params.id] : undefined,
     })
   }
 
@@ -705,19 +706,23 @@ export default function Layout(props: ParentProps) {
     return created
   }
 
-  const mergeByID = <T extends { id: string }>(current: T[], incoming: T[]) => {
+  const mergeByID = <T extends { id: string }>(
+    current: T[],
+    incoming: T[],
+    compare: (a: T, b: T) => number = (a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+  ) => {
     if (current.length === 0) {
-      return incoming.slice().sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+      return incoming.slice().sort(compare)
     }
 
     const map = new Map<string, T>()
-    for (const item of current) {
-      map.set(item.id, item)
-    }
     for (const item of incoming) {
       map.set(item.id, item)
     }
-    return [...map.values()].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    for (const item of current) {
+      map.set(item.id, item)
+    }
+    return [...map.values()].sort(compare)
   }
 
   async function prefetchMessages(directory: string, sessionID: string, token: number) {
@@ -730,12 +735,13 @@ export default function Layout(props: ParentProps) {
 
         const items = (messages.data ?? []).filter((x) => !!x?.info?.id)
         const next = items.map((x) => x.info).filter((m): m is Message => !!m?.id)
-        const sorted = mergeByID([], next)
+        const sorted = mergeByID([], next, MessageOrder.compare)
 
         const current = store.message[sessionID] ?? []
         const merged = mergeByID(
           current.filter((item): item is Message => !!item?.id),
           sorted,
+          MessageOrder.compare,
         )
 
         batch(() => {

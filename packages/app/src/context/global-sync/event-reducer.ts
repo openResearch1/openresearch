@@ -15,6 +15,7 @@ import type {
 import type { State, VcsCache } from "./types"
 import { trimSessions } from "./session-trim"
 import { dropSessionCaches } from "./session-cache"
+import * as MessageOrder from "@/utils/message"
 
 export function applyGlobalEvent(input: {
   event: { type: string; properties?: unknown }
@@ -202,18 +203,7 @@ export function applyDirectoryEvent(input: {
         input.setStore("message", info.sessionID, [info])
         break
       }
-      const result = Binary.search(messages, info.id, (m) => m.id)
-      if (result.found) {
-        input.setStore("message", info.sessionID, result.index, reconcile(info))
-        break
-      }
-      input.setStore(
-        "message",
-        info.sessionID,
-        produce((draft) => {
-          draft.splice(result.index, 0, info)
-        }),
-      )
+      input.setStore("message", info.sessionID, reconcile(MessageOrder.upsert(messages, info), { key: "id" }))
       break
     }
     case "message.removed": {
@@ -222,8 +212,8 @@ export function applyDirectoryEvent(input: {
         produce((draft) => {
           const messages = draft.message[props.sessionID]
           if (messages) {
-            const result = Binary.search(messages, props.messageID, (m) => m.id)
-            if (result.found) messages.splice(result.index, 1)
+            const index = messages.findIndex((message) => message.id === props.messageID)
+            if (index !== -1) messages.splice(index, 1)
           }
           delete draft.part[props.messageID]
         }),

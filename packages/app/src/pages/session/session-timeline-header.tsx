@@ -1,6 +1,6 @@
 import { createEffect, createMemo, createResource, For, on, onCleanup, Show } from "solid-js"
 import { createStore, produce } from "solid-js/store"
-import { useNavigate, useParams } from "@solidjs/router"
+import { A, useNavigate, useParams } from "@solidjs/router"
 import { Button } from "@opencode-ai/ui/button"
 import { useReducedMotion } from "@opencode-ai/ui/hooks"
 import { IconButton } from "@opencode-ai/ui/icon-button"
@@ -408,10 +408,6 @@ export function SessionTimelineHeader(props: {
     return chain
   })
 
-  const navigateToAgentSession = (agent: CollabAgent) => {
-    navigate(`/${params.dir}/session/${agent.session_id}`)
-  }
-
   // Collab breadcrumb should display each ancestor's SESSION TITLE (what the
   // user recognizes — e.g. the turn summary), not the raw agent name like
   // "root" or "general". Pull titles from the sync store when cached; fall
@@ -550,18 +546,13 @@ export function SessionTimelineHeader(props: {
                       class="flex items-center gap-1 min-w-0 text-13-regular text-text-weak"
                       aria-label="parent session"
                     >
-                      <a
+                      <A
                         class="truncate hover:text-text-strong cursor-pointer"
                         href={`/${params.dir}/session/${props.parentID()}`}
-                        onClick={(e) => {
-                          if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return
-                          e.preventDefault()
-                          navigateParent()
-                        }}
                         title={parentTitle()}
                       >
                         {parentTitle()}
-                      </a>
+                      </A>
                       <span class="text-text-weaker shrink-0">/</span>
                     </nav>
                   </Show>
@@ -577,18 +568,13 @@ export function SessionTimelineHeader(props: {
                         <Show when={idx() > 0}>
                           <span class="text-text-weaker shrink-0">/</span>
                         </Show>
-                        <a
+                        <A
                           class="truncate hover:text-text-strong cursor-pointer"
                           href={`/${params.dir}/session/${agent.session_id}`}
-                          onClick={(e) => {
-                            if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return
-                            e.preventDefault()
-                            navigateToAgentSession(agent)
-                          }}
                           title={collabAgentLabel(agent)}
                         >
                           {collabAgentLabel(agent)}
-                        </a>
+                        </A>
                       </>
                     )}
                   </For>
