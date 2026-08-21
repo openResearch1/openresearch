@@ -28,6 +28,7 @@ import { SessionPrompt } from "../../src/session/prompt"
 import { SessionStatus } from "../../src/session/status"
 import { SessionOwnership } from "../../src/session/ownership"
 import { Database } from "../../src/storage/db"
+import { ResumeAgentTool } from "../../src/tool/resume-agent"
 import { SpawnAgentTool } from "../../src/tool/spawn-agent"
 import type { Tool } from "../../src/tool/tool"
 import { tmpdir } from "../fixture/fixture"
@@ -1154,6 +1155,96 @@ describe("research.experiment-agent", () => {
         expect(parent.active_children).toBe(1)
         expect(() => ExperimentAgent.assertHuman(item.exp!.id)).toThrow(ExperimentAgent.BusyError)
         start.mockRestore()
+      },
+    })
+  })
+
+  test("human experiment resume promotes its idle parent and reopens a failed child", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const item = await seed()
+        const attached = await ExperimentAgent.attach(item.expId)
+        const parent = CollabAgentNode.load(attached.agentId!)
+        const run = CollabAgentNode.activate(parent.id, undefined, "human")
+        const session = await Collab.createSubSession({ title: "timed out child" })
+        const child = CollabAgentNode.create({
+          id: Identifier.ascending("collab_agent"),
+          sessionId: session.id,
+          parentAgentId: parent.id,
+          name: "timed out child",
+          projectId: Instance.project.id,
+          rootAgentId: parent.root_agent_id,
+          subagentType: "general",
+          spec: { initialPrompt: "wait", policy: { timeout_ms: 1 } },
+        })
+        CollabAgentNode.finish({
+          id: child.id,
+          runId: child.run_id,
+          parentId: child.parent_agent_id,
+          status: "failed",
+          phase: "main_loop",
+          error: { code: "TIMEOUT", message: "Agent exceeded its 1ms timeout." },
+          timeEnded: Date.now(),
+          report: {
+            kind: "child_failed",
+            payload: {
+              childAgentId: child.id,
+              childName: child.name,
+              reason: "timeout",
+              message: "Agent exceeded its 1ms timeout.",
+            },
+          },
+        })
+        CollabMessage.dropPending(parent.id)
+        CollabAgentNode.finish({
+          id: parent.id,
+          runId: run.run_id,
+          parentId: run.parent_agent_id,
+          status: "completed",
+          phase: "main_loop",
+          result: { summary: "handled timeout" },
+          timeEnded: Date.now(),
+        })
+        const failed = CollabAgentNode.load(child.id)
+        expect(failed.status).toBe("failed")
+        expect(CollabAgentNode.load(parent.id)).toMatchObject({ status: "idle", active_children: 0 })
+
+        const ctx = {
+          sessionID: item.exp!.id,
+          messageID: Identifier.ascending("message"),
+          agent: "experiment",
+          abort: new AbortController().signal,
+          messages: [],
+          metadata: () => {},
+          ask: async () => {},
+        } satisfies Tool.Context
+        const tool = await ResumeAgentTool.init()
+        const start = spyOn(CollabLoop, "start").mockResolvedValue()
+        const release = ExperimentAgent.claimHuman(item.exp!.id)
+        let event: { active_children: number; initiator: "human" | "agent" | null } | undefined
+        const off = Bus.subscribe(CollabEvent.AgentStatus, (input) => {
+          if (input.properties.agentId === parent.id) event = input.properties
+        })
+        try {
+          const result = await tool.execute({ agent_id: child.id, prompt: "continue the same task" }, ctx)
+          const resumed = CollabAgentNode.load(child.id)
+          const active = CollabAgentNode.load(parent.id)
+          const atom = CollabAgentNode.load(parent.parent_agent_id!)
+
+          expect(result.output).toContain("status: running")
+          expect(resumed.status).toBe("running")
+          expect(resumed.run_id).not.toBe(failed.run_id)
+          expect(resumed.error).toBeNull()
+          expect(active).toMatchObject({ status: "running", initiator: "human", active_children: 1 })
+          expect(atom.active_children).toBe(0)
+          expect(event).toMatchObject({ initiator: "human", active_children: 1 })
+        } finally {
+          off()
+          release()
+          start.mockRestore()
+        }
       },
     })
   })

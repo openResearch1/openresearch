@@ -271,6 +271,54 @@ export namespace CollabAgentNode {
     return !!error && error.code !== "MODEL_UNAVAILABLE"
   }
 
+  function promote(tx: Database.TxOrDb, parent: Row, now: number) {
+    if (!parent.parent_agent_id) throw new Error(`Parent agent ${parent.id} cannot start a human run`)
+    if ((parent.spec_json as AgentSpec).metadata?.stoppedByUser === true) {
+      throw new Error(`Parent agent ${parent.id} was stopped by the user`)
+    }
+    const owner = tx
+      .select({ id: SessionOwnershipTable.session_id })
+      .from(SessionOwnershipTable)
+      .where(
+        and(
+          eq(SessionOwnershipTable.session_id, parent.session_id),
+          eq(SessionOwnershipTable.owner, "human"),
+          gt(SessionOwnershipTable.expires_at, now),
+        ),
+      )
+      .get()
+    if (!owner) throw new Error(`Parent agent ${parent.id} is not owned by a human turn`)
+    const ancestor = tx
+      .select({ status: CollabAgentTable.status })
+      .from(CollabAgentTable)
+      .where(eq(CollabAgentTable.id, parent.parent_agent_id))
+      .get()
+    const independent = experiment(parent)
+    if (!ancestor || (!isActive(ancestor.status) && !independent)) {
+      throw new Error(`Parent agent ${parent.id} has no active Atom`)
+    }
+    if (isActive(parent.status)) {
+      if (parent.initiator === "human") return parent
+      throw new Error(`Parent agent ${parent.id} cannot start a human run`)
+    }
+    if (parent.active_children > 0) throw new Error(`Parent agent ${parent.id} cannot start a human run`)
+    return tx
+      .update(CollabAgentTable)
+      .set({
+        status: "running",
+        run_id: randomUUID(),
+        initiator: "human",
+        phase: "main_loop",
+        error_json: null,
+        time_started: now,
+        time_ended: null,
+        time_updated: now,
+      })
+      .where(eq(CollabAgentTable.id, parent.id))
+      .returning()
+      .get()!
+  }
+
   export function fromRow(row: Row): AgentInfo {
     return {
       id: row.id,
@@ -1192,7 +1240,13 @@ export namespace CollabAgentNode {
 
   export function activate(
     id: string,
-    expected?: { runId: string | null; parentId: string | null; generation?: number; resume?: boolean },
+    expected?: {
+      runId: string | null
+      parentId: string | null
+      generation?: number
+      resume?: boolean
+      startParent?: "human"
+    },
     initiator: RunInitiator = "agent",
   ): AgentInfo {
     const now = Date.now()
@@ -1213,12 +1267,13 @@ export namespace CollabAgentNode {
       if (stopped && (!current.parent_agent_id || expected?.resume !== true)) {
         throw new Error(`Agent ${id} was stopped by the user`)
       }
+      let promoted: Row | undefined
       if (current.parent_agent_id) {
-        const parent = tx
-          .select()
-          .from(CollabAgentTable)
-          .where(eq(CollabAgentTable.id, current.parent_agent_id))
-          .get()
+        let parent = tx.select().from(CollabAgentTable).where(eq(CollabAgentTable.id, current.parent_agent_id)).get()
+        if (parent && expected?.startParent === "human") {
+          promoted = promote(tx, parent, now)
+          parent = promoted
+        }
         if (!parent || !isActive(parent.status) || terminating(parent.error_json)) {
           throw new Error(`Parent agent ${current.parent_agent_id} is not available`)
         }
@@ -1253,10 +1308,24 @@ export namespace CollabAgentNode {
           })
           .where(eq(CollabAgentTable.id, current.parent_agent_id))
           .run()
+        if (promoted) {
+          promoted = tx.select().from(CollabAgentTable).where(eq(CollabAgentTable.id, current.parent_agent_id)).get()
+        }
       }
 
       const info = fromRow(row)
-      Database.effect(() =>
+      Database.effect(() => {
+        if (promoted) {
+          const parent = fromRow(promoted)
+          Bus.publish(CollabEvent.AgentStatus, {
+            agentId: parent.id,
+            rootAgentId: parent.root_agent_id,
+            status: parent.status,
+            phase: parent.phase,
+            active_children: parent.active_children,
+            initiator: parent.initiator,
+          })
+        }
         Bus.publish(CollabEvent.AgentStatus, {
           agentId: info.id,
           rootAgentId: info.root_agent_id,
@@ -1264,8 +1333,8 @@ export namespace CollabAgentNode {
           phase: info.phase,
           active_children: info.active_children,
           initiator: info.initiator,
-        }),
-      )
+        })
+      })
       return info
     })
   }
