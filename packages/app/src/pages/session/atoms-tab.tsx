@@ -1,9 +1,8 @@
 import { createEffect, createMemo, createResource, createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js"
 import { createStore } from "solid-js/store"
-import { useNavigate } from "@solidjs/router"
 import type { ResearchAtomsListResponse, ResearchPathsListResponse } from "@opencode-ai/sdk/v2"
 import { Select } from "@opencode-ai/ui/select"
-import { base64Encode } from "@opencode-ai/util/encode"
+import { useData } from "@opencode-ai/ui/context"
 
 import { useSDK } from "@/context/sdk"
 import { usePrompt } from "@/context/prompt"
@@ -148,7 +147,7 @@ type SubTab = "list" | "graph"
 export function AtomsTab(props: { researchProjectId: string; currentSessionId?: string }) {
   const sdk = useSDK()
   const prompt = usePrompt()
-  const navigate = useNavigate()
+  const data = useData()
   const [atoms, setAtoms] = createSignal<Atom[]>([])
   const [relations, setRelations] = createSignal<Relation[]>([])
   const [loading, setLoading] = createSignal(true)
@@ -276,7 +275,7 @@ export function AtomsTab(props: { researchProjectId: string; currentSessionId?: 
         if (props.currentSessionId) {
           sessionStorage.setItem(`atom-session-return-${sessionId}`, props.currentSessionId)
         }
-        navigate(`/${base64Encode(sdk.directory)}/session/${sessionId}`)
+        data.navigateToSession?.(sessionId)
       }
     } catch (err) {
       console.error("[atoms-tab] failed to get/create atom session", err)

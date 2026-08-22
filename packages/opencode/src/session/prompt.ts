@@ -20,6 +20,7 @@ import { InstructionPrompt } from "./instruction"
 import { Plugin } from "../plugin"
 import PROMPT_PLAN from "../session/prompt/plan.txt"
 import BUILD_SWITCH from "../session/prompt/build-switch.txt"
+import EXPERIMENT_SWITCH from "../session/prompt/experiment-switch.txt"
 import MAX_STEPS from "../session/prompt/max-steps.txt"
 import WORKFLOW_NUDGE from "../session/prompt/workflow-nudge.txt"
 import { defer } from "../util/defer"
@@ -979,6 +980,7 @@ export namespace SessionPrompt {
     using _ = log.time("resolveTools")
     const tools: Record<string, AITool> = {}
     const controlled = CollabAgentNode.controlled(input.session.id)
+    const experimentPlan = input.agent.name === "plan" && !!ExperimentWorkspace.resolve(input.session.id)
 
     const inputRecord = (value: unknown) => {
       if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>
@@ -1011,7 +1013,9 @@ export namespace SessionPrompt {
         })
       },
       async ask(req) {
-        const ruleset = PermissionNext.merge(input.agent.permission, input.session.permission ?? [])
+        const ruleset = experimentPlan
+          ? PermissionNext.merge(input.session.permission ?? [], input.agent.permission)
+          : PermissionNext.merge(input.agent.permission, input.session.permission ?? [])
         const actions = req.patterns.map((pattern) => PermissionNext.evaluate(req.permission, pattern, ruleset).action)
         const approval = input.session.collabPeer
           ? ResearchSessionAgent.approval({
@@ -1026,10 +1030,7 @@ export namespace SessionPrompt {
             ruleset.filter((rule) => rule.permission === req.permission || rule.permission === "*"),
           )
         }
-        if (
-          input.session.collabPeer &&
-          actions.some((action) => action === "ask")
-        ) {
+        if (input.session.collabPeer && actions.some((action) => action === "ask")) {
           throw new PermissionNext.DeniedError(
             ruleset.filter((rule) => rule.permission === req.permission || rule.permission === "*"),
           )
@@ -1602,9 +1603,22 @@ export namespace SessionPrompt {
     }
   }
 
+  function experimentPlanReminder(plan: string | null) {
+    const access = plan
+      ? `Only when the user explicitly requests plan persistence may you modify ${JSON.stringify(plan)} with an exposed edit-family tool. Never edit any other file or use shell commands to write files.`
+      : "This experiment has no exp_plan_path, so no file may be edited."
+    return `<system-reminder>
+Experiment Plan mode is active. Do not implement or execute the plan. All files and experiment state are read-only by default.
+${access}
+Return a concise plan in the conversation by default. Call plan_exit when available; otherwise let the user switch back to the Experiment agent manually.
+</system-reminder>`
+  }
+
   async function insertReminders(input: { messages: MessageV2.WithParts[]; agent: Agent.Info; session: Session.Info }) {
     const userMessage = input.messages.findLast((msg) => msg.info.role === "user")
     if (!userMessage) return input.messages
+    const assistantMessage = input.messages.findLast((msg) => msg.info.role === "assistant")
+    const experiment = ExperimentWorkspace.resolve(input.session.id)
 
     // Original logic when experimental plan mode is disabled
     if (!Flag.OPENCODE_EXPERIMENTAL_PLAN_MODE) {
@@ -1614,12 +1628,11 @@ export namespace SessionPrompt {
           messageID: userMessage.info.id,
           sessionID: userMessage.info.sessionID,
           type: "text",
-          text: PROMPT_PLAN,
+          text: experiment ? experimentPlanReminder(experiment.exp_plan_path) : PROMPT_PLAN,
           synthetic: true,
         })
       }
-      const wasPlan = input.messages.some((msg) => msg.info.role === "assistant" && msg.info.agent === "plan")
-      if (wasPlan && input.agent.name === "build") {
+      if (assistantMessage?.info.agent === "plan" && input.agent.name === "build") {
         userMessage.parts.push({
           id: Identifier.ascending("part"),
           messageID: userMessage.info.id,
@@ -1629,14 +1642,34 @@ export namespace SessionPrompt {
           synthetic: true,
         })
       }
+      if (experiment && assistantMessage?.info.agent === "plan" && input.agent.name === "experiment") {
+        userMessage.parts.push({
+          id: Identifier.ascending("part"),
+          messageID: userMessage.info.id,
+          sessionID: userMessage.info.sessionID,
+          type: "text",
+          text: EXPERIMENT_SWITCH,
+          synthetic: true,
+        })
+      }
       return input.messages
     }
 
     // New plan mode logic when flag is enabled
-    const assistantMessage = input.messages.findLast((msg) => msg.info.role === "assistant")
-
-    // Switching from plan mode to build mode
+    // Switching from plan mode to an execution mode
     if (input.agent.name !== "plan" && assistantMessage?.info.agent === "plan") {
+      if (experiment && input.agent.name === "experiment") {
+        const part = await Session.updatePart({
+          id: Identifier.ascending("part"),
+          messageID: userMessage.info.id,
+          sessionID: userMessage.info.sessionID,
+          type: "text",
+          text: EXPERIMENT_SWITCH,
+          synthetic: true,
+        })
+        userMessage.parts.push(part)
+        return input.messages
+      }
       const plan = Session.plan(input.session)
       const exists = await Filesystem.exists(plan)
       if (exists) {
@@ -1656,6 +1689,18 @@ export namespace SessionPrompt {
 
     // Entering plan mode
     if (input.agent.name === "plan" && assistantMessage?.info.agent !== "plan") {
+      if (experiment) {
+        const part = await Session.updatePart({
+          id: Identifier.ascending("part"),
+          messageID: userMessage.info.id,
+          sessionID: userMessage.info.sessionID,
+          type: "text",
+          text: experimentPlanReminder(experiment.exp_plan_path),
+          synthetic: true,
+        })
+        userMessage.parts.push(part)
+        return input.messages
+      }
       const plan = Session.plan(input.session)
       const exists = await Filesystem.exists(plan)
       if (!exists) await fs.mkdir(path.dirname(plan), { recursive: true })

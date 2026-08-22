@@ -14,11 +14,14 @@ import { SessionTodoDock } from "@/pages/session/composer/session-todo-dock"
 import { SessionWorkflowDock } from "@/pages/session/composer/session-workflow-dock"
 import { SessionCollabPopover } from "@/pages/session/composer/session-collab-popover"
 import type { CollabActivity } from "@/pages/session/composer/session-collab-activity"
+import type { SessionResearch } from "@/pages/session/session-research"
 
 export function SessionComposerRegion(props: {
   compact?: boolean
   state: SessionComposerState
   collabActivity: CollabActivity
+  research: SessionResearch
+  kind?: "controller" | "main" | "atom" | "experiment"
   ready: boolean
   centered: boolean
   inputRef: (el: HTMLDivElement) => void
@@ -135,11 +138,12 @@ export function SessionComposerRegion(props: {
       }}
     >
       <div
+        data-slot="session-composer-content"
         classList={{
           "w-full pointer-events-auto": true,
           "px-3": !props.compact,
           "px-2.5": !!props.compact,
-          "md:max-w-[500px] md:mx-auto 2xl:max-w-[700px]": props.centered,
+          "md:max-w-[1000px] md:mx-auto": props.centered,
         }}
       >
         <Show when={props.state.questionRequest()} keyed>
@@ -230,7 +234,7 @@ export function SessionComposerRegion(props: {
                 </div>
               </div>
             </Show>
-            <Show when={props.collabActivity.ready()}>
+            <Show when={props.collabActivity.ready() && props.research.ready()}>
               <Show
                 when={!props.collabActivity.controlled()}
                 fallback={
@@ -267,6 +271,7 @@ export function SessionComposerRegion(props: {
                   <PromptInput
                     compact={props.compact}
                     agent={props.collabActivity.controllerRoot() ? "controller" : undefined}
+                    research={props.kind === "controller" ? undefined : props.kind}
                     ref={props.inputRef}
                     newSessionWorktree={props.newSessionWorktree}
                     onNewSessionWorktreeReset={props.onNewSessionWorktreeReset}

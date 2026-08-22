@@ -1,4 +1,4 @@
-import { For, Match, Show, Switch, createEffect, createMemo, createResource, onCleanup, type JSX } from "solid-js"
+import { For, Match, Show, Switch, createEffect, createMemo, onCleanup, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { createMediaQuery } from "@solid-primitives/media"
 import { useNavigate, useParams } from "@solidjs/router"
@@ -14,6 +14,7 @@ import { DragDropProvider, DragDropSensors, DragOverlay, SortableProvider, close
 import type { DragEvent } from "@thisbeyond/solid-dnd"
 import { ConstrainDragYAxis, getDraggableId } from "@/utils/solid-dnd"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { useData } from "@opencode-ai/ui/context"
 
 import FileTree from "@/components/file-tree"
 import { SessionContextUsage } from "@/components/session-context-usage"
@@ -33,13 +34,20 @@ import { createOpenSessionFileTab, getTabReorderIndex, type Sizing } from "@/pag
 import { StickyAddButton } from "@/pages/session/review-tab"
 import { AtomsTab } from "@/pages/session/atoms-tab"
 import { AtomSessionTab } from "@/pages/session/atom-session-tab"
-import { ExpPlanTab, ExpHistoryChangeTab, ExpResultTab, ExpProgressTab } from "@/pages/session/experiment-tab"
+import {
+  ExpPlanTab,
+  ExpHistoryChangeTab,
+  ExpResultTab,
+  ExpProgressTab,
+  type CommitDiff,
+} from "@/pages/session/experiment-tab"
 import { ServersTab } from "@/pages/session/servers-tab"
 import { WatchesTab } from "@/pages/session/watches-tab"
 import { CodesTab } from "@/pages/session/codes-tab"
 import { setSessionHandoff } from "@/pages/session/handoff"
 import type { CollabActivity } from "@/pages/session/composer/session-collab-activity"
 import { ControllerAgentsTab, ControllerPathsTab, ControllerResultsTab } from "@/pages/session/controller-tabs"
+import type { SessionResearch } from "@/pages/session/session-research"
 
 function DialogArticleImport(props: { count: number; onSkip: () => void; onParse: () => void }) {
   const dialog = useDialog()
@@ -77,6 +85,8 @@ function DialogArticleImport(props: { count: number; onSkip: () => void; onParse
 
 export function SessionSidePanel(props: {
   collabActivity: CollabActivity
+  research: SessionResearch
+  kind?: "controller" | "main" | "atom" | "experiment"
   reviewPanel: () => JSX.Element
   activeDiff?: string
   focusReviewDiff: (path: string) => void
@@ -91,6 +101,11 @@ export function SessionSidePanel(props: {
   const language = useLanguage()
   const command = useCommand()
   const dialog = useDialog()
+  const data = useData()
+  const openSession = (id: string) => {
+    if (data.navigateToSession) return data.navigateToSession(id)
+    navigate(`/${base64Encode(sdk.directory)}/session/${id}`)
+  }
 
   const isDesktop = createMediaQuery("(min-width: 768px)")
   const sessionKey = createMemo(() => `${params.dir}${params.id ? "/" + params.id : ""}`)
@@ -119,15 +134,7 @@ export function SessionSidePanel(props: {
     return sync.data.session_diff[id] !== undefined
   })
 
-  const projectId = createMemo(() => sync.project?.id)
-  const [researchProject] = createResource(projectId, async (id) => {
-    try {
-      const res = await sdk.client.research.project.get({ projectId: id })
-      return res.data ?? undefined
-    } catch {
-      return undefined
-    }
-  })
+  const researchProject = props.research.project
   const isResearchProject = createMemo(() => !!researchProject())
   const isControllerSession = createMemo(() => props.collabActivity.controllerRoot())
 
@@ -143,35 +150,12 @@ export function SessionSidePanel(props: {
     view().reviewPanel.open()
   })
 
-  // Check if current session is an atom session
-  const [atomSession, { refetch: refetchAtomSession }] = createResource(
-    () => params.id,
-    async (sessionId) => {
-      if (!sessionId) return null
-      try {
-        const res = await sdk.client.research.session.atom.get({ sessionId })
-        return res.data?.atom ?? null
-      } catch {
-        return null
-      }
-    },
-  )
-  const isAtomSession = createMemo(() => !!atomSession())
-
-  // Check if current session is an experiment session
-  const [experimentSession, { refetch: refetchExperimentSession }] = createResource(
-    () => params.id,
-    async (sessionId) => {
-      if (!sessionId) return null
-      try {
-        const res = await sdk.client.research.experiment.bySession({ sessionId })
-        return res.data ?? null
-      } catch {
-        return null
-      }
-    },
-  )
-  const isExpSession = createMemo(() => !!experimentSession())
+  const atomSession = props.research.atom
+  const experimentSession = props.research.experiment
+  const refetchAtomSession = props.research.refreshAtom
+  const refetchExperimentSession = props.research.refreshExperiment
+  const isAtomSession = createMemo(() => props.kind === "atom")
+  const isExpSession = createMemo(() => props.kind === "experiment")
 
   // Record the last main (non-atom, non-exp) session for this research project
   // so atom/exp sessions can use it as a fallback return target
@@ -200,10 +184,15 @@ export function SessionSidePanel(props: {
     const key = `${params.dir}/${sessionId}`
     layout.tabs(key).setActive("atoms")
     layout.view(key).reviewPanel.open()
-    navigate(`/${base64Encode(sdk.directory)}/session/${sessionId}`)
+    openSession(sessionId)
   }
 
   const returnFromExperimentSession = () => {
+    const sessionId = props.collabActivity.controller()?.session_id ?? atomGraphSessionId()
+    if (sessionId) {
+      openSession(sessionId)
+      return
+    }
     if (window.history.length > 1) {
       window.history.back()
       return
@@ -212,25 +201,30 @@ export function SessionSidePanel(props: {
     openAtomGraphSession()
   }
 
-  // Fetch experiment diff data at panel level; refetch when switching to the changes tab
-  const [experimentDiff, { refetch: refetchExperimentDiff }] = createResource(
-    () => experimentSession()?.exp_id,
-    async (expId) => {
-      if (!expId) return null
-      try {
-        const res = await sdk.client.research.experiment.diff({ expId })
-        return (
-          (
-            res.data as
-              | { commits: Array<{ hash: string; message: string; author: string; date: string; diffs: any[] }> }
-              | undefined
-          )?.commits ?? []
-        )
-      } catch {
-        return []
-      }
-    },
-  )
+  const [history, setHistory] = createStore({
+    id: "",
+    data: [] as CommitDiff[],
+    loading: false,
+    error: undefined as unknown,
+  })
+  let historyVersion = 0
+  const refetchExperimentDiff = () => {
+    const id = experimentSession()?.exp_id
+    if (!id) return
+    const current = ++historyVersion
+    setHistory({ id, loading: true, error: undefined })
+    void sdk.client.research.experiment
+      .diff({ expId: id })
+      .then((result) => {
+        if (current !== historyVersion || experimentSession()?.exp_id !== id) return
+        setHistory({ id, data: (result.data?.commits ?? []) as CommitDiff[], loading: false, error: undefined })
+      })
+      .catch((error) => {
+        if (current !== historyVersion || experimentSession()?.exp_id !== id) return
+        setHistory({ id, data: [], loading: false, error })
+      })
+  }
+  onCleanup(() => historyVersion++)
 
   const reviewEmptyKey = createMemo(() => {
     if (sync.project && !sync.project.vcs) return "session.review.noVcs"
@@ -302,7 +296,7 @@ export function SessionSidePanel(props: {
   // the stored active tab during session switches.
   let settledSessionId: string | undefined
   createEffect(() => {
-    if (!atomSession.loading && !experimentSession.loading && props.collabActivity.ready()) {
+    if (props.research.ready() && props.collabActivity.ready()) {
       settledSessionId = params.id
     }
   })
@@ -692,7 +686,7 @@ export function SessionSidePanel(props: {
                               currentSessionId={params.id}
                               title={language.t("session.controller.paths.empty.title")}
                               description={language.t("session.controller.paths.empty.description")}
-                              onOpenSession={(sessionID) => navigate(`/${params.dir}/session/${sessionID}`)}
+                              onOpenSession={openSession}
                             />
                           )}
                         </Show>
@@ -705,7 +699,7 @@ export function SessionSidePanel(props: {
                            empty={language.t("session.controller.agents.empty")}
                            showCompleted={language.t("session.collab.showCompleted")}
                            hideCompleted={language.t("session.collab.hideCompleted")}
-                           onOpen={(agent) => navigate(`/${params.dir}/session/${agent.session_id}`)}
+                           onOpen={(agent) => openSession(agent.session_id)}
                         />
                       </Show>
                     </Tabs.Content>
@@ -721,7 +715,7 @@ export function SessionSidePanel(props: {
                               currentSessionId={params.id}
                               title={language.t("session.controller.results.empty.title")}
                               description={language.t("session.controller.results.empty.description")}
-                              onOpenSession={(sessionID) => navigate(`/${params.dir}/session/${sessionID}`)}
+                              onOpenSession={openSession}
                             />
                           )}
                         </Show>
@@ -829,9 +823,9 @@ export function SessionSidePanel(props: {
                           <Show when={activeTab() === "exp-history"}>
                             <ExpHistoryChangeTab
                               experiment={experiment}
-                              commits={experimentDiff.latest ?? []}
-                              loading={experimentDiff.loading}
-                              error={experimentDiff.error}
+                              commits={history.id === experiment.exp_id ? history.data : []}
+                              loading={history.id === experiment.exp_id && history.loading}
+                              error={history.id === experiment.exp_id ? history.error : undefined}
                               onRefresh={refetchExperimentDiff}
                             />
                           </Show>

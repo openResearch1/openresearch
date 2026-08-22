@@ -1,5 +1,5 @@
 import { Show, For, createMemo, createEffect, createSignal, onCleanup, onMount } from "solid-js"
-import { useNavigate, useParams } from "@solidjs/router"
+import { useParams } from "@solidjs/router"
 import { useFile } from "@/context/file"
 import { useSDK } from "@/context/sdk"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
@@ -10,7 +10,7 @@ import { Select } from "@opencode-ai/ui/select"
 import { Combobox as KobalteCombobox } from "@kobalte/core/combobox"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Switch } from "@opencode-ai/ui/switch"
-import { base64Encode } from "@opencode-ai/util/encode"
+import { useData } from "@opencode-ai/ui/context"
 import { Markdown } from "@opencode-ai/ui/markdown"
 import type { ResearchSessionAtomGetResponse } from "@opencode-ai/sdk/v2"
 
@@ -25,7 +25,7 @@ export function AtomSessionTab(props: {
   onOpenFile?: (filePath: string) => void
 }) {
   const file = useFile()
-  const navigate = useNavigate()
+  const data = useData()
   const params = useParams()
   const sdk = useSDK()
 
@@ -41,15 +41,16 @@ export function AtomSessionTab(props: {
   const [creating, setCreating] = createSignal(false)
 
   const handleReturn = () => {
+    const sessionId = returnSessionId()
+    if (sessionId) {
+      data.navigateToSession?.(sessionId)
+      return
+    }
     if (window.history.length > 1) {
       window.history.back()
       return
     }
 
-    const sessionId = returnSessionId()
-    if (sessionId) {
-      navigate(`/${base64Encode(sdk.directory)}/session/${sessionId}`)
-    }
   }
 
   const navigateToExpSession = async (expId: string) => {
@@ -57,7 +58,7 @@ export function AtomSessionTab(props: {
       const res = await sdk.client.research.experiment.session.create({ expId })
       const sessionId = res.data?.session_id
       if (sessionId) {
-        navigate(`/${base64Encode(sdk.directory)}/session/${sessionId}`)
+        data.navigateToSession?.(sessionId)
       }
     } catch (err) {
       console.error("[atom-session-tab] failed to get/create experiment session", err)

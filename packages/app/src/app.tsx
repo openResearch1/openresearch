@@ -37,7 +37,15 @@ import { SessionIDProvider } from "@/context/session-id"
 
 const Home = lazy(() => import("@/pages/home"))
 const Session = lazy(() => import("@/pages/session"))
-const Loading = () => <div class="size-full" />
+const Loading = () => {
+  const language = useLanguage()
+  return (
+    <div data-component="app-loading" class="size-full flex items-center justify-center text-13-regular text-text-weak">
+      {language.t("common.loading")}
+      {language.t("common.loading.ellipsis")}
+    </div>
+  )
+}
 
 const HomeRoute = () => (
   <Suspense fallback={<Loading />}>

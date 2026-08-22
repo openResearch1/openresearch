@@ -1,6 +1,5 @@
 import { createEffect, createResource, createSignal, onCleanup, Show } from "solid-js"
-import { useNavigate } from "@solidjs/router"
-import { base64Encode } from "@opencode-ai/util/encode"
+import { useData } from "@opencode-ai/ui/context"
 import { useSDK } from "@/context/sdk"
 import { ExpProgressTab, ExpPlanTab, ExpHistoryChangeTab, ExpResultTab } from "./experiment-tab"
 import type { CommitDiff } from "./experiment-tab"
@@ -27,7 +26,7 @@ export function ExpDetailPanel(props: {
   onDelete?: (expId: string) => Promise<void>
 }) {
   const sdk = useSDK()
-  const navigate = useNavigate()
+  const data = useData()
   const [panelWidth, setPanelWidth] = createSignal(PANEL_DEFAULT_WIDTH)
   const [dragging, setDragging] = createSignal(false)
   const [rightTab, setRightTab] = createSignal<"plan" | "changes">("plan")
@@ -85,7 +84,7 @@ export function ExpDetailPanel(props: {
   const navigateToExpSession = () => {
     const sessionId = expSessionId()
     if (sessionId) {
-      navigate(`/${base64Encode(sdk.directory)}/session/${sessionId}`)
+      data.navigateToSession?.(sessionId)
     }
   }
 

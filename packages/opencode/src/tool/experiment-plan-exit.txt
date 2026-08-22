@@ -1,0 +1,4 @@
+Use this tool when the current Experiment plan is ready for execution.
+The plan may remain in the conversation unless the user explicitly requested persistence.
+This tool asks the user whether to switch back to the Experiment agent.
+Do not call it while material questions remain unresolved.

@@ -4,6 +4,7 @@ import {
   onCleanup,
   Show,
   Match,
+  Suspense,
   Switch,
   createMemo,
   createEffect,
@@ -44,10 +45,13 @@ import { TerminalPanel } from "@/pages/session/terminal-panel"
 import { createSessionHistoryWindow, emptyUserMessages } from "@/pages/session/history-window"
 import { useSessionCommands } from "@/pages/session/use-session-commands"
 import { useSessionHashScroll } from "@/pages/session/use-session-hash-scroll"
+import { useSessionResearch } from "@/pages/session/session-research"
 import { same } from "@/utils/same"
 import * as MessageOrder from "@/utils/message"
 import { formatServerError } from "@/utils/server-errors"
 import { Icon } from "@opencode-ai/ui/icon"
+
+const sessionFreshness = 15_000
 
 export default function Page(props: { remote?: boolean; backHref?: string } = {}) {
   const globalSync = useGlobalSync()
@@ -87,6 +91,7 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
   })
 
   const collabActivity = useCollabActivity(() => params.id)
+  const research = useSessionResearch(() => params.id)
   const composer = createSessionComposerState()
 
   const sessionKey = createMemo(() => `${params.dir}${params.id ? "/" + params.id : ""}`)
@@ -255,12 +260,19 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
     const found = visibleUserMessages()?.find((m) => m.id === store.messageId)
     return found ?? lastUserMessage()
   })
-  const researchSessionKind = createMemo<ResearchSessionKind | undefined>(() => {
-    if (!collabActivity.ready()) return
+  const sessionKind = createMemo<ResearchSessionKind | "main" | undefined>(() => {
+    const kind = research.kind()
+    if (kind === "experiment" || kind === "atom") return kind
+    if (!collabActivity.ready() || !research.ready()) return
     if (collabActivity.controllerRoot()) return "controller"
     const metadata = collabActivity.rootAgent()?.spec.metadata
     if (typeof metadata?.expId === "string") return "experiment"
     if (typeof metadata?.atomId === "string") return "atom"
+    return kind
+  })
+  const researchSessionKind = createMemo<ResearchSessionKind | undefined>(() => {
+    const kind = sessionKind()
+    return kind === "main" ? undefined : kind
   })
   const setActiveMessage = (message: UserMessage | undefined) => {
     setStore("messageId", message?.id)
@@ -359,25 +371,48 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
 
   const hasScrollGesture = () => Date.now() - ui.scrollGesture < scrollGestureWindowMs
 
+  let refreshFrame: number | undefined
+  let refreshTimer: number | undefined
+  const clearRefresh = () => {
+    if (refreshFrame !== undefined) cancelAnimationFrame(refreshFrame)
+    if (refreshTimer !== undefined) window.clearTimeout(refreshTimer)
+    refreshFrame = undefined
+    refreshTimer = undefined
+  }
+  createEffect(
+    on([() => sdk.directory, () => params.id] as const, ([directory, id]) => {
+      clearRefresh()
+      if (!id) return
+      const cached = untrack(() => sync.data.message[id] !== undefined)
+      const status = untrack(() => sync.data.session_status[id]?.type)
+      const stale = cached && status !== "busy" && status !== "retry" && !sync.session.fresh(id, sessionFreshness)
+      if (stale) {
+        refreshFrame = requestAnimationFrame(() => {
+          refreshFrame = undefined
+          refreshTimer = window.setTimeout(() => {
+            refreshTimer = undefined
+            if (sdk.directory !== directory || params.id !== id) return
+            if (sync.session.fresh(id, sessionFreshness)) return
+            const status = sync.data.session_status[id]?.type
+            if (status === "busy" || status === "retry") return
+            void sync.session.reload(id)
+          }, 0)
+        })
+      }
+      void sync.session.sync(id)
+    }),
+  )
+  onCleanup(clearRefresh)
+
   createEffect(
     on([() => sdk.directory, () => params.id] as const, ([, id]) => {
       if (!id) return
       untrack(() => {
-        const cached = sync.data.message[id] !== undefined
-        const status = sync.data.session_status[id]?.type
-        void (cached && status !== "busy" && status !== "retry" ? sync.session.reload(id) : sync.session.sync(id))
         void sync.session.todo(id)
         void sync.session.workflow(id)
       })
     }),
   )
-
-  createEffect(() => {
-    const id = params.id
-    if (!id) return
-    if (sync.data.message[id] !== undefined) return
-    untrack(() => void sync.session.sync(id))
-  })
 
   createEffect(
     on(
@@ -1216,6 +1251,7 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
                     onAutoScrollInteraction={autoScroll.handleInteraction}
                     onPreserveScrollAnchor={autoScroll.preserve}
                     centered={centered()}
+                    collabActivity={collabActivity}
                     setContentRef={(el) => {
                       content = el
                       autoScroll.contentRef(el)
@@ -1262,6 +1298,8 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
             compact={props.remote}
             state={composer}
             collabActivity={collabActivity}
+            research={research}
+            kind={sessionKind()}
             ready={messagesReady()}
             centered={centered()}
             inputRef={(el) => {
@@ -1296,13 +1334,17 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
         </div>
 
         <Show when={!props.remote}>
-          <SessionSidePanel
-            collabActivity={collabActivity}
-            reviewPanel={reviewPanel}
-            activeDiff={tree.activeDiff}
-            focusReviewDiff={focusReviewDiff}
-            size={size}
-          />
+          <Suspense>
+            <SessionSidePanel
+              collabActivity={collabActivity}
+              research={research}
+              kind={sessionKind()}
+              reviewPanel={reviewPanel}
+              activeDiff={tree.activeDiff}
+              focusReviewDiff={focusReviewDiff}
+              size={size}
+            />
+          </Suspense>
         </Show>
       </div>
 

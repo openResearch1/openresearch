@@ -8,7 +8,7 @@ import { AtomTable, ExperimentTable, ResearchProjectTable } from "../../src/rese
 import { ResearchRoutes } from "../../src/server/routes/research"
 import { ExperimentWorkspace } from "../../src/session/experiment-workspace"
 import { SessionTable } from "../../src/session/session.sql"
-import { Database } from "../../src/storage/db"
+import { Database, eq } from "../../src/storage/db"
 import { AtomQueryTool } from "../../src/tool/atom"
 import type { Tool } from "../../src/tool/tool"
 import { tmpdir } from "../fixture/fixture"
@@ -27,6 +27,7 @@ describe("session.experiment-workspace", () => {
         const atom = crypto.randomUUID()
         const exp = crypto.randomUUID()
         const code = path.join(tmp.path, ".openresearch_worktrees", exp)
+        const plan = path.join(tmp.path, "exp_results", exp, "plan.md")
         const now = Date.now()
 
         Database.use((db) =>
@@ -107,13 +108,16 @@ describe("session.experiment-workspace", () => {
               exp_session_id: root,
               atom_id: atom,
               code_path: code,
+              exp_plan_path: plan,
               remote_code_path: "/remote/experiments/workspace-test",
             })
             .run(),
         )
         ExperimentExecutionWatch.createOrGet(exp, "workspace test")
         ExperimentExecutionWatch.update({ expId: exp, status: "finished" })
-        expect(Database.use((db) => db.select().from(ExperimentTable).all())[0]).toMatchObject({
+        expect(
+          Database.use((db) => db.select().from(ExperimentTable).where(eq(ExperimentTable.exp_id, exp)).get()),
+        ).toMatchObject({
           exp_id: exp,
           status: "done",
           finished_at: expect.any(Number),
@@ -154,6 +158,10 @@ describe("session.experiment-workspace", () => {
         expect(prompts[0]).toContain("Treat each request as a delta over the inherited baseline")
         expect(prompts[0]).toContain("Treat values and choices specific to one run as runtime inputs")
         expect(prompts[0]).toContain("Do not create or run local unit or integration tests")
+        const planning = ExperimentWorkspace.prompt(root, "plan")
+        expect(planning).toContain(`exp_plan_path=${JSON.stringify(plan)}`)
+        expect(planning).toContain("All files are read-only unless the user explicitly requests plan persistence")
+        expect(planning).not.toContain("## Experiment code editing")
         expect(ExperimentWorkspace.prompt(root, "project_runtime_env_setup")).toBe(workspace)
         expect(ExperimentWorkspace.prompt(root, "experiment_resource_prepare")).toBe(workspace)
         expect(ExperimentWorkspace.prompt(Identifier.descending("session"), "experiment")).toBeUndefined()
@@ -169,19 +177,16 @@ describe("session.experiment-workspace", () => {
         }
 
         const tool = await AtomQueryTool.init()
-        const result = await tool.execute(
-          {},
-          {
-            sessionID: nested,
-            messageID: "message-1",
-            callID: "call-1",
-            agent: "general",
-            abort: AbortSignal.any([]),
-            messages: [],
-            metadata: () => {},
-            ask: async () => {},
-          } satisfies Tool.Context,
-        )
+        const result = await tool.execute({}, {
+          sessionID: nested,
+          messageID: "message-1",
+          callID: "call-1",
+          agent: "general",
+          abort: AbortSignal.any([]),
+          messages: [],
+          metadata: () => {},
+          ask: async () => {},
+        } satisfies Tool.Context)
         expect(result.metadata).toMatchObject({ count: 1 })
         expect(result.output).toContain(`atom_id: ${atom}`)
       },

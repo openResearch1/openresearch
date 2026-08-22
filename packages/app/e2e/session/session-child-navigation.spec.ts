@@ -36,7 +36,20 @@ test("task tool child-session link does not trigger stale show errors", async ({
       await page.evaluate((value) => {
         Reflect.set(window, "__opencodeSessionNavigation", value)
         Reflect.set(window, "__opencodeSessionPagehide", false)
+        Reflect.set(window, "__opencodeSessionLoading", false)
         window.addEventListener("pagehide", () => Reflect.set(window, "__opencodeSessionPagehide", true), { once: true })
+        const loading = '[data-component="session-loading"], [data-component="app-loading"]'
+        const mark = (records: MutationRecord[]) => {
+          const found = records.some((record) =>
+            [...record.addedNodes].some(
+              (node) => node instanceof Element && (node.matches(loading) || !!node.querySelector(loading)),
+            ),
+          )
+          if (found) Reflect.set(window, "__opencodeSessionLoading", true)
+        }
+        const observer = new MutationObserver(mark)
+        observer.observe(document.body, { childList: true, subtree: true })
+        Reflect.set(window, "__opencodeSessionLoadingObserver", observer)
       }, token)
       await link.click()
 
@@ -47,8 +60,13 @@ test("task tool child-session link does not trigger stale show errors", async ({
 
       expect(await page.evaluate(() => Reflect.get(window, "__opencodeSessionNavigation"))).toBe(token)
       expect(await page.evaluate(() => Reflect.get(window, "__opencodeSessionPagehide"))).toBe(false)
+      expect(await page.evaluate(() => Reflect.get(window, "__opencodeSessionLoading"))).toBe(false)
       expect(documents).toEqual([])
       expect(errs).toEqual([])
+      await page.evaluate(() => {
+        const observer = Reflect.get(window, "__opencodeSessionLoadingObserver")
+        if (observer instanceof MutationObserver) observer.disconnect()
+      })
       page.off("request", request)
     } finally {
       page.off("pageerror", onError)

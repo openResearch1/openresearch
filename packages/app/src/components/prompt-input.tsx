@@ -10,7 +10,6 @@ import {
   Match,
   createMemo,
   createSignal,
-  createResource,
   type JSX,
 } from "solid-js"
 import { createStore } from "solid-js/store"
@@ -77,6 +76,7 @@ interface PromptInputProps {
   class?: string
   compact?: boolean
   agent?: string
+  research?: "main" | "atom" | "experiment"
   ref?: (el: HTMLDivElement) => void
   newSessionWorktree?: string
   onNewSessionWorktreeReset?: () => void
@@ -148,11 +148,6 @@ type ServerConfig =
 type ServerRow = {
   id: string
   config: ServerConfig
-}
-
-type ExperimentSession = {
-  exp_id: string
-  remote_server_config: ServerConfig | null
 }
 
 function serverLabel(row: ServerRow) {
@@ -380,44 +375,34 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     return items.filter((item) => !item.comment?.trim())
   })
 
-  const [servers, serversActions] = createResource(async () => {
-    const res = await sdk.client.research.server.list()
-    return ((res.data ?? []) as ServerRow[]).filter((item) => item.config.mode === "direct" || item.config.mode === "ssh_config")
-  })
+  const [servers, setServers] = createSignal<ServerRow[]>([])
+  let serverVersion = 0
+  const loadServers = () => {
+    const current = ++serverVersion
+    void sdk.client.research.server
+      .list()
+      .then((res) => {
+        if (current !== serverVersion) return
+        setServers(
+          ((res.data ?? []) as ServerRow[]).filter(
+            (item) => item.config.mode === "direct" || item.config.mode === "ssh_config",
+          ),
+        )
+      })
+      .catch(() => {
+        if (current === serverVersion) setServers([])
+      })
+  }
+  createEffect(loadServers)
+  onCleanup(() => serverVersion++)
 
-  const sshServers = createMemo(() => servers() ?? [])
+  const sshServers = createMemo(() => servers())
   const sshServerOptions = createMemo(() => sshServers().map((item) => item.id))
-
-  const [experiment] = createResource(
-    () => params.id,
-    async (id) => {
-      if (!id) return null
-      const res = await sdk.client.research.experiment.bySession({ sessionId: id })
-      return (res.data ?? null) as ExperimentSession | null
-    },
-  )
-  const [atom] = createResource(
-    () => params.id,
-    async (id) => {
-      if (!id) return null
-      const res = await sdk.client.research.session.atom.get({ sessionId: id })
-      return res.data?.atom ?? null
-    },
-  )
-  const [research] = createResource(
-    () => sync.project?.id,
-    async (projectId) => {
-      return sdk.client.research.project
-        .get({ projectId })
-        .then((res) => res.data ?? null)
-        .catch(() => null)
-    },
-  )
   const policy = createMemo(() => {
     if (props.agent) return { names: [props.agent], default: props.agent }
-    if (experiment()) return { names: [...SESSION_AGENTS.experiment], default: "experiment" }
-    if (atom()) return { names: [...SESSION_AGENTS.atom], default: "research" }
-    if (research()) return { names: [...SESSION_AGENTS.main], default: "research" }
+    if (props.research === "experiment") return { names: [...SESSION_AGENTS.experiment], default: "experiment" }
+    if (props.research === "atom") return { names: [...SESSION_AGENTS.atom], default: "research" }
+    if (props.research === "main") return { names: [...SESSION_AGENTS.main], default: "research" }
   })
   const agents = createMemo(() => {
     const value = policy()
@@ -443,7 +428,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     const next = (index + direction + available.length) % available.length
     selectAgent(available[next]?.name)
   }
-  const remoteTaskAvailable = createMemo(() => !!experiment())
+  const remoteTaskAvailable = createMemo(() => props.research === "experiment")
 
   createEffect(() => {
     if (store.mode !== "ssh") return
@@ -594,7 +579,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     if (props.agent && mode !== "normal") return
     setStore("mode", mode)
     setStore("popover", null)
-    if (mode === "ssh") void serversActions.refetch()
+    if (mode === "ssh") loadServers()
     requestAnimationFrame(() => editorRef?.focus())
   }
 

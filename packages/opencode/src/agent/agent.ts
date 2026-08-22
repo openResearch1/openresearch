@@ -39,6 +39,7 @@ import { mergeDeep, pipe, sortBy, values } from "remeda"
 import { Global } from "@/global"
 import path from "path"
 import { Plugin } from "@/plugin"
+import { Flag } from "@/flag/flag"
 import { Skill } from "../skill"
 
 export namespace Agent {
@@ -366,7 +367,7 @@ export namespace Agent {
           defaults,
           PermissionNext.fromConfig({
             question: "allow",
-            plan_exit: "allow",
+            plan_exit: Flag.OPENCODE_EXPERIMENTAL_PLAN_MODE ? "allow" : "deny",
             external_directory: {
               [path.join(Global.Path.data, "plans", "*")]: "allow",
             },

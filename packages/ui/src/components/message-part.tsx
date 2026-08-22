@@ -7,6 +7,7 @@ import {
   For,
   Match,
   on,
+  onCleanup,
   Show,
   Switch,
   type JSX,
@@ -248,15 +249,29 @@ function localAgentInfo(store: ReturnType<typeof useData>["store"], target: Agen
 function useAgentInfo(target: () => AgentTarget, forced?: () => string | undefined) {
   const data = useData()
   const local = createMemo(() => localAgentInfo(data.store, target()))
-  const [resolved] = createResource(
-    () => {
-      const value = target()
-      if (local()?.name) return
-      if (!value.agentId && !value.sessionId && !value.atomId && !value.experimentId) return
-      return value
-    },
-    (value) => data.resolveAgentInfo?.(value),
+  const [resolved, setResolved] = createSignal<AgentInfo>()
+  let version = 0
+  createEffect(
+    on(
+      () => {
+        const value = target()
+        return [value.agentId, value.sessionId, value.atomId, value.experimentId].join("\n")
+      },
+      () => {
+        const value = target()
+        const current = ++version
+        setResolved(undefined)
+        if (local()?.name) return
+        if (!value.agentId && !value.sessionId && !value.atomId && !value.experimentId) return
+        void Promise.resolve(data.resolveAgentInfo?.(value))
+          .then((info) => {
+            if (current === version) setResolved(info)
+          })
+          .catch(() => undefined)
+      },
+    ),
   )
+  onCleanup(() => version++)
   return createMemo(() => {
     const found = local()?.name ? local() : (resolved() ?? local())
     const type = forced?.() ?? found?.type ?? "agent"

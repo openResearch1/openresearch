@@ -14,11 +14,13 @@ import { createSessionComposerState } from "@/pages/session/composer/session-com
 import { useCollabActivity } from "@/pages/session/composer/session-collab-activity"
 import { createSessionHistoryWindow } from "@/pages/session/history-window"
 import { createTimelineStaging } from "@/pages/session/timeline-staging"
+import { useSessionResearch } from "@/pages/session/session-research"
 import * as MessageOrder from "@/utils/message"
 
 const CHAT_MIN_WIDTH = 360
 const CHAT_MAX_WIDTH = 900
 const CHAT_DEFAULT_WIDTH = 520
+const SESSION_FRESHNESS = 15_000
 
 export function AtomChatPanel(props: { atomSessionId: string; onClose: () => void; title?: string }) {
   const parent = useData()
@@ -29,7 +31,9 @@ export function AtomChatPanel(props: { atomSessionId: string; onClose: () => voi
   const load = (id: string) => {
     const cached = sync.data.message[id] !== undefined
     const status = sync.data.session_status[id]?.type
-    return cached && status !== "busy" && status !== "retry" ? sync.session.reload(id) : sync.session.sync(id)
+    if (!cached || status === "busy" || status === "retry") return sync.session.sync(id)
+    if (sync.session.fresh(id, SESSION_FRESHNESS)) return sync.session.sync(id)
+    return sync.session.reload(id)
   }
 
   // Sync session data so messages are loaded
@@ -161,6 +165,17 @@ function AtomChatInner(props: { sessionID: string; canGoBack: boolean; onGoBack:
   const settings = useSettings()
   const sync = useSync()
   const collabActivity = useCollabActivity(() => props.sessionID)
+  const research = useSessionResearch(() => props.sessionID)
+  const kind = createMemo(() => {
+    const value = research.kind()
+    if (value === "experiment" || value === "atom") return value
+    if (!collabActivity.ready() || !research.ready()) return
+    if (collabActivity.controllerRoot()) return "controller" as const
+    const metadata = collabActivity.rootAgent()?.spec.metadata
+    if (typeof metadata?.expId === "string") return "experiment" as const
+    if (typeof metadata?.atomId === "string") return "atom" as const
+    return value
+  })
   const composer = createSessionComposerState()
   let scroller: HTMLDivElement | undefined
 
@@ -388,9 +403,11 @@ function AtomChatInner(props: { sessionID: string; canGoBack: boolean; onGoBack:
 
       {/* Composer with permission/question docks */}
       <div class="shrink-0">
-        <SessionComposerRegion
+      <SessionComposerRegion
           state={composer}
-          collabActivity={collabActivity}
+        collabActivity={collabActivity}
+        research={research}
+        kind={kind()}
           ready={true}
           centered={false}
           inputRef={() => {}}

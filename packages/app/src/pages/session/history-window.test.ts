@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { historyLoadMode, historyRevealTop } from "./history-window"
+import { createHistoryWindowCache, historyLoadMode, historyRevealTop } from "./history-window"
 
 describe("historyLoadMode", () => {
   test("reveals cached turns before fetching", () => {
@@ -31,5 +31,27 @@ describe("historyRevealTop", () => {
     expect(historyRevealTop({ top: -200, height: 1000, gap: 200, max: 400 }, { clientHeight: 600, height: 2000 })).toBe(
       -200,
     )
+  })
+})
+
+describe("session history window", () => {
+  test("restores each session window independently", () => {
+    const cache = createHistoryWindowCache()
+    cache.set("parent", { start: 4, until: 10, misses: 1 })
+    cache.set("child", { start: 7, until: 20, misses: 0 })
+
+    expect(cache.get("parent")).toEqual({ start: 4, until: 10, misses: 1 })
+    expect(cache.get("child")).toEqual({ start: 7, until: 20, misses: 0 })
+  })
+
+  test("bounds cached session windows", () => {
+    const cache = createHistoryWindowCache(2)
+    cache.set("one", { start: 1, until: 0, misses: 0 })
+    cache.set("two", { start: 2, until: 0, misses: 0 })
+    cache.set("three", { start: 3, until: 0, misses: 0 })
+
+    expect(cache.get("one")).toBeUndefined()
+    expect(cache.get("two")?.start).toBe(2)
+    expect(cache.get("three")?.start).toBe(3)
   })
 })

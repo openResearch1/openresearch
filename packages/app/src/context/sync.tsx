@@ -103,6 +103,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       limit: {} as Record<string, number>,
       complete: {} as Record<string, boolean>,
       loading: {} as Record<string, boolean>,
+      at: {} as Record<string, number>,
     })
 
     const getSession = (sessionID: string) => {
@@ -141,6 +142,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
             delete draft.limit[key]
             delete draft.complete[key]
             delete draft.loading[key]
+            delete draft.at[key]
           }
         }),
       )
@@ -192,29 +194,28 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       limit: number
     }) => {
       const key = keyFor(input.directory, input.sessionID)
-      if (meta.loading[key]) return
+      if (meta.loading[key]) return false
 
       setMeta("loading", key, true)
-      await settle(
-        () => globalSync.message.revision(input.directory, input.sessionID),
-        () => fetchMessages(input),
-      )
-        .then((next) => {
-          if (!next) return
-          if (!tracked(input.directory, input.sessionID)) return
-          batch(() => {
-            input.setStore("message", input.sessionID, reconcile(next.session, { key: "id" }))
-            for (const p of next.part) {
-              input.setStore("part", p.id, p.part)
-            }
-            setMeta("limit", key, input.limit)
-            setMeta("complete", key, next.complete)
-          })
+      try {
+        const next = await settle(
+          () => globalSync.message.revision(input.directory, input.sessionID),
+          () => fetchMessages(input),
+        )
+        if (!next) return false
+        if (!tracked(input.directory, input.sessionID)) return false
+        batch(() => {
+          input.setStore("message", input.sessionID, reconcile(next.session, { key: "id" }))
+          for (const p of next.part) {
+            input.setStore("part", p.id, p.part)
+          }
+          setMeta("limit", key, input.limit)
+          setMeta("complete", key, next.complete)
         })
-        .finally(() => {
-          if (!tracked(input.directory, input.sessionID)) return
-          setMeta("loading", key, false)
-        })
+        return true
+      } finally {
+        if (tracked(input.directory, input.sessionID)) setMeta("loading", key, false)
+      }
     }
 
     return {
@@ -314,7 +315,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
                   )
                 })
 
-            await Promise.all([
+            const [, loaded] = await Promise.all([
               sessionReq,
               loadMessages({
                 directory,
@@ -324,6 +325,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
                 limit,
               }),
             ])
+            if (loaded && tracked(directory, sessionID)) setMeta("at", key, Date.now())
           })
         },
         async reload(sessionID: string) {
@@ -336,7 +338,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
 
           return runInflight(inflight, `${key}\nreload`, async () => {
             const revision = globalSync.message.revision(directory, sessionID)
-            const [session, status] = await Promise.all([
+            const [session, status, loaded] = await Promise.all([
               retry(() => client.session.get({ sessionID })),
               retry(() => client.session.status()),
               loadMessages({
@@ -369,8 +371,12 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
                 status: status.data ?? {},
                 keep: Object.keys(status.data ?? {}).filter((id) => id !== sessionID),
               })
+              if (loaded) setMeta("at", key, Date.now())
             })
           })
+        },
+        fresh(sessionID: string, ttl: number) {
+          return Date.now() - (meta.at[keyFor(sdk.directory, sessionID)] ?? 0) <= ttl
         },
         async diff(sessionID: string) {
           const directory = sdk.directory

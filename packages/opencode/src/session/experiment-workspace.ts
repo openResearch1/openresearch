@@ -37,6 +37,9 @@ export namespace ExperimentWorkspace {
     const experiment = resolve(sessionID)
     if (!experiment) return
     const workspace = `<experiment-workspace code_path=${JSON.stringify(experiment.code_path)}>Use code_path for experiment code operations. Other workspace files may be read for context.</experiment-workspace>`
+    if (agent === "plan") {
+      return `<experiment-workspace code_path=${JSON.stringify(experiment.code_path)} exp_plan_path=${JSON.stringify(experiment.exp_plan_path)}>Use code_path for read-only experiment inspection. All files are read-only unless the user explicitly requests plan persistence; then only exp_plan_path may be edited.</experiment-workspace>`
+    }
     if (agent === "project_runtime_env_setup" || agent === "experiment_resource_prepare") return workspace
     return [workspace, PROMPT_EXPERIMENT_CODE].join("\n\n")
   }

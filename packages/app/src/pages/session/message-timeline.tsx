@@ -1,4 +1,4 @@
-import { For, Index, createEffect, createMemo, createSignal, on, onCleanup, Show, type JSX } from "solid-js"
+import { For, Index, Suspense, createEffect, createMemo, createSignal, on, onCleanup, Show, type JSX } from "solid-js"
 import { useSessionID } from "@/context/session-id"
 import { Button } from "@opencode-ai/ui/button"
 import { FileIcon } from "@opencode-ai/ui/file-icon"
@@ -9,6 +9,7 @@ import type { AssistantMessage, Message as MessageType, Part, TextPart, UserMess
 import { getFilename } from "@opencode-ai/util/path"
 import { shouldMarkBoundaryGesture, normalizeWheelDelta } from "@/pages/session/message-gesture"
 import { createTimelineStaging } from "@/pages/session/timeline-staging"
+import type { CollabActivity } from "@/pages/session/composer/session-collab-activity"
 import { useLanguage } from "@/context/language"
 import { useSettings } from "@/context/settings"
 import { useSync } from "@/context/sync"
@@ -96,6 +97,7 @@ export function MessageTimeline(props: {
   onAutoScrollInteraction: (event: MouseEvent) => void
   onPreserveScrollAnchor: (target: HTMLElement) => void
   centered: boolean
+  collabActivity: CollabActivity
   setContentRef: (el: HTMLDivElement) => void
   turnStart: number
   historyMore: boolean
@@ -182,7 +184,11 @@ export function MessageTimeline(props: {
   return (
     <Show
       when={!props.mobileChanges}
-      fallback={<div class="relative h-full overflow-hidden">{props.mobileFallback}</div>}
+      fallback={
+        <div class="relative h-full overflow-hidden">
+          <Suspense>{props.mobileFallback}</Suspense>
+        </div>
+      }
     >
       <div class="relative w-full h-full min-w-0">
         <div
@@ -203,6 +209,7 @@ export function MessageTimeline(props: {
         </div>
         <Show when={!props.remote}>
           <SessionTimelineHeader
+            collabActivity={props.collabActivity}
             centered={props.centered}
             showHeader={showHeader}
             sessionKey={sessionKey}
@@ -282,15 +289,12 @@ export function MessageTimeline(props: {
             <div
               ref={props.setContentRef}
               role="log"
-              class="flex flex-col items-start justify-start transition-[margin]"
+              class="flex flex-col items-start justify-start w-full"
               style={{ "padding-top": "var(--session-title-height)" }}
               classList={{
-                "w-full": true,
                 "gap-2 pb-16": !props.remote,
                 "gap-1.5 pt-3 pb-6": !!props.remote,
-                "md:max-w-[500px] md:mx-auto 2xl:max-w-[700px]": props.centered,
-                "mt-0.5": props.centered,
-                "mt-0": !props.centered,
+                "md:max-w-[1000px] md:mx-auto": props.centered,
               }}
             >
               <Show when={props.turnStart > 0 || props.historyMore}>
@@ -341,10 +345,7 @@ export function MessageTimeline(props: {
                         props.onRegisterMessage(el, messageID)
                         onCleanup(() => props.onUnregisterMessage(messageID))
                       }}
-                      classList={{
-                        "min-w-0 w-full max-w-full": true,
-                        "md:max-w-[500px] 2xl:max-w-[700px]": props.centered,
-                      }}
+                      class="min-w-0 w-full max-w-full"
                     >
                       <Show when={commentCount() > 0}>
                         <div class="w-full px-4 md:px-5 pb-2">

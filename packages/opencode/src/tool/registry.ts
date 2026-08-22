@@ -27,6 +27,7 @@ import { Flag } from "@/flag/flag"
 import { Log } from "@/util/log"
 import { LspTool } from "./lsp"
 import { Truncate } from "./truncation"
+import { ExperimentWorkspace } from "@/session/experiment-workspace"
 
 import { ApplyPatchTool } from "./apply_patch"
 import { ArticleQueryTool, ArticleStatusUpdateTool } from "@/tool/article.ts"
@@ -245,6 +246,16 @@ export namespace ToolRegistry {
     sessionID?: string,
   ) {
     const tools = await all()
+    if (
+      !Flag.OPENCODE_EXPERIMENTAL_PLAN_MODE &&
+      Flag.OPENCODE_CLIENT === "cli" &&
+      agent?.name === "plan" &&
+      sessionID &&
+      ExperimentWorkspace.resolve(sessionID) &&
+      !tools.some((tool) => tool.id === "plan_exit")
+    ) {
+      tools.push(PlanExitTool)
+    }
     const result = await Promise.all(
       tools
         .filter((t) => {

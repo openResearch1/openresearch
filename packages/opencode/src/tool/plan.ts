@@ -1,5 +1,7 @@
-import z from "zod"
 import path from "path"
+
+import z from "zod"
+
 import { Tool } from "./tool"
 import { Question } from "../question"
 import { Session } from "../session"
@@ -7,6 +9,8 @@ import { MessageV2 } from "../session/message-v2"
 import { Identifier } from "../id/id"
 import { Provider } from "../provider/provider"
 import { Instance } from "../project/instance"
+import { ExperimentWorkspace } from "../session/experiment-workspace"
+import EXPERIMENT_EXIT_DESCRIPTION from "./experiment-plan-exit.txt"
 import EXIT_DESCRIPTION from "./plan-exit.txt"
 
 async function getLastModel(sessionID: string) {
@@ -16,21 +20,30 @@ async function getLastModel(sessionID: string) {
   return Provider.defaultModel()
 }
 
-export const PlanExitTool = Tool.define("plan_exit", {
-  description: EXIT_DESCRIPTION,
+export const PlanExitTool = Tool.define("plan_exit", async (init) => ({
+  description:
+    init?.sessionID && ExperimentWorkspace.resolve(init.sessionID) ? EXPERIMENT_EXIT_DESCRIPTION : EXIT_DESCRIPTION,
   parameters: z.object({}),
   async execute(_params, ctx) {
     const session = await Session.get(ctx.sessionID)
+    const experiment = ExperimentWorkspace.resolve(ctx.sessionID)
     const plan = path.relative(Instance.worktree, Session.plan(session))
     const answers = await Question.ask({
       sessionID: ctx.sessionID,
       questions: [
         {
-          question: `Plan at ${plan} is complete. Would you like to switch to the build agent and start implementing?`,
-          header: "Build Agent",
+          question: experiment
+            ? "The current plan is complete. Would you like to switch to the Experiment agent and execute it?"
+            : `Plan at ${plan} is complete. Would you like to switch to the build agent and start implementing?`,
+          header: experiment ? "Experiment Agent" : "Build Agent",
           custom: false,
           options: [
-            { label: "Yes", description: "Switch to build agent and start implementing the plan" },
+            {
+              label: "Yes",
+              description: experiment
+                ? "Switch to the Experiment agent and execute the plan"
+                : "Switch to build agent and start implementing the plan",
+            },
             { label: "No", description: "Stay with plan agent to continue refining the plan" },
           ],
         },
@@ -51,7 +64,7 @@ export const PlanExitTool = Tool.define("plan_exit", {
       time: {
         created: Date.now(),
       },
-      agent: "build",
+      agent: experiment ? "experiment" : "build",
       model,
     }
     await Session.updateMessage(userMsg)
@@ -60,17 +73,21 @@ export const PlanExitTool = Tool.define("plan_exit", {
       messageID: userMsg.id,
       sessionID: ctx.sessionID,
       type: "text",
-      text: `The plan at ${plan} has been approved, you can now edit files. Execute the plan`,
+      text: experiment
+        ? "Execute the approved plan from the preceding conversation according to the Experiment agent instructions."
+        : `The plan at ${plan} has been approved, you can now edit files. Execute the plan`,
       synthetic: true,
     } satisfies MessageV2.TextPart)
 
     return {
-      title: "Switching to build agent",
-      output: "User approved switching to build agent. Wait for further instructions.",
+      title: experiment ? "Switching to Experiment agent" : "Switching to build agent",
+      output: experiment
+        ? "User approved switching to the Experiment agent. Wait for further instructions."
+        : "User approved switching to build agent. Wait for further instructions.",
       metadata: {},
     }
   },
-})
+}))
 
 /*
 export const PlanEnterTool = Tool.define("plan_enter", {

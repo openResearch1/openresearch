@@ -23,6 +23,20 @@ type Snap = {
   max: number
 }
 
+type Window = { start: number; until: number; misses: number }
+
+export function createHistoryWindowCache(limit = 16) {
+  const cache = new Map<string, Window>()
+  return {
+    get: (id: string) => cache.get(id),
+    set(id: string, value: Window) {
+      cache.delete(id)
+      cache.set(id, value)
+      while (cache.size > limit) cache.delete(cache.keys().next().value!)
+    },
+  }
+}
+
 export const historyLoadMode = (input: { start: number; more: boolean; loading: boolean }) => {
   if (input.start > 0) return "reveal"
   if (!input.more || input.loading) return "noop"
@@ -103,6 +117,8 @@ export function createSessionHistoryWindow(input: SessionHistoryWindowInput) {
     prefetchUntil: 0,
     prefetchNoGrowth: 0,
   })
+  const cache = createHistoryWindowCache()
+  let active: string | undefined
 
   const initialTurnStart = (len: number) => (len > turnInit ? len - turnInit : 0)
 
@@ -245,10 +261,24 @@ export function createSessionHistoryWindow(input: SessionHistoryWindowInput) {
   createEffect(
     on(
       input.sessionID,
-      () => {
-        setState({ prefetchUntil: 0, prefetchNoGrowth: 0 })
+      (id) => {
+        if (active) {
+          cache.set(active, {
+            start: state.turnStart,
+            until: state.prefetchUntil,
+            misses: state.prefetchNoGrowth,
+          })
+        }
+        active = id
+        const saved = id ? cache.get(id) : undefined
+        setState({
+          turnID: id,
+          turnStart:
+            saved?.start ?? (id && input.messagesReady() ? initialTurnStart(input.visibleUserMessages().length) : 0),
+          prefetchUntil: saved?.until ?? 0,
+          prefetchNoGrowth: saved?.misses ?? 0,
+        })
       },
-      { defer: true },
     ),
   )
 
@@ -257,7 +287,8 @@ export function createSessionHistoryWindow(input: SessionHistoryWindowInput) {
       () => [input.sessionID(), input.messagesReady()] as const,
       ([id, ready]) => {
         if (!id || !ready) return
-        setTurnStart(initialTurnStart(input.visibleUserMessages().length))
+        const saved = cache.get(id)
+        setTurnStart(saved?.start ?? initialTurnStart(input.visibleUserMessages().length))
       },
       { defer: true },
     ),
