@@ -138,6 +138,7 @@ export const dict = {
   "ui.tool.research.family.atom": "知识原子",
   "ui.tool.research.family.experiment": "实验",
   "ui.tool.research.family.runtime": "项目运行时",
+  "ui.tool.research.family.agent": "智能体协作",
   "ui.tool.research.count": "{{count}} 条结果",
   "ui.tool.research.items": "条目",
   "ui.tool.research.claim": "声明",
@@ -172,6 +173,9 @@ export const dict = {
   "ui.tool.research.runtime.envUpsert": "更新运行时环境",
   "ui.tool.research.runtime.resourceQuery": "查看运行时资源",
   "ui.tool.research.runtime.resourceUpsert": "更新运行时资源",
+  "ui.tool.research.agent.children": "查看子智能体",
+  "ui.tool.research.agent.activeChildren": "{{count}} 个活跃子节点",
+  "ui.tool.research.agent.noChildren": "暂无子智能体",
 
   "ui.remoteTask.label": "远程任务",
   "ui.remoteTask.taskId": "任务 ID",

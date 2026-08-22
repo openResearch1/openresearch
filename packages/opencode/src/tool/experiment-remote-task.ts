@@ -69,7 +69,7 @@ export const ExperimentRemoteTaskStartTool = Tool.define("experiment_remote_task
       .describe(
         "Unattended remote business command or multiline shell script. Normal shell syntax, business-level heredocs, and application-owned tee or redirection are allowed. Do not add ssh/sshpass, screen/nohup, polling, or tee/redirection solely for the managed task log.",
       ),
-    resourceKey: z.string().optional().describe("Stable resource key for resource download deduplication."),
+    resourceKey: z.string().optional().describe("Stable resource key associated with the remote task."),
     targetPath: z.string().nullable().optional().describe("Final remote target path produced by the command."),
     sourceSelection: z
       .string()

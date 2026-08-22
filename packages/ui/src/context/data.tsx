@@ -6,7 +6,7 @@ type Data = {
   provider?: ProviderListResponse
   session: Session[]
   session_status: {
-    [sessionID: string]: SessionStatus
+    [sessionID: string]: SessionStatus | undefined
   }
   session_diff: {
     [sessionID: string]: FileDiff[]

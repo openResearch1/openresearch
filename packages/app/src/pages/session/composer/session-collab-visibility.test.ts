@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 
 import type { CollabAgent } from "@opencode-ai/sdk/v2/client"
-import { TERMINAL_TTL, active, deadline, historical, tree, visible } from "./session-collab-visibility"
+import { TERMINAL_TTL, active, deadline, historical, listed, tree, visible } from "./session-collab-visibility"
 
 function agent(input?: Partial<CollabAgent>): CollabAgent {
   return {
@@ -64,6 +64,14 @@ describe("session Collab visibility", () => {
     expect(historical(item)).toBe(true)
     expect(visible(item, 1_000)).toBe(false)
     expect(visible(item, 1_000, true)).toBe(true)
+  })
+
+  test("Collab list keeps completed agents folded by default", () => {
+    const running = agent({ status: "running" })
+    const completed = agent({ status: "completed" })
+    expect(listed(running)).toBe(true)
+    expect(listed(completed)).toBe(false)
+    expect(listed(completed, true)).toBe(true)
   })
 
   test("tree keeps expired ancestors of visible descendants", () => {

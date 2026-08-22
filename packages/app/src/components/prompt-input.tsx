@@ -1,6 +1,18 @@
 import { useFilteredList } from "@opencode-ai/ui/hooks"
 import { useSpring } from "@opencode-ai/ui/motion-spring"
-import { createEffect, on, Component, Show, onCleanup, Switch, Match, createMemo, createSignal, createResource } from "solid-js"
+import {
+  createEffect,
+  on,
+  Component,
+  Show,
+  onCleanup,
+  Switch,
+  Match,
+  createMemo,
+  createSignal,
+  createResource,
+  type JSX,
+} from "solid-js"
 import { createStore } from "solid-js/store"
 import { createFocusSignal } from "@solid-primitives/active-element"
 import { useLocal } from "@/context/local"
@@ -69,6 +81,7 @@ interface PromptInputProps {
   newSessionWorktree?: string
   onNewSessionWorktreeReset?: () => void
   onSubmit?: () => void
+  actions?: JSX.Element
 }
 
 const EXAMPLES = [
@@ -1740,9 +1753,9 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               "px-2 pt-5 pb-2 gap-1.5": !!props.compact,
             }}
           >
-            <div class="flex items-center gap-1.5 min-w-0 flex-1 relative">
+            <div class="flex items-center gap-1.5 min-w-0 flex-1 relative overflow-hidden">
               <div
-                class="h-7 flex items-center gap-1.5 max-w-[360px] min-w-0 absolute inset-y-0 left-0"
+                class="h-7 flex items-center gap-1.5 max-w-[360px] min-w-0 absolute inset-y-0 left-0 overflow-hidden"
                 style={{
                   padding: "0 4px 0 8px",
                   opacity: 1 - buttonsSpring(),
@@ -1780,7 +1793,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                 </Show>
                 <div class="size-4 shrink-0" />
               </div>
-              <div class="flex items-center gap-1.5 min-w-0 flex-1">
+              <div class="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
                 <TooltipKeybind
                   placement="top"
                   gutter={4}
@@ -1795,7 +1808,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                         options={agentNames()}
                         current={selectedAgent()?.name ?? ""}
                         onSelect={selectAgent}
-                        class={props.compact ? "capitalize max-w-[96px]" : "capitalize max-w-[160px]"}
+                        class={props.compact ? "capitalize min-w-0 max-w-[96px]" : "capitalize min-w-0 max-w-[160px]"}
                         valueClass="truncate text-13-regular"
                         triggerStyle={{
                           height: "28px",
@@ -1907,7 +1920,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                       current={local.model.variant.current() ?? "default"}
                       label={(x) => (x === "default" ? language.t("common.default") : x)}
                       onSelect={(x) => local.model.variant.set(x === "default" ? undefined : x)}
-                      class="capitalize max-w-[160px]"
+                      class="capitalize min-w-0 max-w-[160px]"
                       valueClass="truncate text-13-regular"
                       triggerStyle={{
                         height: "28px",
@@ -1922,7 +1935,8 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                 </Show>
               </div>
             </div>
-            <div class="shrink-0">
+            <div class="shrink-0 flex items-center gap-1">
+              {props.actions}
               <RadioGroup
                 options={(remoteTaskAvailable() ? ["shell", "ssh", "remote-task", "normal"] : ["shell", "ssh", "normal"]) as Mode[]}
                 current={store.mode}

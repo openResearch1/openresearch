@@ -2,6 +2,7 @@ import { Show, createEffect, createMemo, createSignal, onCleanup } from "solid-j
 import { useNavigate } from "@solidjs/router"
 import { useSessionID } from "@/context/session-id"
 import { useSpring } from "@opencode-ai/ui/motion-spring"
+import { useData } from "@opencode-ai/ui/context"
 import { PromptInput } from "@/components/prompt-input"
 import { useLanguage } from "@/context/language"
 import { usePrompt } from "@/context/prompt"
@@ -11,7 +12,7 @@ import { SessionQuestionDock } from "@/pages/session/composer/session-question-d
 import type { SessionComposerState } from "@/pages/session/composer/session-composer-state"
 import { SessionTodoDock } from "@/pages/session/composer/session-todo-dock"
 import { SessionWorkflowDock } from "@/pages/session/composer/session-workflow-dock"
-import { SessionCollabDock } from "@/pages/session/composer/session-collab-dock"
+import { SessionCollabPopover } from "@/pages/session/composer/session-collab-popover"
 import type { CollabActivity } from "@/pages/session/composer/session-collab-activity"
 
 export function SessionComposerRegion(props: {
@@ -48,9 +49,31 @@ export function SessionComposerRegion(props: {
   const prompt = usePrompt()
   const language = useLanguage()
   const navigate = useNavigate()
+  const data = useData()
 
   const sessionKey = createMemo(() => `${params.dir}${params.id ? "/" + params.id : ""}`)
   const handoffPrompt = createMemo(() => getSessionHandoff(sessionKey())?.prompt)
+  const openSession = (id: string) => {
+    if (data.navigateToSession) return data.navigateToSession(id)
+    navigate(`/${params.dir}/session/${id}`)
+  }
+  const collab = () => (
+    <Show when={params.id}>
+      <SessionCollabPopover
+        activity={props.collabActivity}
+        title={language.t("session.collab.title")}
+        openLabel={language.t("session.collab.open")}
+        runningLabel={language.t("session.collab.running")}
+        blockedLabel={language.t("session.collab.blocked")}
+        pendingLabel={language.t("session.collab.pending")}
+        emptyLabel={language.t("session.collab.empty")}
+        emptyActiveLabel={language.t("session.collab.emptyActive")}
+        showCompletedLabel={language.t("session.collab.showCompleted")}
+        hideCompletedLabel={language.t("session.collab.hideCompleted")}
+        onOpenAgent={(agent) => openSession(agent.session_id)}
+      />
+    </Show>
+  )
 
   const previewPrompt = () =>
     prompt
@@ -151,22 +174,6 @@ export function SessionComposerRegion(props: {
               </div>
             }
           >
-            <Show when={params.id}>
-              <SessionCollabDock
-                activity={props.collabActivity}
-                title={language.t("session.collab.title")}
-                collapseLabel={language.t("session.collab.collapse")}
-                expandLabel={language.t("session.collab.expand")}
-                runningLabel={language.t("session.collab.running")}
-                blockedLabel={language.t("session.collab.blocked")}
-                pendingLabel={language.t("session.collab.pending")}
-                emptyLabel={language.t("session.collab.empty")}
-                emptyActiveLabel={language.t("session.collab.emptyActive")}
-                showCompletedLabel={language.t("session.collab.showCompleted")}
-                hideCompletedLabel={language.t("session.collab.hideCompleted")}
-                onOpenAgent={(agent) => navigate(`/${params.dir}/session/${agent.session_id}`)}
-              />
-            </Show>
             <Show when={dock()}>
               <div
                 classList={{
@@ -227,22 +234,25 @@ export function SessionComposerRegion(props: {
               <Show
                 when={!props.collabActivity.controlled()}
                 fallback={
-                  <div class="relative z-10 rounded-md border border-border-base bg-background-base px-3 py-2.5 text-13-regular text-text-weak">
-                    <span class="text-text-strong">
-                      Controlled by {props.collabActivity.controller()?.name ?? "parent agent"}.
-                    </span>{" "}
-                    Direct input is disabled until this task finishes.
-                    <Show when={props.collabActivity.controller()} keyed>
-                      {(controller) => (
-                        <button
-                          type="button"
-                          class="ml-2 text-text-base underline underline-offset-2"
-                          onClick={() => navigate(`/${params.dir}/session/${controller.session_id}`)}
-                        >
-                          Open controller
-                        </button>
-                      )}
-                    </Show>
+                  <div class="relative z-10 rounded-md border border-border-base bg-background-base px-3 py-2.5 text-13-regular text-text-weak flex items-center gap-2">
+                    <div class="min-w-0 flex-1">
+                      <span class="text-text-strong">
+                        Controlled by {props.collabActivity.controller()?.name ?? "parent agent"}.
+                      </span>{" "}
+                      Direct input is disabled until this task finishes.
+                      <Show when={props.collabActivity.controller()} keyed>
+                        {(controller) => (
+                          <button
+                            type="button"
+                            class="ml-2 text-text-base underline underline-offset-2"
+                            onClick={() => openSession(controller.session_id)}
+                          >
+                            Open controller
+                          </button>
+                        )}
+                      </Show>
+                    </div>
+                    {collab()}
                   </div>
                 }
               >
@@ -261,6 +271,7 @@ export function SessionComposerRegion(props: {
                     newSessionWorktree={props.newSessionWorktree}
                     onNewSessionWorktreeReset={props.onNewSessionWorktreeReset}
                     onSubmit={props.onSubmit}
+                    actions={collab()}
                   />
                 </div>
               </Show>

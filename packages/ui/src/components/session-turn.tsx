@@ -275,7 +275,7 @@ export function SessionTurn(
     return unwrap(String(msg))
   })
 
-  const status = createMemo(() => data.store.session_status[props.sessionID] ?? idle)
+  const status = createMemo(() => props.status ?? data.store.session_status[props.sessionID] ?? idle)
   const working = createMemo(() => {
     if (status().type === "idle") return false
     if (!message()) return false

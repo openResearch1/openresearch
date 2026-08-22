@@ -161,10 +161,7 @@ function AtomChatInner(props: { sessionID: string; canGoBack: boolean; onGoBack:
   const settings = useSettings()
   const sync = useSync()
   const collabActivity = useCollabActivity(() => props.sessionID)
-  const composer = createSessionComposerState({
-    extraActive: collabActivity.active,
-    extraDone: collabActivity.done,
-  })
+  const composer = createSessionComposerState()
   let scroller: HTMLDivElement | undefined
 
   const emptyMessages: Message[] = []

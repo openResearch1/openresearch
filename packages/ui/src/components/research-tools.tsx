@@ -8,7 +8,7 @@ import type { ToolComponent, ToolProps } from "./message-part"
 
 type Data = Record<string, unknown>
 
-type Family = "atom" | "experiment" | "runtime"
+type Family = "atom" | "experiment" | "runtime" | "agent"
 
 type Spec = {
   family: Family
@@ -69,6 +69,7 @@ const SPECS: Record<string, Spec> = {
   project_runtime_env_upsert: { family: "runtime", title: "ui.tool.research.runtime.envUpsert" },
   project_runtime_resource_query: { family: "runtime", title: "ui.tool.research.runtime.resourceQuery" },
   project_runtime_resource_upsert: { family: "runtime", title: "ui.tool.research.runtime.resourceUpsert" },
+  list_children: { family: "agent", title: "ui.tool.research.agent.children" },
 }
 
 const sensitive = /(?:api[_-]?key|password|passwd|token|secret|authorization|credential)/i
@@ -133,6 +134,17 @@ function output(input: string | undefined) {
   }
 }
 
+export function children(input: string | undefined, truncated = false) {
+  if (!input || truncated) return
+  const clean = stripAnsi(input).split("\nPOLLING WARNING:", 1)[0]
+  try {
+    const rows = data(JSON.parse(clean)).children
+    if (Array.isArray(rows)) return rows
+  } catch {
+    return
+  }
+}
+
 function resultCount(props: ToolProps) {
   const count = value(props.metadata, "count", "atomCount", "deletedCount", "relationCount")
   if (typeof count === "number") return count
@@ -186,6 +198,8 @@ function subtitle(props: ToolProps) {
     case "project_runtime_resource_query":
     case "project_runtime_resource_upsert":
       return text(input.resourceKey) ?? text(input.remoteServerId)
+    case "list_children":
+      return text(meta.parentAgentId)
   }
 }
 
@@ -363,11 +377,15 @@ function fields(props: ToolProps) {
       add("Status", row.status ?? input.status)
       add("Error", row.error_message ?? input.errorMessage)
       break
+    case "list_children":
+      add("Parent agent", meta.parentAgentId, true)
+      add("Children", meta.count)
+      break
   }
   return result
 }
 
-function list(props: ToolProps): Item[] {
+function list(props: ToolProps, children: unknown[] | undefined, active: (count: number) => string): Item[] {
   const meta = props.metadata
   const rows = (() => {
     if (props.tool === "atom_batch_create") return array(props.input.atoms)
@@ -379,6 +397,7 @@ function list(props: ToolProps): Item[] {
     if (props.tool === "project_runtime_env_query" || props.tool === "project_runtime_resource_query") {
       return array(meta.rows)
     }
+    if (props.tool === "list_children") return children ?? []
     return []
   })()
 
@@ -419,6 +438,16 @@ function list(props: ToolProps): Item[] {
         status: text(row.status),
       }
     }
+    if (props.tool === "list_children") {
+      const count = typeof row.active_children === "number" ? row.active_children : 0
+      return {
+        title: text(row.name) ?? text(row.agent_id) ?? `Agent ${index + 1}`,
+        subtitle: [text(row.subagent_type), text(row.agent_id), count > 0 ? active(count) : undefined]
+          .filter(Boolean)
+          .join(" · "),
+        status: text(row.status),
+      }
+    }
     return {
       title: text(value(row, "resource_key", "resourceKey")) ?? `Resource ${index + 1}`,
       subtitle: [text(row.type), text(value(row, "target_path", "targetPath"))].filter(Boolean).join(" · "),
@@ -439,9 +468,22 @@ function tone(status: string | undefined) {
   if (!status) return "neutral"
   if (["ready", "done", "finished", "completed", "proven"].includes(status)) return "success"
   if (["failed", "crashed", "disproven", "error"].includes(status)) return "error"
-  if (["pending", "running", "preparing", "downloading", "stale", "in_progress", "waiting"].includes(status)) {
+  if (
+    [
+      "pending",
+      "running",
+      "preparing",
+      "downloading",
+      "stale",
+      "in_progress",
+      "waiting",
+      "blocked_on_children",
+      "waiting_interaction",
+    ].includes(status)
+  ) {
     return "waiting"
   }
+  if (["idle", "canceled", "cancelled"].includes(status)) return "neutral"
   return "neutral"
 }
 
@@ -449,7 +491,12 @@ const ResearchTool: Component<ToolProps> = (props) => {
   const i18n = useI18n()
   const spec = () => SPECS[props.tool]!
   const details = createMemo(() => fields(props))
-  const items = createMemo(() => list(props))
+  const childRows = createMemo(() =>
+    props.tool === "list_children" ? children(props.output, props.metadata.truncated === true) : undefined,
+  )
+  const items = createMemo(() =>
+    list(props, childRows(), (count) => i18n.t("ui.tool.research.agent.activeChildren", { count })),
+  )
   const docs = createMemo(() => documents(props))
   const result = createMemo(() => output(props.output))
   const triggerArgs = createMemo(() => args(props, (count) => i18n.t("ui.tool.research.count", { count })))
@@ -499,30 +546,35 @@ const ResearchTool: Component<ToolProps> = (props) => {
             )}
           </For>
 
-          <Show when={items().length > 0}>
+          <Show when={items().length > 0 || childRows()}>
             <section data-slot="research-tool-section">
               <div data-slot="research-tool-section-title">{i18n.t("ui.tool.research.items")}</div>
-              <div data-slot="research-tool-list">
-                <For each={items()}>
-                  {(item) => (
-                    <div data-slot="research-tool-item">
-                      <div data-slot="research-tool-item-content">
-                        <span data-slot="research-tool-item-title">{item.title}</span>
-                        <Show when={item.subtitle}>
-                          <span data-slot="research-tool-item-subtitle">{item.subtitle}</span>
+              <Show
+                when={items().length > 0}
+                fallback={<div data-slot="research-tool-empty">{i18n.t("ui.tool.research.agent.noChildren")}</div>}
+              >
+                <div data-slot="research-tool-list">
+                  <For each={items()}>
+                    {(item) => (
+                      <div data-slot="research-tool-item">
+                        <div data-slot="research-tool-item-content">
+                          <span data-slot="research-tool-item-title">{item.title}</span>
+                          <Show when={item.subtitle}>
+                            <span data-slot="research-tool-item-subtitle">{item.subtitle}</span>
+                          </Show>
+                        </div>
+                        <Show when={item.status}>
+                          {(status) => (
+                            <span data-slot="research-tool-chip" data-tone={tone(status())}>
+                              {status().replaceAll("_", " ")}
+                            </span>
+                          )}
                         </Show>
                       </div>
-                      <Show when={item.status}>
-                        {(status) => (
-                          <span data-slot="research-tool-chip" data-tone={tone(status())}>
-                            {status().replaceAll("_", " ")}
-                          </span>
-                        )}
-                      </Show>
-                    </div>
-                  )}
-                </For>
-              </div>
+                    )}
+                  </For>
+                </div>
+              </Show>
             </section>
           </Show>
 

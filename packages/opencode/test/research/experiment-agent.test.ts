@@ -524,7 +524,7 @@ describe("research.experiment-agent", () => {
     })
   })
 
-  test("delivers a new callback when a resource task id is reused", async () => {
+  test("uses a new task id when retrying a resource task", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
       directory: tmp.path,
@@ -544,35 +544,16 @@ describe("research.experiment-agent", () => {
         }
         const first = ExperimentRemoteTask.create(input)
         ExperimentRemoteTaskListener.register({ taskId: first.task_id, agentId: child.id })
-        Database.use((db) =>
-          db
-            .update(RemoteTaskTable)
-            .set({ status: "finished", time_updated: Date.now() })
-            .where(eq(RemoteTaskTable.task_id, first.task_id))
-            .run(),
-        )
-        CollabMessage.post({
-          recipientAgentId: child.id,
-          runId: null,
-          kind: "session_remote_task_terminal",
-          payload: {
-            taskId: first.task_id,
-            expId: item.expId,
-            kind: first.kind,
-            title: first.title,
-            status: "finished",
-            logPath: first.log_path,
-            errorMessage: null,
-          },
-        })
+        ExperimentRemoteTask.update({ taskId: first.task_id, status: "failed", errorMessage: "download failed" })
         CollabMessage.ack(CollabMessage.drain(child.id, "direct"))
-        await Bun.sleep(2)
 
         const second = ExperimentRemoteTask.create(input)
-        expect(second.task_id).toBe(first.task_id)
+        expect(second.task_id).not.toBe(first.task_id)
         ExperimentRemoteTaskListener.register({ taskId: second.task_id, agentId: child.id })
         ExperimentRemoteTask.update({ taskId: second.task_id, status: "finished" })
 
+        expect(ExperimentRemoteTask.get(first.task_id)?.status).toBe("failed")
+        expect(ExperimentRemoteTask.get(second.task_id)?.status).toBe("finished")
         expect(CollabMessage.list(child.id, { kind: "session_remote_task_terminal" })).toMatchObject([
           { status: "consumed" },
           { status: "pending" },

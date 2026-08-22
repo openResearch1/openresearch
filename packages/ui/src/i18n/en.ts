@@ -135,6 +135,7 @@ export const dict: Record<string, string> = {
   "ui.tool.research.family.atom": "Atom",
   "ui.tool.research.family.experiment": "Experiment",
   "ui.tool.research.family.runtime": "Project Runtime",
+  "ui.tool.research.family.agent": "Agents",
   "ui.tool.research.count": "{{count}} results",
   "ui.tool.research.items": "Items",
   "ui.tool.research.claim": "Claim",
@@ -169,6 +170,9 @@ export const dict: Record<string, string> = {
   "ui.tool.research.runtime.envUpsert": "Update runtime environment",
   "ui.tool.research.runtime.resourceQuery": "Inspect runtime resources",
   "ui.tool.research.runtime.resourceUpsert": "Update runtime resource",
+  "ui.tool.research.agent.children": "List child agents",
+  "ui.tool.research.agent.activeChildren": "{{count}} active children",
+  "ui.tool.research.agent.noChildren": "No child agents",
 
   "ui.remoteTask.label": "Remote Task",
   "ui.remoteTask.taskId": "Task ID",

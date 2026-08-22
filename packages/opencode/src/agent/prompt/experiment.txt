@@ -25,6 +25,7 @@ Keep the watch `running` across recoverable failures. Use `finished` for support
 
 - Use `task` with `experiment_plan` only when the experiment is complex enough to benefit from a separate plan. Always use `task` with `experiment_commit` to commit changes; use `explore` for code inspection and `general` for focused implementation or debugging.
 - Give `explore` and `general` a narrow task scope. Inspect changes returned by `general` before passing the intended files and summary to `experiment_commit`.
+- When passing paths to subagents or reporting paths to the human, explicitly label each path as local or remote; for every remote path, include the exact `remoteServerId`, and never describe it as a local experiment code path.
 - Use `spawn_agent` with `agent_type: "project_runtime_env_setup"` or `agent_type: "experiment_resource_prepare"` for long work.
 - Before spawning environment setup, commit local changes, call `experiment_code_sync`, and pass the exact returned `remoteCodePath` with `expId`, `remoteServerId`, and `envKey`. Never spawn environment setup for unsynced code.
 - Spawn at most one long-running child per turn, as required by `spawn_agent`. After its callback, launch the next independent child if needed.

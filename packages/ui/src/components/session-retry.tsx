@@ -4,13 +4,11 @@ import { useI18n } from "../context/i18n"
 import { Card } from "./card"
 import { Tooltip } from "./tooltip"
 import { Spinner } from "./spinner"
+import { match } from "./session-retry-state"
 
-export function SessionRetry(props: { status: SessionStatus; show?: boolean }) {
+export function SessionRetry(props: { status?: SessionStatus; show?: boolean }) {
   const i18n = useI18n()
-  const retry = createMemo(() => {
-    if (props.status.type !== "retry") return
-    return props.status
-  })
+  const retry = createMemo(() => match(props.status))
   const [seconds, setSeconds] = createSignal(0)
   createEffect(
     on(retry, (current) => {

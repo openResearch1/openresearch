@@ -296,7 +296,7 @@ export const RemoteTaskTable = sqliteTable(
   (table) => [
     index("remote_task_exp_idx").on(table.exp_id),
     index("remote_task_status_idx").on(table.status),
-    uniqueIndex("remote_task_exp_kind_resource_idx").on(table.exp_id, table.kind, table.resource_key),
+    index("remote_task_exp_kind_resource_key_idx").on(table.exp_id, table.kind, table.resource_key),
   ],
 )
 

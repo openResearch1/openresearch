@@ -87,10 +87,7 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
   })
 
   const collabActivity = useCollabActivity(() => params.id)
-  const composer = createSessionComposerState({
-    extraActive: collabActivity.active,
-    extraDone: collabActivity.done,
-  })
+  const composer = createSessionComposerState()
 
   const sessionKey = createMemo(() => `${params.dir}${params.id ? "/" + params.id : ""}`)
   const workspaceKey = createMemo(() => params.dir ?? "")

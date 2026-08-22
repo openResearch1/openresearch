@@ -16,10 +16,7 @@ const terminal = new Set<Status>(["finished", "failed", "crashed", "canceled"])
 const waiters = new Map<string, Waiter[]>()
 
 interface Lookup {
-  taskId?: string
-  expId?: string
-  kind?: Kind
-  resourceKey?: string
+  taskId: string
 }
 
 interface UpdateInput extends Lookup {
@@ -45,27 +42,8 @@ interface UpdateOptions {
 }
 
 function row(input: Lookup) {
-  if (input.taskId) {
-    return Database.use((db) =>
-      db.select().from(RemoteTaskTable).where(eq(RemoteTaskTable.task_id, input.taskId!)).get(),
-    )
-  }
-  if (!input.expId || !input.kind || !input.resourceKey) return
-  const expId = input.expId
-  const kind = input.kind
-  const resourceKey = input.resourceKey
   return Database.use((db) =>
-    db
-      .select()
-      .from(RemoteTaskTable)
-      .where(
-        and(
-          eq(RemoteTaskTable.exp_id, expId),
-          eq(RemoteTaskTable.kind, kind),
-          eq(RemoteTaskTable.resource_key, resourceKey),
-        ),
-      )
-      .get(),
+    db.select().from(RemoteTaskTable).where(eq(RemoteTaskTable.task_id, input.taskId)).get(),
   )
 }
 
@@ -157,38 +135,7 @@ export namespace ExperimentRemoteTask {
     sourceSelection?: string | null
     method?: string | null
   }) {
-    const existing = input.resourceKey
-      ? row({ expId: input.expId, kind: input.kind, resourceKey: input.resourceKey })
-      : undefined
     const now = Date.now()
-    if (existing) {
-      Database.use((db) =>
-        db
-          .update(RemoteTaskTable)
-          .set({
-            title: input.title,
-            status: "pending",
-            server: input.server,
-            remote_root: input.remoteRoot,
-            target_path: input.targetPath ?? null,
-            screen_name: input.screenName,
-            command: input.command,
-            log_path: input.logPath ?? null,
-            source_selection: input.sourceSelection ?? null,
-            method: input.method ?? null,
-            error_message: null,
-            last_polled_at: null,
-            stopped_at: null,
-            pid: null,
-            time_updated: now,
-          })
-          .where(eq(RemoteTaskTable.task_id, existing.task_id))
-          .run(),
-      )
-      ExperimentExecutionWatch.syncRemoteTask(input.expId)
-      return row({ taskId: existing.task_id })!
-    }
-
     const taskId = crypto.randomUUID()
     Database.use((db) =>
       db
