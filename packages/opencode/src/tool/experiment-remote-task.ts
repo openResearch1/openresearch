@@ -100,6 +100,13 @@ export const ExperimentRemoteTaskStartTool = Tool.define("experiment_remote_task
       remoteRoot: params.remoteRoot,
       screenName: task.screen_name,
       command,
+    }).catch((err) => {
+      ExperimentRemoteTask.update({
+        taskId: task.task_id,
+        status: "failed",
+        errorMessage: err instanceof Error ? err.message : String(err),
+      })
+      throw err
     })
     if (!result.ok) {
       ExperimentRemoteTask.update({ taskId: task.task_id, status: "failed", errorMessage: result.output || "failed" })
@@ -136,7 +143,7 @@ export const ExperimentRemoteTaskGetTool = Tool.define("experiment_remote_task_g
     waitForTerminal: z
       .boolean()
       .optional()
-      .describe("For running tasks, wait until the remote task reaches a terminal status before returning."),
+      .describe("For active tasks, wait until the remote task reaches a terminal status before returning."),
     waitTimeoutMs: z
       .number()
       .positive()
@@ -211,7 +218,7 @@ export const ExperimentRemoteTaskGetTool = Tool.define("experiment_remote_task_g
       }
     }
     let waited = false
-    if (params.waitForTerminal && task.status === "running") {
+    if (params.waitForTerminal && (task.status === "pending" || task.status === "running")) {
       waited = true
       await ctx.metadata({
         title: `Waiting: ${task.title}`,
@@ -251,7 +258,7 @@ export const ExperimentRemoteTaskGetTool = Tool.define("experiment_remote_task_g
       ? "inspect_failed"
       : state === "stopped" && inspection?.meta.managed && inspection.meta.code === undefined && task.status === "running"
         ? "starting"
-        : state || (task.status === "running" ? "unknown" : "stopped")
+        : state || (task.status === "pending" ? "starting" : task.status === "running" ? "unknown" : "stopped")
     const tail = inspection?.result.ok ? inspection.meta.tail.split("\n").slice(-20).join("\n") : ""
     const error = task.status === "failed" || task.status === "crashed" ? task.error_message : null
 
@@ -312,7 +319,7 @@ export const ExperimentRemoteTaskListTool = Tool.define("experiment_remote_task_
     expId: z.string().describe("Experiment ID whose active remote tasks should be listed."),
   }),
   async execute(params) {
-    await forceRefreshRemoteTask(params.expId)
+    if (ExperimentRemoteTask.listActiveByExp(params.expId).length) await forceRefreshRemoteTask(params.expId)
     const tasks = ExperimentRemoteTask.listActiveByExp(params.expId)
     return {
       title: `${tasks.length} active remote task(s)`,

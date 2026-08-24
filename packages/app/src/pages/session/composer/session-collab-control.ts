@@ -8,8 +8,8 @@ export function failure(code: string): CollabAgent["status"] {
 
 export function isAgentControlled(root: CollabAgent | null) {
   const metadata = root?.spec.metadata
-  if (!root?.parent_agent_id || typeof metadata?.atomId !== "string") return false
-  if (typeof metadata.expId !== "string") return true
+  if (!root?.parent_agent_id) return false
+  if (typeof metadata?.atomId !== "string" || typeof metadata.expId !== "string") return true
   return ACTIVE_STATUSES.has(root.status) && root.initiator !== "human"
 }
 

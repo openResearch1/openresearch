@@ -84,6 +84,7 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
     git: false,
     pendingMessage: undefined as string | undefined,
     scrollGesture: 0,
+    timelineStaging: true,
     scroll: {
       overflow: false,
       bottom: true,
@@ -92,6 +93,9 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
 
   const collabActivity = useCollabActivity(() => params.id)
   const research = useSessionResearch(() => params.id)
+  const reviewEnabled = createMemo(
+    () => !!sync.project?.id && research.ready() && !research.error() && !research.project(),
+  )
   const composer = createSessionComposerState()
 
   const sessionKey = createMemo(() => `${params.dir}${params.id ? "/" + params.id : ""}`)
@@ -598,8 +602,8 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
       .filter((tab) => tab !== "context" && tab !== "review"),
   )
 
-  const mobileChanges = createMemo(() => !isDesktop() && store.mobileTab === "changes")
-  const reviewTab = createMemo(() => isDesktop())
+  const mobileChanges = createMemo(() => !isDesktop() && reviewEnabled() && store.mobileTab === "changes")
+  const reviewTab = createMemo(() => isDesktop() && reviewEnabled())
 
   const fileTreeTab = () => layout.fileTree.tab()
   const setFileTreeTab = (value: "changes" | "all") => layout.fileTree.setTab(value)
@@ -914,7 +918,7 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
 
     const wants = isDesktop()
       ? desktopFileTreeOpen() || (desktopReviewOpen() && activeTab() === "review")
-      : store.mobileTab === "changes"
+      : reviewEnabled() && store.mobileTab === "changes"
     if (!wants) return
     if (sync.data.session_diff[id] !== undefined) return
     if (sync.status === "loading") return
@@ -1016,6 +1020,7 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
     on(
       sessionKey,
       () => {
+        setUi("timelineStaging", true)
         scrollSpy.clear()
       },
       { defer: true },
@@ -1061,6 +1066,7 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
       historyFillFrame = undefined
 
       if (!params.id || !messagesReady()) return
+      if (ui.timelineStaging) return
       if (autoScroll.userScrolled() || historyLoading()) return
 
       const el = scroller
@@ -1106,7 +1112,7 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
 
       dockHeight = next
 
-      if (stick) autoScroll.smoothScrollToBottom()
+      if (stick) autoScroll.snapToBottom()
 
       if (el) scheduleScrollState(el)
       scrollSpy.markDirty()
@@ -1114,10 +1120,10 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
     },
   )
 
-  const { clearMessageHash, scrollToMessage } = useSessionHashScroll({
+  const { applyHash, clearMessageHash, scrollToMessage } = useSessionHashScroll({
     sessionKey,
     sessionID: () => params.id,
-    messagesReady,
+    messagesReady: () => messagesReady() && !ui.timelineStaging,
     visibleUserMessages,
     turnStart: historyWindow.turnStart,
     currentMessageId: () => store.messageId,
@@ -1179,7 +1185,7 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
       <div class="flex-1 min-h-0 flex flex-col md:flex-row">
         <Show when={!props.remote}>
           <SessionMobileTabs
-            open={!isDesktop() && !!params.id}
+            open={!isDesktop() && !!params.id && reviewEnabled()}
             mobileTab={store.mobileTab}
             hasReview={hasReview()}
             reviewCount={reviewCount()}
@@ -1250,6 +1256,31 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
                     onTurnBackfillScroll={historyWindow.onScrollerScroll}
                     onAutoScrollInteraction={autoScroll.handleInteraction}
                     onPreserveScrollAnchor={autoScroll.preserve}
+                    onStagingChange={(value) => {
+                      setUi("timelineStaging", value)
+                      if (!value) scheduleHistoryFill()
+                    }}
+                    onStagingReady={() => {
+                      const target =
+                        ui.pendingMessage ?? store.messageId ?? layout.pendingMessage.consume(sessionKey())
+                      if (target && ui.pendingMessage !== target) setUi("pendingMessage", target)
+                      if (window.location.hash || target) {
+                        return new Promise<void>((resolve) => {
+                          requestAnimationFrame(() => {
+                            if (window.location.hash) {
+                              applyHash("auto")
+                            } else {
+                              const message = visibleUserMessages().find((item) => item.id === target)
+                              if (message) scrollToMessage(message, "auto")
+                            }
+                            requestAnimationFrame(() => resolve())
+                          })
+                        })
+                      }
+                      autoScroll.snapToBottom()
+                      const root = scroller
+                      if (root) scheduleScrollState(root)
+                    }}
                     centered={centered()}
                     collabActivity={collabActivity}
                     setContentRef={(el) => {
@@ -1338,6 +1369,7 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
             <SessionSidePanel
               collabActivity={collabActivity}
               research={research}
+              review={reviewEnabled}
               kind={sessionKind()}
               reviewPanel={reviewPanel}
               activeDiff={tree.activeDiff}

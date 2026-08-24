@@ -3,33 +3,75 @@ import { spawn } from "child_process"
 import { Tool } from "./tool"
 import DESCRIPTION from "./ssh.txt"
 import { Log } from "../util/log"
-import { remoteServerLabel, resolveSshConfigPath, RemoteServerConfigSchema } from "../research/remote-server"
+import { RemoteServerTable } from "../research/research.sql"
+import {
+  normalizeRemoteServerConfig,
+  remoteServerLabel,
+  resolveSshConfigPath,
+  RemoteServerConfigSchema,
+  type RemoteServerConfig,
+} from "../research/remote-server"
+import { Database, eq } from "../storage/db"
 
 const log = Log.create({ service: "ssh-tool" })
 
 const DEFAULT_TIMEOUT = 2 * 60 * 1000
-const ServerSchema = z.union([RemoteServerConfigSchema, z.string()])
+const Parameters = z.object({
+  server: z
+    .string()
+    .min(1)
+    .describe(
+      "Stored remote server ID or JSON-encoded connection config. Prefer a stored ID when available so saved credentials are used.",
+    ),
+  command: z.string().describe("The bash command to execute on the remote server"),
+  description: z.string().describe("Clear, concise description of what this command does in 5-10 words"),
+  timeout: z.number().optional().describe("Optional timeout in milliseconds (default: 120000)"),
+})
 
-function server(input: z.infer<typeof ServerSchema>) {
-  if (typeof input !== "string") return input
-  try {
-    return RemoteServerConfigSchema.parse(JSON.parse(input))
-  } catch (err) {
-    throw new Error("server must be a remote server object or a JSON string containing one", { cause: err })
+function stored(cfg: RemoteServerConfig) {
+  if (cfg.mode !== "direct") return { cfg }
+  const matches = Database.use((db) => db.select().from(RemoteServerTable).all()).flatMap((row) => {
+    const saved = normalizeRemoteServerConfig(JSON.parse(row.config))
+    if (saved.mode !== "direct") return []
+    if (saved.address !== cfg.address || saved.port !== cfg.port || saved.user !== cfg.user) return []
+    return [{ cfg: saved, id: row.id }]
+  })
+  if (matches.length === 0) return { cfg }
+  if (matches.length > 1) {
+    if (cfg.password) return { cfg }
+    throw new Error(`multiple stored remote servers match ${remoteServerLabel(cfg)}; pass a stored server ID`)
   }
+  const match = matches[0]!
+  if (cfg.password || !match.cfg.password) return { cfg, id: match.id }
+  return { cfg: { ...cfg, password: match.cfg.password }, id: match.id }
+}
+
+function server(input: string) {
+  const value = input.trim()
+  if (!value.startsWith("{")) {
+    const row = Database.use((db) => db.select().from(RemoteServerTable).where(eq(RemoteServerTable.id, value)).get())
+    if (!row) throw new Error(`remote server not found: ${value}`)
+    return { cfg: normalizeRemoteServerConfig(JSON.parse(row.config)), id: value }
+  }
+
+  const parsed = (() => {
+    try {
+      return RemoteServerConfigSchema.parse(JSON.parse(value))
+    } catch (err) {
+      throw new Error("server must be a JSON string containing a remote server config", { cause: err })
+    }
+  })()
+  return stored(parsed)
 }
 
 export const SshTool = Tool.define("ssh", {
   description: DESCRIPTION,
-  parameters: z.object({
-    server: ServerSchema.describe(
-      'Server connection config. Supports direct mode {"mode":"direct","address":"example.com","port":22,"user":"root","password":"xxx"} and ssh config mode {"mode":"ssh_config","host_alias":"target-dev-machine","ssh_config_path":"~/.ssh/config"}',
-    ),
-    command: z.string().describe("The bash command to execute on the remote server"),
-    timeout: z.number().optional().describe("Optional timeout in milliseconds (default: 120000)"),
-  }),
+  parameters: Parameters,
   async execute(params, ctx) {
-    const cfg = server(params.server)
+    const target = server(params.server)
+    const cfg = target.cfg
+    const label = remoteServerLabel(cfg)
+    const trace = target.id ? { remoteServerId: target.id } : {}
     const { command } = params
     const timeout = params.timeout ?? DEFAULT_TIMEOUT
 
@@ -38,10 +80,11 @@ export const SshTool = Tool.define("ssh", {
     }
 
     log.info("ssh executing", {
-      server: remoteServerLabel(cfg),
+      server: label,
       command,
     })
 
+    const batch = cfg.password ? [] : ["-o", "BatchMode=yes", "-o", "NumberOfPasswordPrompts=0"]
     const sshArgs =
       cfg.mode === "ssh_config"
         ? [
@@ -56,6 +99,7 @@ export const SshTool = Tool.define("ssh", {
             "LogLevel=ERROR",
             "-o",
             "ClearAllForwardings=yes",
+            ...batch,
             cfg.host_alias,
             command,
           ]
@@ -70,6 +114,7 @@ export const SshTool = Tool.define("ssh", {
             "LogLevel=ERROR",
             "-o",
             "ClearAllForwardings=yes",
+            ...batch,
             `${cfg.user}@${cfg.address}`,
             command,
           ]
@@ -90,7 +135,9 @@ export const SshTool = Tool.define("ssh", {
     ctx.metadata({
       metadata: {
         output: "",
-        description: `SSH ${remoteServerLabel(cfg)}`,
+        description: params.description,
+        server: label,
+        ...trace,
       },
     })
 
@@ -101,7 +148,9 @@ export const SshTool = Tool.define("ssh", {
       ctx.metadata({
         metadata: {
           output: output.length > MAX_METADATA_LENGTH ? output.slice(0, MAX_METADATA_LENGTH) + "\n\n..." : output,
-          description: `SSH ${remoteServerLabel(cfg)}`,
+          description: params.description,
+          server: label,
+          ...trace,
         },
       })
     }
@@ -171,11 +220,13 @@ export const SshTool = Tool.define("ssh", {
     }
 
     return {
-      title: `SSH ${remoteServerLabel(cfg)}`,
+      title: `SSH ${label}`,
       metadata: {
         output: output.length > MAX_METADATA_LENGTH ? output.slice(0, MAX_METADATA_LENGTH) + "\n\n..." : output,
         exit: proc.exitCode,
-        description: `SSH ${remoteServerLabel(cfg)}`,
+        description: params.description,
+        server: label,
+        ...trace,
       },
       output,
     }

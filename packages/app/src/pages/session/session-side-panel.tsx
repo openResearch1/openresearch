@@ -86,6 +86,7 @@ function DialogArticleImport(props: { count: number; onSkip: () => void; onParse
 export function SessionSidePanel(props: {
   collabActivity: CollabActivity
   research: SessionResearch
+  review: () => boolean
   kind?: "controller" | "main" | "atom" | "experiment"
   reviewPanel: () => JSX.Element
   activeDiff?: string
@@ -115,7 +116,7 @@ export function SessionSidePanel(props: {
   const reviewOpen = createMemo(() => isDesktop() && view().reviewPanel.opened())
   const fileOpen = createMemo(() => isDesktop() && layout.fileTree.opened())
   const open = createMemo(() => reviewOpen() || fileOpen())
-  const reviewTab = createMemo(() => isDesktop())
+  const reviewTab = createMemo(() => isDesktop() && props.review())
   const panelWidth = createMemo(() => {
     if (!open()) return "0px"
     if (reviewOpen()) return `calc(100% - ${layout.session.width()}px)`
@@ -302,18 +303,19 @@ export function SessionSidePanel(props: {
   })
 
   let normalizedSessionId: string | undefined
+  const fallback = () => {
+    if (isControllerSession()) return "controller-paths"
+    if (isAtomSession()) return "atom-content"
+    if (isExpSession()) return "exp-info"
+    if (isResearchProject()) return "atoms"
+  }
+
   createEffect(() => {
     if (params.id !== settledSessionId) return
     if (normalizedSessionId === params.id) return
 
     const active = tabs().active()
-    const next = isControllerSession()
-      ? "controller-paths"
-      : isAtomSession()
-        ? "atom-content"
-        : isResearchProject() && !isExpSession()
-          ? "atoms"
-          : undefined
+    const next = fallback()
     if (!next) {
       normalizedSessionId = params.id
       return
@@ -323,6 +325,12 @@ export function SessionSidePanel(props: {
       tabs().setActive(next)
     }
     normalizedSessionId = params.id
+  })
+
+  createEffect(() => {
+    if (props.review() || tabs().active() !== "review") return
+    const next = fallback()
+    if (next) tabs().setActive(next)
   })
 
   const openTab = (value: string) => {
@@ -370,6 +378,7 @@ export function SessionSidePanel(props: {
       if (active && file.pathFromTab(active)) return normalizeTab(active)
       return "controller-paths"
     }
+    if (active === "review" && !props.review()) return fallback() ?? "empty"
     if (active === "context") return "context"
     if (active === "review" && reviewTab() && !isExpSession()) return "review"
     if (active === "atoms" && isResearchProject() && !isAtomSession() && !isExpSession()) return "atoms"

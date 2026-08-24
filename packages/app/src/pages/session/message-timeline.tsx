@@ -96,6 +96,8 @@ export function MessageTimeline(props: {
   onTurnBackfillScroll: () => void
   onAutoScrollInteraction: (event: MouseEvent) => void
   onPreserveScrollAnchor: (target: HTMLElement) => void
+  onStagingChange: (staging: boolean) => void
+  onStagingReady: () => void
   centered: boolean
   collabActivity: CollabActivity
   setContentRef: (el: HTMLDivElement) => void
@@ -178,8 +180,11 @@ export function MessageTimeline(props: {
     turnStart: () => props.turnStart,
     messages: () => props.renderedUserMessages,
     config: stageCfg,
+    onReady: props.onStagingReady,
   })
   const rendered = createMemo(() => staging.messages().map((message) => message.id))
+  createEffect(() => props.onStagingChange(!staging.ready()))
+  onCleanup(() => props.onStagingChange(false))
 
   return (
     <Show
@@ -190,7 +195,12 @@ export function MessageTimeline(props: {
         </div>
       }
     >
-      <div class="relative w-full h-full min-w-0">
+      <div
+        data-timeline-staging={staging.ready() ? undefined : ""}
+        aria-hidden={staging.ready() ? undefined : "true"}
+        class="relative w-full h-full min-w-0"
+        style={{ visibility: staging.ready() ? "visible" : "hidden" }}
+      >
         <div
           class="absolute left-1/2 -translate-x-1/2 bottom-6 z-[60] pointer-events-none transition-all duration-200 ease-out"
           classList={{
@@ -221,6 +231,7 @@ export function MessageTimeline(props: {
           />
         </Show>
         <ScrollView
+          data-session-timeline=""
           data-remote-timeline={props.remote ? "true" : undefined}
           reverse
           viewportRef={props.setScrollRef}

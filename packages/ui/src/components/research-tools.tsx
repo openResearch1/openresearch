@@ -8,7 +8,7 @@ import type { ToolComponent, ToolProps } from "./message-part"
 
 type Data = Record<string, unknown>
 
-type Family = "atom" | "experiment" | "runtime" | "agent"
+type Family = "atom" | "experiment" | "runtime" | "agent" | "article" | "code" | "research" | "document"
 
 type Spec = {
   family: Family
@@ -26,12 +26,15 @@ type Item = {
   title: string
   subtitle?: string
   status?: string
+  body?: string
 }
 
 type Document = {
   label: string
   value: string
 }
+
+const LIMIT = 50
 
 const SPECS: Record<string, Spec> = {
   atom_create: { family: "atom", title: "ui.tool.research.atom.create" },
@@ -70,6 +73,19 @@ const SPECS: Record<string, Spec> = {
   project_runtime_resource_query: { family: "runtime", title: "ui.tool.research.runtime.resourceQuery" },
   project_runtime_resource_upsert: { family: "runtime", title: "ui.tool.research.runtime.resourceUpsert" },
   list_children: { family: "agent", title: "ui.tool.research.agent.children" },
+  article_query: { family: "article", title: "ui.tool.research.article.query" },
+  article_status_update: { family: "article", title: "ui.tool.research.article.status" },
+  research_code_query: { family: "code", title: "ui.tool.research.code.query" },
+  research_code_branch_query: { family: "code", title: "ui.tool.research.code.branches" },
+  research_background_edit: { family: "research", title: "ui.tool.research.project.background" },
+  research_goal_edit: { family: "research", title: "ui.tool.research.project.goal" },
+  research_macro_edit: { family: "research", title: "ui.tool.research.project.macro" },
+  research_info: { family: "research", title: "ui.tool.research.project.info" },
+  research_path: { family: "research", title: "ui.tool.research.project.path" },
+  research_result_query: { family: "research", title: "ui.tool.research.result.query" },
+  research_result_submit: { family: "research", title: "ui.tool.research.result.submit" },
+  convert: { family: "document", title: "ui.tool.research.document.convert" },
+  read_agent_output: { family: "agent", title: "ui.tool.research.agent.output" },
 }
 
 const sensitive = /(?:api[_-]?key|password|passwd|token|secret|authorization|credential)/i
@@ -134,6 +150,21 @@ function output(input: string | undefined) {
   }
 }
 
+export function payload(input: string | undefined, truncated = false) {
+  if (!input || truncated) return
+  try {
+    return JSON.parse(stripAnsi(input)) as unknown
+  } catch {
+    return
+  }
+}
+
+function filename(input: unknown) {
+  const path = text(input)
+  if (!path) return
+  return path.split(/[\\/]/).filter(Boolean).at(-1)
+}
+
 export function children(input: string | undefined, truncated = false) {
   if (!input || truncated) return
   const clean = stripAnsi(input).split("\nPOLLING WARNING:", 1)[0]
@@ -145,16 +176,18 @@ export function children(input: string | undefined, truncated = false) {
   }
 }
 
-function resultCount(props: ToolProps) {
+function resultCount(props: ToolProps, parsed?: unknown) {
   const count = value(props.metadata, "count", "atomCount", "deletedCount", "relationCount")
   if (typeof count === "number") return count
-  const rows = value(props.metadata, "rows", "tasks", "servers")
+  const rows = value(props.metadata, "rows", "tasks", "servers", "branches")
   if (Array.isArray(rows)) return rows.length
+  if (Array.isArray(parsed)) return parsed.length
 }
 
-function subtitle(props: ToolProps) {
+function subtitle(props: ToolProps, parsed?: unknown) {
   const input = props.input
   const meta = props.metadata
+  const result = data(parsed)
   switch (props.tool) {
     case "atom_create":
       return text(input.name)
@@ -200,26 +233,50 @@ function subtitle(props: ToolProps) {
       return text(input.resourceKey) ?? text(input.remoteServerId)
     case "list_children":
       return text(meta.parentAgentId)
+    case "article_query":
+      return text(input.articleId) ?? (array(input.articleIds).length ? `${array(input.articleIds).length} articles` : undefined)
+    case "article_status_update":
+      return text(input.status)
+    case "research_code_query":
+      return text(input.codeName) ?? text(input.codeId)
+    case "research_code_branch_query":
+      return text(meta.currentBranch) ?? text(result.currentBranch) ?? filename(input.codeRoot)
+    case "research_background_edit":
+    case "research_goal_edit":
+    case "research_macro_edit":
+      return filename(meta.filepath)
+    case "research_path":
+      return text(result.title) ?? text(input.title) ?? text(input.researchPathId) ?? text(input.action)
+    case "research_result_query":
+      return text(result.title) ?? text(input.resultId)
+    case "research_result_submit":
+      return text(result.title) ?? text(input.title)
+    case "convert":
+      return filename(input.filePath)
+    case "read_agent_output":
+      return text(result.name) ?? text(input.agent_id)
   }
 }
 
-function args(props: ToolProps, count: (value: number) => string) {
+function args(props: ToolProps, parsed: unknown, count: (value: number) => string) {
   const result: string[] = []
-  const total = resultCount(props)
+  const total = resultCount(props, parsed)
   if (total !== undefined) result.push(count(total))
 
   const status =
     text(value(props.metadata, "status")) ??
     text(value(data(props.metadata.row), "status")) ??
+    text(value(data(parsed), "status")) ??
     text(value(props.input, "status", "evidenceStatus", "stage"))
   if (status) result.push(status.replaceAll("_", " "))
   return result.slice(0, 2)
 }
 
-function fields(props: ToolProps) {
+function fields(props: ToolProps, parsed?: unknown) {
   const input = props.input
   const meta = props.metadata
   const row = data(meta.row)
+  const info = data(parsed)
   const result: Field[] = []
   const add = (label: string, item: unknown, mono = false) => {
     if (shown(item) && !secret(label)) result.push({ label, value: item, mono })
@@ -381,11 +438,92 @@ function fields(props: ToolProps) {
       add("Parent agent", meta.parentAgentId, true)
       add("Children", meta.count)
       break
+    case "article_query":
+      add("Article ID", input.articleId, true)
+      add("Article IDs", input.articleIds, true)
+      add("Status", input.status)
+      add("Results", meta.count)
+      break
+    case "article_status_update":
+      add("Article IDs", input.articleIds, true)
+      add("Status", input.status)
+      add("Updated", meta.updated)
+      add("Articles", meta.count)
+      break
+    case "research_code_query":
+      add("Code ID", input.codeId, true)
+      add("Code name", input.codeName)
+      add("Results", Array.isArray(meta.rows) ? meta.rows.length : meta.count)
+      break
+    case "research_code_branch_query": {
+      const branch = Array.isArray(meta.branches) ? meta : info
+      add("Code root", branch.codeRoot ?? input.codeRoot, true)
+      add("Current branch", branch.currentBranch, true)
+      add("Default branch", branch.defaultBranch, true)
+      add("Branches", array(branch.branches).length)
+      break
+    }
+    case "research_background_edit":
+    case "research_goal_edit":
+    case "research_macro_edit":
+      add("File", meta.filepath, true)
+      add("Mode", input.oldString === "" ? "whole document" : "matching text")
+      add("Previous characters", typeof input.oldString === "string" ? input.oldString.length : undefined)
+      add("New characters", typeof input.newString === "string" ? input.newString.length : undefined)
+      break
+    case "research_info":
+      add("Found", meta.found)
+      break
+    case "research_path":
+      add("Action", input.action)
+      add("Research path ID", info.research_path_id ?? input.researchPathId, true)
+      add("Status", info.status ?? input.status)
+      add("Paths", Array.isArray(parsed) ? parsed.length : undefined)
+      add("Atoms", Array.isArray(info.atoms) ? info.atoms.length : undefined)
+      add("Relations", Array.isArray(info.relations) ? info.relations.length : undefined)
+      add("Stages", Array.isArray(info.stages) ? info.stages.length : undefined)
+      break
+    case "research_result_query":
+    case "research_result_submit":
+      add("Research result ID", info.research_result_id ?? meta.resultId ?? input.resultId, true)
+      add("Results", Array.isArray(parsed) ? parsed.length : meta.count)
+      add("Atoms", Array.isArray(info.atoms) ? info.atoms.length : meta.atomCount)
+      add("Relations", Array.isArray(info.relations) ? info.relations.length : undefined)
+      add("Source session", info.source_session_id, true)
+      add("Reviewer session", info.reviewer_session_id, true)
+      break
+    case "convert":
+      add("File", input.filePath, true)
+      add("Type", filename(input.filePath)?.split(".").at(-1)?.toUpperCase())
+      add("Preview characters", typeof meta.preview === "string" ? meta.preview.length : undefined)
+      break
+    case "read_agent_output":
+      add("Agent ID", info.agent_id ?? input.agent_id, true)
+      add("Agent type", info.subagent_type)
+      add("Status", info.status)
+      add("Spawned", info.spawned_at)
+      add("Ended", info.ended_at)
+      add("Summary characters", info.summary_bytes)
+      add("Summary truncated", info.summary_truncated)
+      add(
+        "Progress entries",
+        Array.isArray(info.progress)
+          ? info.progress.length > LIMIT
+            ? `latest ${LIMIT} of ${info.progress.length}`
+            : info.progress.length
+          : undefined,
+      )
+      break
   }
   return result
 }
 
-function list(props: ToolProps, children: unknown[] | undefined, active: (count: number) => string): Item[] {
+function list(
+  props: ToolProps,
+  parsed: unknown,
+  children: unknown[] | undefined,
+  active: (count: number) => string,
+): Item[] {
   const meta = props.metadata
   const rows = (() => {
     if (props.tool === "atom_batch_create") return array(props.input.atoms)
@@ -398,10 +536,21 @@ function list(props: ToolProps, children: unknown[] | undefined, active: (count:
       return array(meta.rows)
     }
     if (props.tool === "list_children") return children ?? []
+    if (props.tool === "research_code_query") return array(meta.rows)
+    if (props.tool === "research_code_branch_query") {
+      return array(Array.isArray(meta.branches) ? meta.branches : data(parsed).branches)
+    }
+    if (props.tool === "research_path") return Array.isArray(parsed) ? parsed : array(data(parsed).atoms)
+    if (props.tool === "research_result_query" || props.tool === "research_result_submit") {
+      return Array.isArray(parsed) ? parsed : array(data(parsed).atoms)
+    }
+    if (props.tool === "read_agent_output") return array(data(parsed).progress)
     return []
   })()
 
-  return rows.map((item, index) => {
+  const visible = props.tool === "read_agent_output" ? rows.slice(-LIMIT) : rows.slice(0, LIMIT)
+
+  return visible.map((item, index) => {
     const row = data(item)
     if (props.tool === "atom_batch_create") {
       return {
@@ -448,6 +597,59 @@ function list(props: ToolProps, children: unknown[] | undefined, active: (count:
         status: text(row.status),
       }
     }
+    if (props.tool === "research_code_query") {
+      return {
+        title: text(row.code_name) ?? text(row.code_id) ?? `Code ${index + 1}`,
+        subtitle: [text(row.code_id), text(row.article_title), text(row.code_path)].filter(Boolean).join(" · "),
+        status: row.exists === false ? "missing" : row.registered === true ? "registered" : "unregistered",
+      }
+    }
+    if (props.tool === "research_code_branch_query") {
+      const sha = text(row.headSha)
+      return {
+        title: text(row.displayName) ?? text(row.branch) ?? `Branch ${index + 1}`,
+        subtitle: [sha, text(row.subject), text(row.experimentName)].filter(Boolean).join(" · "),
+        status: text(row.experimentStatus) ?? (row.current === true ? "current" : row.default === true ? "default" : undefined),
+      }
+    }
+    if (props.tool === "research_path") {
+      if (Array.isArray(parsed)) {
+        return {
+          title: text(row.title) ?? text(row.research_path_id) ?? `Path ${index + 1}`,
+          subtitle: [text(row.research_path_id), text(row.brief)].filter(Boolean).join(" · "),
+          status: text(row.status),
+        }
+      }
+      return {
+        title: text(row.atom_name) ?? text(row.atom_id) ?? `Atom ${index + 1}`,
+        subtitle: [text(row.role), text(row.atom_type), text(row.atom_evidence_type)].filter(Boolean).join(" · "),
+        status: text(row.atom_evidence_status),
+      }
+    }
+    if (props.tool === "research_result_query" || props.tool === "research_result_submit") {
+      if (Array.isArray(parsed)) {
+        return {
+          title: text(row.title) ?? text(row.research_result_id) ?? `Result ${index + 1}`,
+          subtitle: [text(row.research_result_id), `${array(row.atoms).length} atoms`].filter(Boolean).join(" · "),
+        }
+      }
+      return {
+        title: text(row.atom_name) ?? text(row.atom_id) ?? `Atom ${index + 1}`,
+        subtitle: [text(row.atom_type), text(row.atom_evidence_type)].filter(Boolean).join(" · "),
+        status: row.available === false ? "unavailable" : text(row.atom_evidence_status),
+      }
+    }
+    if (props.tool === "read_agent_output") {
+      const tools = array(row.tools)
+      return {
+        title: text(row.childName) ?? text(row.childAgentId) ?? `Progress ${index + 1}`,
+        subtitle: [typeof row.turn === "number" ? `Turn ${row.turn}` : undefined, tools.length ? `${tools.length} tools` : undefined]
+          .filter(Boolean)
+          .join(" · "),
+        status: tools.length ? (tools.every((item) => data(item).ok === true) ? "passed" : "failed") : undefined,
+        body: text(row.assistant_text),
+      }
+    }
     return {
       title: text(value(row, "resource_key", "resourceKey")) ?? `Resource ${index + 1}`,
       subtitle: [text(row.type), text(value(row, "target_path", "targetPath"))].filter(Boolean).join(" · "),
@@ -456,18 +658,57 @@ function list(props: ToolProps, children: unknown[] | undefined, active: (count:
   })
 }
 
-function documents(props: ToolProps): Document[] {
-  if (props.tool !== "atom_create") return []
-  return [
-    { label: "ui.tool.research.claim", value: text(props.input.claim) ?? "" },
-    { label: "ui.tool.research.evidence", value: text(props.input.evidence) ?? "" },
-  ].filter((item) => item.value)
+function documents(props: ToolProps, parsed?: unknown): Document[] {
+  const result = data(parsed)
+  if (props.tool === "atom_create") {
+    return [
+      { label: "ui.tool.research.claim", value: text(props.input.claim) ?? "" },
+      { label: "ui.tool.research.evidence", value: text(props.input.evidence) ?? "" },
+    ].filter((item) => item.value)
+  }
+  if (props.tool === "research_path" && !Array.isArray(parsed)) {
+    return [
+      { label: "ui.tool.research.brief", value: text(result.brief) ?? "" },
+      { label: "ui.tool.research.summary", value: text(result.summary) ?? "" },
+    ].filter((item) => item.value)
+  }
+  if ((props.tool === "research_result_query" || props.tool === "research_result_submit") && !Array.isArray(parsed)) {
+    return [
+      { label: "ui.tool.research.summary", value: text(result.summary) ?? "" },
+      { label: "ui.tool.research.evaluation", value: text(result.evaluation) ?? "" },
+    ].filter((item) => item.value)
+  }
+  if (props.tool === "convert") {
+    return [{ label: "ui.tool.research.preview", value: text(props.metadata.preview) ?? "" }].filter(
+      (item) => item.value,
+    )
+  }
+  if (props.tool === "read_agent_output") {
+    const error = data(result.error)
+    return [
+      { label: "ui.tool.research.summary", value: text(result.summary) ?? "" },
+      {
+        label: "ui.tool.agent.error",
+        value: [text(error.message), text(error.detail)].filter(Boolean).join("\n\n"),
+      },
+    ].filter((item) => item.value)
+  }
+  return []
+}
+
+function structured(props: ToolProps, parsed?: unknown) {
+  if (props.tool === "convert") return true
+  if (props.tool === "read_agent_output") return parsed !== undefined
+  return false
 }
 
 function tone(status: string | undefined) {
   if (!status) return "neutral"
-  if (["ready", "done", "finished", "completed", "proven"].includes(status)) return "success"
-  if (["failed", "crashed", "disproven", "error"].includes(status)) return "error"
+  const value = status.toLowerCase()
+  if (["ready", "done", "finished", "completed", "proven", "registered", "current", "passed"].includes(value)) {
+    return "success"
+  }
+  if (["failed", "crashed", "disproven", "error", "missing", "unavailable"].includes(value)) return "error"
   if (
     [
       "pending",
@@ -479,27 +720,34 @@ function tone(status: string | undefined) {
       "waiting",
       "blocked_on_children",
       "waiting_interaction",
-    ].includes(status)
+    ].includes(value)
   ) {
     return "waiting"
   }
-  if (["idle", "canceled", "cancelled"].includes(status)) return "neutral"
+  if (["idle", "canceled", "cancelled"].includes(value)) return "neutral"
   return "neutral"
 }
 
 const ResearchTool: Component<ToolProps> = (props) => {
   const i18n = useI18n()
   const spec = () => SPECS[props.tool]!
-  const details = createMemo(() => fields(props))
+  const parsed = createMemo(() => {
+    if (props.tool === "convert") return
+    return payload(props.output, props.tool === "read_agent_output" ? false : props.metadata.truncated === true)
+  })
+  const details = createMemo(() => fields(props, parsed()))
   const childRows = createMemo(() =>
     props.tool === "list_children" ? children(props.output, props.metadata.truncated === true) : undefined,
   )
   const items = createMemo(() =>
-    list(props, childRows(), (count) => i18n.t("ui.tool.research.agent.activeChildren", { count })),
+    list(props, parsed(), childRows(), (count) => i18n.t("ui.tool.research.agent.activeChildren", { count })),
   )
-  const docs = createMemo(() => documents(props))
-  const result = createMemo(() => output(props.output))
-  const triggerArgs = createMemo(() => args(props, (count) => i18n.t("ui.tool.research.count", { count })))
+  const docs = createMemo(() => documents(props, parsed()))
+  const triggerArgs = createMemo(() =>
+    args(props, parsed(), (count) => i18n.t("ui.tool.research.count", { count })),
+  )
+  const raw = createMemo(() => !structured(props, parsed()))
+  const result = createMemo(() => (raw() ? output(props.output) : ""))
 
   return (
     <div data-component="research-tool" data-family={spec().family}>
@@ -513,7 +761,7 @@ const ResearchTool: Component<ToolProps> = (props) => {
         defaultOpen={false}
         trigger={{
           title: i18n.t(spec().title),
-          subtitle: subtitle(props),
+          subtitle: subtitle(props, parsed()),
           args: triggerArgs(),
         }}
       >
@@ -539,7 +787,7 @@ const ResearchTool: Component<ToolProps> = (props) => {
             {(doc) => (
               <section data-slot="research-tool-section">
                 <div data-slot="research-tool-section-title">{i18n.t(doc.label)}</div>
-                <div data-slot="research-tool-document">
+                <div data-slot="research-tool-document" data-scrollable>
                   <Markdown text={doc.value} />
                 </div>
               </section>
@@ -553,14 +801,27 @@ const ResearchTool: Component<ToolProps> = (props) => {
                 when={items().length > 0}
                 fallback={<div data-slot="research-tool-empty">{i18n.t("ui.tool.research.agent.noChildren")}</div>}
               >
-                <div data-slot="research-tool-list">
+                <div data-slot="research-tool-list" data-scrollable>
                   <For each={items()}>
                     {(item) => (
-                      <div data-slot="research-tool-item">
+                      <div data-slot="research-tool-item" data-rich={item.body ? "" : undefined}>
                         <div data-slot="research-tool-item-content">
-                          <span data-slot="research-tool-item-title">{item.title}</span>
+                          <span data-slot="research-tool-item-title" title={item.title}>
+                            {item.title}
+                          </span>
                           <Show when={item.subtitle}>
-                            <span data-slot="research-tool-item-subtitle">{item.subtitle}</span>
+                            {(content) => (
+                              <span data-slot="research-tool-item-subtitle" title={content()}>
+                                {content()}
+                              </span>
+                            )}
+                          </Show>
+                          <Show when={item.body}>
+                            {(content) => (
+                              <div data-slot="research-tool-item-body">
+                                <Markdown text={content()} />
+                              </div>
+                            )}
                           </Show>
                         </div>
                         <Show when={item.status}>
@@ -578,30 +839,32 @@ const ResearchTool: Component<ToolProps> = (props) => {
             </section>
           </Show>
 
-          <section data-slot="research-tool-section">
-            <div data-slot="research-tool-section-title">{i18n.t("ui.tool.research.output")}</div>
-            <Show
-              when={result()}
-              fallback={<div data-slot="research-tool-empty">{i18n.t("ui.tool.research.noOutput")}</div>}
-            >
-              {(content) => (
-                <Show
-                  when={props.tool === "atom_graph_prompt" || props.tool === "atom_graph_prompt_smart"}
-                  fallback={
-                    <div data-slot="research-tool-output" data-scrollable>
-                      <pre>
-                        <code>{content()}</code>
-                      </pre>
+          <Show when={raw()}>
+            <section data-slot="research-tool-section">
+              <div data-slot="research-tool-section-title">{i18n.t("ui.tool.research.output")}</div>
+              <Show
+                when={result()}
+                fallback={<div data-slot="research-tool-empty">{i18n.t("ui.tool.research.noOutput")}</div>}
+              >
+                {(content) => (
+                  <Show
+                    when={props.tool === "atom_graph_prompt" || props.tool === "atom_graph_prompt_smart"}
+                    fallback={
+                      <div data-slot="research-tool-output" data-scrollable>
+                        <pre>
+                          <code>{content()}</code>
+                        </pre>
+                      </div>
+                    }
+                  >
+                    <div data-slot="research-tool-document" data-scrollable>
+                      <Markdown text={content()} />
                     </div>
-                  }
-                >
-                  <div data-slot="research-tool-document" data-scrollable>
-                    <Markdown text={content()} />
-                  </div>
-                </Show>
-              )}
-            </Show>
-          </section>
+                  </Show>
+                )}
+              </Show>
+            </section>
+          </Show>
         </div>
       </ToolCall>
     </div>
@@ -631,7 +894,7 @@ export function ResearchToolError(props: { tool: string; error: string }) {
           </Show>
           <section data-slot="research-tool-section">
             <div data-slot="research-tool-section-title">{i18n.t("ui.tool.agent.error")}</div>
-            <div data-slot="research-tool-output" data-tone="error">
+            <div data-slot="research-tool-output" data-tone="error" data-scrollable>
               <pre>
                 <code>{output(props.error)}</code>
               </pre>

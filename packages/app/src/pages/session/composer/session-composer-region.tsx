@@ -1,4 +1,4 @@
-import { Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js"
+import { Show, createEffect, createMemo, createResource, createSignal, onCleanup } from "solid-js"
 import { useNavigate } from "@solidjs/router"
 import { useSessionID } from "@/context/session-id"
 import { useSpring } from "@opencode-ai/ui/motion-spring"
@@ -6,6 +6,8 @@ import { useData } from "@opencode-ai/ui/context"
 import { PromptInput } from "@/components/prompt-input"
 import { useLanguage } from "@/context/language"
 import { usePrompt } from "@/context/prompt"
+import { useSDK } from "@/context/sdk"
+import { useSync } from "@/context/sync"
 import { getSessionHandoff, setSessionHandoff } from "@/pages/session/handoff"
 import { SessionPermissionDock } from "@/pages/session/composer/session-permission-dock"
 import { SessionQuestionDock } from "@/pages/session/composer/session-question-dock"
@@ -53,9 +55,35 @@ export function SessionComposerRegion(props: {
   const language = useLanguage()
   const navigate = useNavigate()
   const data = useData()
+  const sdk = useSDK()
+  const sync = useSync()
 
   const sessionKey = createMemo(() => `${params.dir}${params.id ? "/" + params.id : ""}`)
   const handoffPrompt = createMemo(() => getSessionHandoff(sessionKey())?.prompt)
+  const session = createMemo(() => (params.id ? sync.session.get(params.id) : undefined))
+  const parentID = createMemo(() => session()?.parentID)
+  const [parent] = createResource(
+    () => {
+      const id = parentID()
+      if (!id || sync.session.get(id)) return
+      return id
+    },
+    (id) =>
+      sdk.client.session
+        .get({ sessionID: id })
+        .then((result) => result.data)
+        .catch(() => undefined),
+  )
+  const controller = createMemo(() => {
+    const agent = props.collabActivity.controller()
+    if (agent) return { id: agent.session_id, name: agent.name }
+    const id = parentID()
+    if (!id) return
+    const info = sync.session.get(id) ?? parent()
+    return { id, name: info?.title?.trim() || "parent session" }
+  })
+  const controlled = createMemo(() => props.collabActivity.controlled() || !!parentID())
+  const controlReady = createMemo(() => !params.id || !!session())
   const openSession = (id: string) => {
     if (data.navigateToSession) return data.navigateToSession(id)
     navigate(`/${params.dir}/session/${id}`)
@@ -234,22 +262,25 @@ export function SessionComposerRegion(props: {
                 </div>
               </div>
             </Show>
-            <Show when={props.collabActivity.ready() && props.research.ready()}>
+            <Show when={props.collabActivity.ready() && props.research.ready() && controlReady()}>
               <Show
-                when={!props.collabActivity.controlled()}
+                when={!controlled()}
                 fallback={
-                  <div class="relative z-10 rounded-md border border-border-base bg-background-base px-3 py-2.5 text-13-regular text-text-weak flex items-center gap-2">
+                  <div
+                    data-component="session-control-notice"
+                    class="relative z-10 rounded-md border border-border-base bg-background-base px-3 py-2.5 text-13-regular text-text-weak flex items-center gap-2"
+                  >
                     <div class="min-w-0 flex-1">
                       <span class="text-text-strong">
-                        Controlled by {props.collabActivity.controller()?.name ?? "parent agent"}.
+                        Controlled by {controller()?.name ?? "parent agent"}.
                       </span>{" "}
-                      Direct input is disabled until this task finishes.
-                      <Show when={props.collabActivity.controller()} keyed>
+                      Direct input is disabled for this controlled session.
+                      <Show when={controller()} keyed>
                         {(controller) => (
                           <button
                             type="button"
                             class="ml-2 text-text-base underline underline-offset-2"
-                            onClick={() => openSession(controller.session_id)}
+                            onClick={() => openSession(controller.id)}
                           >
                             Open controller
                           </button>

@@ -2,7 +2,12 @@ import type { CollabAgent, ResearchExperimentBySessionResponse } from "@opencode
 
 import { withSession } from "../actions"
 import { test, expect } from "../fixtures"
-import { sessionCollabPopoverSelector, sessionCollabTriggerSelector } from "../selectors"
+import {
+  promptSelector,
+  sessionCollabPopoverSelector,
+  sessionCollabTriggerSelector,
+  sessionControlNoticeSelector,
+} from "../selectors"
 
 function agent(input: Partial<CollabAgent>): CollabAgent {
   return {
@@ -176,7 +181,10 @@ test("Collab experiment navigation stays in the SPA without loading flashes", as
 
       const parent = page.locator('nav[aria-label="collab agent ancestors"] a').first()
       await expect(parent).toBeVisible({ timeout: 30_000 })
-      await parent.click()
+      const notice = page.locator(sessionControlNoticeSelector)
+      await expect(notice).toContainText("Controlled by Collab root.")
+      await expect(page.locator(promptSelector)).toHaveCount(0)
+      await notice.getByRole("button", { name: "Open controller" }).click()
       await expect(page).toHaveURL(new RegExp(`/session/${session.id}(?:[/?#]|$)`), { timeout: 30_000 })
       await page.waitForTimeout(250)
 

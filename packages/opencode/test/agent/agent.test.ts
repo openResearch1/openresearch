@@ -52,6 +52,7 @@ test("composes shared prompts only into selected agents", async () => {
       expect(experiment?.prompt).not.toContain("## Code editing")
       expect(experiment?.prompt).not.toContain("## Experiment code editing")
       expect(experiment?.prompt).toContain("You are the autonomous experiment agent")
+      expect(evalPerm(experiment, "question")).toBe("deny")
 
       expect(research?.prompt).toContain("## Interaction and response style")
       expect(research?.prompt).toContain("## Workspace safety")

@@ -80,7 +80,11 @@ test("uses Experiment Plan reminders and clears them when manually returning to 
         expect(planning.tools.plan_exit).toBeDefined()
         expect(planning.tools.plan_exit.description).toContain("plan may remain in the conversation")
         expect(planning.tools.plan_exit.description).not.toContain("switch to build agent")
-        expect(disabled.has("bash")).toBe(true)
+        expect(planning.agent.prompt).toContain("Do not call `plan_exit`")
+        expect(JSON.stringify(planning.messages)).toContain("Do not call plan_exit")
+        expect(disabled.has("bash")).toBe(false)
+        expect(disabled.has("ssh")).toBe(false)
+        expect(disabled.has("experiment_remote_task_get")).toBe(false)
         expect(disabled.has("edit")).toBe(false)
         expect(disabled.has("write")).toBe(false)
         await expect(
@@ -99,7 +103,9 @@ test("uses Experiment Plan reminders and clears them when manually returning to 
           parts: [{ type: "text", text: "continue with the approved scope" }],
         })
         const experiment = calls.at(-1)!
+        const experimentDisabled = PermissionNext.disabled(Object.keys(experiment.tools), experiment.agent.permission)
         expect(experiment.agent.name).toBe("experiment")
+        expect(experimentDisabled.has("question")).toBe(true)
         expect(JSON.stringify(experiment.messages)).toContain(
           "Your operational mode has changed from Experiment Plan to Experiment",
         )

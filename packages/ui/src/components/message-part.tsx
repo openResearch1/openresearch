@@ -391,7 +391,7 @@ export function getToolInfo(tool: string, input: any = {}): ToolInfo {
     case "ssh":
       return {
         icon: "server",
-        title: "SSH shell",
+        title: i18n.t("ui.tool.shell"),
         subtitle: input.description,
       }
     case "experiment_remote_task_get":
@@ -2584,8 +2584,14 @@ function ShellToolRenderer(props: any) {
   const pending = () => busy(props.status)
   const reveal = useToolReveal(pending, () => props.reveal !== false)
   const ssh = () => props.tool === "ssh"
-  const title = () => (ssh() ? "SSH shell" : i18n.t("ui.tool.shell"))
+  const title = () => i18n.t("ui.tool.shell")
   const subtitle = () => props.input.description ?? props.metadata.description
+  const server = () => {
+    if (!ssh()) return
+    const value = props.metadata.server
+    if (typeof value === "string" && value.trim().length > 0) return value
+    if (typeof props.title === "string" && props.title.startsWith("SSH ")) return props.title.slice(4).trim()
+  }
   const cmd = createMemo(() => {
     const value = props.input.command ?? props.metadata.command
     if (typeof value === "string") return value
@@ -2636,6 +2642,14 @@ function ShellToolRenderer(props: any) {
       }
     >
       <div data-component="bash-output">
+        <Show when={server()}>
+          {(server) => (
+            <div data-slot="bash-server">
+              <Icon name="server" size="small" />
+              <span>{server()}</span>
+            </div>
+          )}
+        </Show>
         <div data-slot="bash-copy">
           <Tooltip
             value={copied() ? i18n.t("ui.message.copied") : i18n.t("ui.message.copy")}

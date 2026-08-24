@@ -1,5 +1,6 @@
-import { seedSessionTask, withSession } from "../actions"
+import { seedSessionTask, waitSessionIdle, withSession } from "../actions"
 import { test, expect } from "../fixtures"
+import { promptSelector, sessionControlNoticeSelector } from "../selectors"
 
 test("task tool child-session link does not trigger stale show errors", async ({ page, sdk, gotoSession }) => {
   test.setTimeout(120_000)
@@ -10,12 +11,14 @@ test("task tool child-session link does not trigger stale show errors", async ({
   }
   page.on("pageerror", onError)
 
-  await withSession(sdk, `e2e child nav ${Date.now()}`, async (session) => {
+  const title = `e2e child nav ${Date.now()}`
+  await withSession(sdk, title, async (session) => {
     const child = await seedSessionTask(sdk, {
       sessionID: session.id,
       description: "Open child session",
       prompt: "Search the repository for AssistantParts and then reply with exactly CHILD_OK.",
     })
+    await waitSessionIdle(sdk, child.sessionID, 90_000)
 
     try {
       await gotoSession(session.id)
@@ -54,8 +57,16 @@ test("task tool child-session link does not trigger stale show errors", async ({
       await link.click()
 
       await expect(page).toHaveURL(new RegExp(`/session/${child.sessionID}(?:[/?#]|$)`), { timeout: 30_000 })
-      await page.locator('nav[aria-label="parent session"] a').click()
+      await expect(page.locator("[data-timeline-staging]")).toHaveCount(0)
+      await expect(page.locator("[data-session-timeline] .scroll-view__viewport")).toHaveJSProperty("scrollTop", 0)
+      const notice = page.locator(sessionControlNoticeSelector)
+      await expect(notice).toContainText(`Controlled by ${title}.`)
+      await expect(page.locator(promptSelector)).toHaveCount(0)
+      await expect(page.locator('nav[aria-label="parent session"] a')).toBeVisible()
+      await notice.getByRole("button", { name: "Open controller" }).click()
       await expect(page).toHaveURL(new RegExp(`/session/${session.id}(?:[/?#]|$)`), { timeout: 30_000 })
+      await expect(page.locator("[data-timeline-staging]")).toHaveCount(0)
+      await expect(page.locator("[data-session-timeline] .scroll-view__viewport")).toHaveJSProperty("scrollTop", 0)
       await page.waitForTimeout(250)
 
       expect(await page.evaluate(() => Reflect.get(window, "__opencodeSessionNavigation"))).toBe(token)

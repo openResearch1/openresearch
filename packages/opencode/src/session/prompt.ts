@@ -55,7 +55,7 @@ import { SshTool } from "@/tool/ssh"
 import { ExperimentRemoteTaskStartTool } from "@/tool/experiment-remote-task"
 import { Database } from "@/storage/db"
 import { ExperimentTable, RemoteServerTable } from "@/research/research.sql"
-import { normalizeRemoteServerConfig } from "@/research/remote-server"
+import { normalizeRemoteServerConfig, remoteServerLabel } from "@/research/remote-server"
 import { Research } from "@/research/research"
 import { ResearchSessionAgent } from "@/research/session-agent"
 import { eq } from "drizzle-orm"
@@ -1610,7 +1610,7 @@ export namespace SessionPrompt {
     return `<system-reminder>
 Experiment Plan mode is active. Do not implement or execute the plan. All files and experiment state are read-only by default.
 ${access}
-Return a concise plan in the conversation by default. Call plan_exit when available; otherwise let the user switch back to the Experiment agent manually.
+Return a concise plan in the conversation by default. Do not call plan_exit; let the user switch back to the Experiment agent manually.
 </system-reminder>`
   }
 
@@ -1800,11 +1800,6 @@ NOTE: At any point in time through this workflow you should feel free to ask the
     remoteServerId: z.string().optional(),
   })
   export type ShellInput = z.infer<typeof ShellInput>
-
-  function publicRemoteServer(input: ReturnType<typeof normalizeRemoteServerConfig>) {
-    const { password, ...cfg } = input
-    return cfg
-  }
 
   export const RemoteTaskInput = z.object({
     sessionID: Identifier.schema("session"),
@@ -2080,6 +2075,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       if (!row) throw new Error(`remote server not found: ${input.remoteServerId}`)
 
       const cfg = normalizeRemoteServerConfig(JSON.parse(row.config))
+      const desc = input.command.split(/\r\n|\n|\r/).find((line) => line.trim())?.trim() || "Runs remote command"
       const part: MessageV2.Part = {
         type: "tool",
         id: Identifier.ascending("part"),
@@ -2093,11 +2089,13 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             start: Date.now(),
           },
           input: {
-            server: publicRemoteServer(cfg),
+            server: input.remoteServerId,
             command: input.command,
+            description: desc,
           },
           metadata: {
             remoteServerId: input.remoteServerId,
+            server: remoteServerLabel(cfg),
           },
         },
       }
@@ -2105,7 +2103,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
       const ssh = await SshTool.init({ agent })
       const result = await ssh.execute(
-        { server: cfg, command: input.command },
+        { server: input.remoteServerId, command: input.command, description: desc },
         {
           sessionID: input.sessionID,
           messageID: msg.id,

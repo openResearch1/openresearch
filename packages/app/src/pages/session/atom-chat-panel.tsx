@@ -248,9 +248,13 @@ function AtomChatInner(props: { sessionID: string; canGoBack: boolean; onGoBack:
     turnStart: () => historyWindow.turnStart(),
     messages: () => historyWindow.renderedUserMessages(),
     config: { init: 1, batch: 3 },
+    onReady: () => autoScroll.snapToBottom(),
   })
 
   const rendered = createMemo(() => staging.messages().map((msg) => msg.id))
+  const timelineReady = createMemo(
+    () => sync.data.message[props.sessionID] !== undefined && (userMessages().length === 0 || staging.ready()),
+  )
 
   // Scroll state tracking for scroll-to-bottom button
   const [scrollState, setScrollState] = createSignal({ overflow: false, bottom: true })
@@ -311,7 +315,12 @@ function AtomChatInner(props: { sessionID: string; canGoBack: boolean; onGoBack:
       </Show>
 
       {/* Messages area */}
-      <div class="relative flex-1 min-h-0">
+      <div
+        data-timeline-staging={timelineReady() ? undefined : ""}
+        aria-hidden={timelineReady() ? undefined : "true"}
+        class="relative flex-1 min-h-0"
+        style={{ visibility: timelineReady() ? "visible" : "hidden" }}
+      >
         {/* Scroll-to-bottom button */}
         <div
           class="absolute left-1/2 -translate-x-1/2 bottom-4 z-[60] pointer-events-none transition-all duration-200 ease-out"

@@ -57,7 +57,7 @@ function ShellRollingCommand(props: { text: string; animate?: boolean }) {
   )
 }
 
-function ShellExpanded(props: { cmd: string; out: string; open: boolean }) {
+function ShellExpanded(props: { cmd: string; out: string; open: boolean; server?: string }) {
   const i18n = useI18n()
   const rows = 10
   const rowHeight = 22
@@ -95,6 +95,7 @@ function ShellExpanded(props: { cmd: string; out: string; open: boolean }) {
   createEffect(() => {
     props.cmd
     props.out
+    props.server
     queueMicrotask(() => {
       resize()
       updateMask()
@@ -124,6 +125,14 @@ function ShellExpanded(props: { cmd: string; out: string; open: boolean }) {
       <div ref={bodyRef} data-component="shell-expanded-shell">
         <div data-slot="shell-expanded-body">
           <div ref={topRef} data-slot="shell-expanded-top">
+            <Show when={props.server}>
+              {(server) => (
+                <div data-slot="shell-expanded-server">
+                  <Icon name="server" size="small" />
+                  <span>{server()}</span>
+                </div>
+              )}
+            </Show>
             <div data-slot="shell-expanded-command">
               <span data-slot="shell-expanded-prompt">$</span>
               <span data-slot="shell-expanded-input">{props.cmd}</span>
@@ -178,7 +187,15 @@ export function ShellRollingResults(props: { part: ToolPart; animate?: boolean; 
   const state = createMemo(() => props.part.state as Record<string, any>)
   const pending = createMemo(() => busy(props.part.state.status))
   const ssh = createMemo(() => props.part.tool === "ssh")
-  const title = createMemo(() => (ssh() ? "SSH shell" : i18n.t("ui.tool.shell")))
+  const title = createMemo(() => i18n.t("ui.tool.shell"))
+  const server = createMemo(() => {
+    if (!ssh()) return ""
+    const value = state().metadata?.server
+    if (typeof value === "string" && value.trim().length > 0) return value
+    const title = state().title
+    if (typeof title === "string" && title.startsWith("SSH ")) return title.slice(4).trim()
+    return ""
+  })
   const expanded = createMemo(() => open() && !pending())
   const previewOpen = createMemo(() => open() && pending())
   const command = createMemo(() => {
@@ -188,7 +205,9 @@ export function ShellRollingResults(props: { part: ToolPart; animate?: boolean; 
   })
   const subtitle = createMemo(() => {
     const value = state().input?.description ?? state().metadata?.description
-    if (typeof value === "string" && value.trim().length > 0) return value
+    if (typeof value === "string" && value.trim().length > 0) {
+      if (!ssh() || !server() || value.trim() !== `SSH ${server()}`) return value
+    }
     return firstLine(command()) ?? ""
   })
   const output = createMemo(() => {
@@ -290,7 +309,7 @@ export function ShellRollingResults(props: { part: ToolPart; animate?: boolean; 
           }}
         />
       </div>
-      <ShellExpanded cmd={command()} out={text()} open={expanded()} />
+      <ShellExpanded cmd={command()} out={text()} open={expanded()} server={server()} />
     </div>
   )
 }

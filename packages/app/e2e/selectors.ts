@@ -12,6 +12,7 @@ export const sessionTodoToggleButtonSelector = '[data-action="session-todo-toggl
 export const sessionTodoListSelector = '[data-slot="session-todo-list"]'
 export const sessionCollabTriggerSelector = '[data-action="session-collab-trigger"]'
 export const sessionCollabPopoverSelector = '[data-component="session-collab-popover"]'
+export const sessionControlNoticeSelector = '[data-component="session-control-notice"]'
 
 export const modelVariantCycleSelector = '[data-action="model-variant-cycle"]'
 export const settingsLanguageSelectSelector = '[data-action="settings-language"]'

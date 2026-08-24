@@ -12,6 +12,7 @@ export type TimelineStageInput = {
   turnStart: () => number
   messages: () => UserMessage[]
   config: StageConfig
+  onReady?: () => void | Promise<void>
 }
 
 export const hasStaged = (sessions: string[], session: string) => sessions.includes(session)
@@ -36,6 +37,7 @@ export function createTimelineStaging(input: TimelineStageInput) {
   })
   const [readySession, setReadySession] = createSignal("")
   let active = ""
+  let preparing = ""
   const done = (session: string) => hasStaged(state.completed, session)
   const complete = (session: string) => {
     if (done(session)) return
@@ -68,7 +70,18 @@ export function createTimelineStaging(input: TimelineStageInput) {
   const scheduleReady = (sessionKey: string) => {
     if (input.sessionKey() !== sessionKey) return
     if (readySession() === sessionKey) return
-    setReadySession(sessionKey)
+    if (preparing === sessionKey) return
+    preparing = sessionKey
+    const finish = () => {
+      if (preparing === sessionKey) preparing = ""
+      if (input.sessionKey() === sessionKey) setReadySession(sessionKey)
+    }
+    const result = input.onReady?.()
+    if (result) {
+      void result.then(finish, finish)
+      return
+    }
+    finish()
   }
 
   createEffect(
@@ -111,14 +124,17 @@ export function createTimelineStaging(input: TimelineStageInput) {
           }
           const currentTotal = input.messages().length
           count = Math.min(currentTotal, count + input.config.batch)
-          startTransition(() => setState("count", count))
           if (count >= currentTotal) {
+            setState("count", count)
             complete(sessionKey)
             setState("activeSession", "")
-            frame = undefined
-            scheduleReady(sessionKey)
+            frame = requestAnimationFrame(() => {
+              frame = undefined
+              scheduleReady(sessionKey)
+            })
             return
           }
+          startTransition(() => setState("count", count))
           frame = requestAnimationFrame(step)
         }
         frame = requestAnimationFrame(step)

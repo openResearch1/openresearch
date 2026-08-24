@@ -6,6 +6,7 @@ import { normalizeRemoteServerConfig } from "./remote-server"
 
 const log = Log.create({ service: "experiment-remote-task-watcher" })
 const POLL_INTERVAL = 30 * 1000
+const START_GRACE = 3 * 60 * 1000
 const STOP_GRACE = 10 * 1000
 
 const alive = new Set(["running", "attached", "detached"])
@@ -21,6 +22,8 @@ async function refresh(task: ReturnType<typeof ExperimentRemoteTask.listByExp>[n
   const server = normalizeRemoteServerConfig(JSON.parse(task.server))
   const logPath = task.log_path
   if (!logPath) {
+    if (ExperimentRemoteTask.isTerminal(task.status)) return
+    if (task.status === "pending" && task.time_created + START_GRACE > now) return
     ExperimentRemoteTask.update(
       {
         taskId: task.task_id,
@@ -85,6 +88,10 @@ async function refresh(task: ReturnType<typeof ExperimentRemoteTask.listByExp>[n
         ? `remote task stopped before writing completion marker: ${note}`
         : "remote task stopped before writing completion marker"
     }
+  }
+
+  if (ExperimentRemoteTask.isTerminal(task.status) && !ExperimentRemoteTask.isTerminal(next)) {
+    return { taskId: task.task_id, result, meta } satisfies RemoteTaskInspection
   }
 
   ExperimentRemoteTask.update(

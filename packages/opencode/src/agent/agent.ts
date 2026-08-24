@@ -139,7 +139,6 @@ export namespace Agent {
             remote_terminal_wait: "deny",
             remote_terminal_list: "deny",
             remote_terminal_stop: "deny",
-            question: "allow",
             plan_enter: "allow",
             task: {
               "*": "deny",

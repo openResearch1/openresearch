@@ -120,7 +120,7 @@ function safeName(input: string) {
 
 export const ProjectRuntimeServerQueryTool = Tool.define("project_runtime_server_query", {
   description:
-    "Query remote server configuration available to the current research project. By default secrets are redacted. Optionally ensure and return the project runtime experiment for a server.",
+    "Query remote server configuration available to the current research project. Pass the returned id directly as the ssh tool's server whenever possible so saved credentials are used. By default secrets are redacted. Optionally ensure and return the project runtime experiment for a server.",
   parameters: z.object({
     remoteServerId: z.string().optional().describe("Specific remote server ID to inspect. Omit to list all servers."),
     includeSecrets: z.boolean().optional().default(false).describe("Return password and W&B API key in the config."),

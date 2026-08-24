@@ -406,6 +406,18 @@
     color: var(--icon-base);
   }
 
+  [data-slot="bash-server"] {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    padding: 10px 44px 0 12px;
+    color: var(--text-weak);
+    font-family: var(--font-family-mono);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+
   [data-slot="bash-scroll"] {
     width: 100%;
     overflow-y: auto;
@@ -911,6 +923,19 @@
   min-width: 0;
   padding: 9px 44px 9px 16px;
   box-sizing: border-box;
+}
+
+[data-slot="shell-expanded-server"] {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-bottom: 6px;
+  color: var(--text-weak);
+  font-family: var(--font-family-mono);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 [data-slot="shell-expanded-command"] {
