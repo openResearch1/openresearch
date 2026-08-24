@@ -1,16 +1,16 @@
 import { createEffect, createMemo, createResource, createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js"
 import { createStore } from "solid-js/store"
-import { useNavigate } from "@solidjs/router"
 import type { ResearchAtomsListResponse, ResearchPathsListResponse } from "@opencode-ai/sdk/v2"
 import { Select } from "@opencode-ai/ui/select"
-import { base64Encode } from "@opencode-ai/util/encode"
+import { useData } from "@opencode-ai/ui/context"
 
 import { useSDK } from "@/context/sdk"
 import { usePrompt } from "@/context/prompt"
+import { Persist, persisted } from "@/utils/persist"
 
 import { AtomGraphView } from "./atom-graph-view"
 import { AtomDetailFullscreen } from "./atom-detail-fullscreen"
-import { scope } from "./atom-path-filter"
+import { scope, stale } from "./atom-path-filter"
 
 type Atom = ResearchAtomsListResponse["atoms"][number]
 type Relation = ResearchAtomsListResponse["relations"][number]
@@ -147,12 +147,15 @@ type SubTab = "list" | "graph"
 export function AtomsTab(props: { researchProjectId: string; currentSessionId?: string }) {
   const sdk = useSDK()
   const prompt = usePrompt()
-  const navigate = useNavigate()
+  const data = useData()
   const [atoms, setAtoms] = createSignal<Atom[]>([])
   const [relations, setRelations] = createSignal<Relation[]>([])
   const [loading, setLoading] = createSignal(true)
   const [error, setError] = createSignal(false)
-  const [filter, setFilter] = createStore({ path: "all" })
+  const [filter, setFilter, , filterReady] = persisted(
+    Persist.workspace(sdk.directory, "atoms.path-filter"),
+    createStore({ paths: {} as Record<string, string> }),
+  )
   const [paths, { refetch }] = createResource(
     () => props.researchProjectId,
     async (researchProjectId) => {
@@ -183,10 +186,16 @@ export function AtomsTab(props: { researchProjectId: string; currentSessionId?: 
   const safeAtoms = createMemo(() => atoms())
   const safeRelations = createMemo(() => relations())
   const pathMap = createMemo(() => new Map((paths() ?? []).map((path) => [path.research_path_id, path])))
-  const options = createMemo(() => ["all", ...(paths() ?? []).map((path) => path.research_path_id)])
-  const selected = createMemo<Path | undefined>(() => pathMap().get(filter.path))
+  const pathId = createMemo(() => filter.paths[props.researchProjectId] ?? "all")
+  const locked = createMemo(() => pathId() !== "all")
+  const options = createMemo(() => {
+    const ids = (paths() ?? []).map((path) => path.research_path_id)
+    return ["all", ...(locked() && !ids.includes(pathId()) ? [pathId()] : []), ...ids]
+  })
+  const selected = createMemo<Path | undefined>(() => pathMap().get(pathId()))
   const graph = createMemo(() => {
     const path = selected()
+    if (!filterReady() || (locked() && !path)) return scope(atoms(), relations(), new Set())
     return scope(
       atoms(),
       relations(),
@@ -196,7 +205,7 @@ export function AtomsTab(props: { researchProjectId: string; currentSessionId?: 
   const pathLabel = (id: string) => {
     if (id === "all") return "All atoms"
     const path = pathMap().get(id)
-    if (!path) return "All atoms"
+    if (!path) return "Loading path..."
     const status = path.status.charAt(0).toUpperCase() + path.status.slice(1)
     return `${path.title} (${status})`
   }
@@ -221,7 +230,6 @@ export function AtomsTab(props: { researchProjectId: string; currentSessionId?: 
 
   createEffect(() => {
     const projectId = props.researchProjectId
-    setFilter("path", "all")
     void fetchAtoms(projectId)
   })
 
@@ -243,8 +251,11 @@ export function AtomsTab(props: { researchProjectId: string; currentSessionId?: 
 
   createEffect(() => {
     const items = paths()
-    if (!items || filter.path === "all") return
-    if (!items.some((path) => path.research_path_id === filter.path)) setFilter("path", "all")
+    const projectId = props.researchProjectId
+    const id = pathId()
+    if (stale(id, items, { ready: filterReady(), loading: paths.loading, error: !!paths.error })) {
+      setFilter("paths", projectId, "all")
+    }
   })
 
   // Save subTab state to localStorage when it changes
@@ -264,7 +275,7 @@ export function AtomsTab(props: { researchProjectId: string; currentSessionId?: 
         if (props.currentSessionId) {
           sessionStorage.setItem(`atom-session-return-${sessionId}`, props.currentSessionId)
         }
-        navigate(`/${base64Encode(sdk.directory)}/session/${sessionId}`)
+        data.navigateToSession?.(sessionId)
       }
     } catch (err) {
       console.error("[atoms-tab] failed to get/create atom session", err)
@@ -355,10 +366,10 @@ export function AtomsTab(props: { researchProjectId: string; currentSessionId?: 
           <Select<string>
             aria-label="Filter graph by Research Path"
             options={options()}
-            current={filter.path}
+            current={pathId()}
             label={pathLabel}
-            onSelect={(path) => path && setFilter("path", path)}
-            disabled={paths.loading || !!paths.error || options().length === 1}
+            onSelect={(path) => path && setFilter("paths", props.researchProjectId, path)}
+            disabled={!filterReady() || paths.loading || !!paths.error || options().length === 1}
             variant="secondary"
             size="small"
             valueClass="max-w-32 truncate text-10-regular"
@@ -416,9 +427,9 @@ export function AtomsTab(props: { researchProjectId: string; currentSessionId?: 
                 atoms={graph().atoms}
                 relations={graph().relations}
                 externalAtomIds={graph().external}
-                scopeId={selected()?.research_path_id}
-                canCreate={!selected()}
-                loading={loading()}
+                scopeId={locked() ? pathId() : undefined}
+                canCreate={filterReady() && !locked()}
+                loading={loading() || !filterReady() || (locked() && paths.loading)}
                 error={error()}
                 onAtomClick={handleAtomClick}
                 onAtomCreate={handleAtomCreate}
@@ -441,8 +452,8 @@ export function AtomsTab(props: { researchProjectId: string; currentSessionId?: 
           relations={graph().relations}
           externalAtomIds={graph().external}
           pathTitle={selected()?.title}
-          canCreate={!selected()}
-          loading={loading()}
+          canCreate={filterReady() && !locked()}
+          loading={loading() || !filterReady() || (locked() && paths.loading)}
           error={error()}
           onAtomClick={handleAtomClick}
           onAtomCreate={handleAtomCreate}

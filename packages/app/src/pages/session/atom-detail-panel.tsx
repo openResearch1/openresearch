@@ -1,8 +1,7 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js"
-import { useNavigate } from "@solidjs/router"
-import { base64Encode } from "@opencode-ai/util/encode"
 import { useFile } from "@/context/file"
 import { useSDK } from "@/context/sdk"
+import { useData } from "@opencode-ai/ui/context"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { TextField } from "@opencode-ai/ui/text-field"
@@ -62,7 +61,7 @@ export function AtomDetailPanel(props: {
 }) {
   const file = useFile()
   const sdk = useSDK()
-  const navigate = useNavigate()
+  const data = useData()
   const dialog = useDialog()
   const [experiments, setExperiments] = createSignal<Experiment[]>([])
   const [loadingExps, setLoadingExps] = createSignal(false)
@@ -216,7 +215,7 @@ export function AtomDetailPanel(props: {
   const navigateToAtomSession = () => {
     const sessionId = atomSessionId()
     if (sessionId) {
-      navigate(`/${base64Encode(sdk.directory)}/session/${sessionId}`)
+      data.navigateToSession?.(sessionId)
     }
   }
 
@@ -238,7 +237,7 @@ export function AtomDetailPanel(props: {
       const res = await sdk.client.research.experiment.session.create({ expId })
       const sessionId = res.data?.session_id
       if (sessionId) {
-        navigate(`/${base64Encode(sdk.directory)}/session/${sessionId}`)
+        data.navigateToSession?.(sessionId)
       }
     } catch (e) {
       console.error("[atom-detail-panel] failed to navigate to experiment session", e)

@@ -1,10 +1,15 @@
+import path from "path"
+
 import { Agent } from "@/agent/agent"
+import PROMPT_EXPERIMENT_SESSION_PLAN from "@/agent/prompt/experiment-session-plan.txt"
 import PROMPT_RESEARCH_ATOM from "@/agent/prompt/research-atom.txt"
 import PROMPT_RESEARCH_MAIN from "@/agent/prompt/research-main.txt"
+import { CollabAgentNode } from "@/collab/agent-node"
+import { PermissionNext } from "@/permission/next"
+import { Instance } from "@/project/instance"
 import { Session } from "@/session"
 import { Database, eq } from "@/storage/db"
 import { ControllerAgent } from "./controller-agent"
-import { CollabAgentNode } from "@/collab/agent-node"
 import { AtomTable, ExperimentTable, ResearchProjectTable } from "./research.sql"
 
 export namespace ResearchSessionAgent {
@@ -19,11 +24,7 @@ export namespace ResearchSessionAgent {
   export type Kind = keyof typeof policies
   export type Policy = { kind: Kind; agents: readonly string[]; default: string; pinned?: boolean }
 
-  export function approval(input: {
-    sessionID: string
-    permission: string
-    actions: ("allow" | "deny" | "ask")[]
-  }) {
+  export function approval(input: { sessionID: string; permission: string; actions: ("allow" | "deny" | "ask")[] }) {
     if (input.permission !== "research_doc_edit") return
     const node = CollabAgentNode.loadBySessionId(input.sessionID)
     if (!node || CollabAgentNode.role(node.id) !== "research_main") return
@@ -117,6 +118,55 @@ export namespace ResearchSessionAgent {
   }
 
   export async function compose(input: { sessionID: string; agent: Agent.Info }) {
+    if (input.agent.name === "plan") {
+      const current = await policy(input.sessionID)
+      if (current?.kind !== "experiment") return input.agent
+      const experiment = Database.use((db) =>
+        db.select().from(ExperimentTable).where(eq(ExperimentTable.exp_session_id, input.sessionID)).get(),
+      )
+      if (!experiment) return input.agent
+      const plan = experiment.exp_plan_path
+      return {
+        ...input.agent,
+        prompt: PROMPT_EXPERIMENT_SESSION_PLAN,
+        permission: PermissionNext.merge(
+          input.agent.permission,
+          PermissionNext.fromConfig({
+            "*": "deny",
+            read: "allow",
+            glob: "allow",
+            grep: "allow",
+            webfetch: "allow",
+            bash: "allow",
+            ssh: "allow",
+            question: "allow",
+            plan_exit: "allow",
+            experiment_query: "allow",
+            experiment_remote_task_get: "allow",
+            atom_query: "allow",
+            atom_relation_query: "allow",
+            research_code_query: "allow",
+            project_runtime_server_query: "allow",
+            project_runtime_env_spec_inspect: "allow",
+            project_runtime_env_query: "allow",
+            project_runtime_resource_query: "allow",
+            task: {
+              "*": "deny",
+              explore: "allow",
+            },
+            external_directory: {
+              "*": "deny",
+              [path.join(experiment.code_path, "*").replaceAll("\\", "/")]: "allow",
+              ...(plan ? { [path.join(path.dirname(plan), "*").replaceAll("\\", "/")]: "allow" as const } : {}),
+            },
+            edit: {
+              "*": "deny",
+              ...(plan ? { [path.relative(Instance.worktree, plan)]: "allow" as const } : {}),
+            },
+          }),
+        ),
+      }
+    }
     if (input.agent.name !== "research") return input.agent
     const current = await policy(input.sessionID)
     if (current && current.kind !== "atom" && current.kind !== "main") return input.agent

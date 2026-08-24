@@ -1,14 +1,14 @@
-# 后端服务器（在一个终端）
+# 本地开发服务
 
-cd /home/zj45/openresearch/packages/opencode && \
-bun run --conditions=browser ./src/index.ts serve --port 4096
+在项目根目录运行：
 
-# 前端开发服务器（在另一个终端）
+```bash
+bun run dev:local
+```
 
-cd /home/zj45/openresearch/packages/app && \
-bun dev -- --port 4444
+按 `Ctrl+C` 同时停止前后端服务。
 
-# 启动后：
+## 服务地址
 
 - 后端 API: http://localhost:4096
-- 前端 UI: http://localhost:4444
+- 前端 UI: http://localhost:4097

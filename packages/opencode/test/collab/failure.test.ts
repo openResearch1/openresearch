@@ -93,12 +93,15 @@ describe("spawned collab failures", () => {
         const tool = await SpawnAgentTool.init()
         try {
           await expect(
-            tool.execute({
-              agent_type: "general",
-              name: "invalid model",
-              prompt: "run",
-              model: { providerID: "openai", modelID: "openai/gpt-5.6-terra" },
-            }, ctx),
+            tool.execute(
+              {
+                agent_type: "general",
+                name: "invalid model",
+                prompt: "run",
+                model: { providerID: "openai", modelID: "openai/gpt-5.6-terra" },
+              },
+              ctx,
+            ),
           ).rejects.toBeInstanceOf(Provider.ModelNotFoundError)
         } finally {
           model.mockRestore()
@@ -284,41 +287,40 @@ describe("spawned collab failures", () => {
           },
         })
         let turns = 0
-        const prompt = spyOn(SessionPrompt, "prompt").mockImplementation(
-          (async () => {
-            turns++
-            if (turns === 1) {
-              await Bun.sleep(0)
-              Collab.runtime().abort(parentId)
-              CollabAgentNode.finish({
-                id: workerId,
-                runId: worker.run_id,
-                parentId,
-                status: "canceled",
-                phase: "main_loop",
-                error: { code: "CANCELED", message: "concurrent cancel" },
-                timeEnded: Date.now(),
-                report: {
-                  kind: "child_failed",
-                  payload: {
-                    childAgentId: workerId,
-                    childName: worker.name,
-                    reason: "canceled",
-                    message: "concurrent cancel",
-                  },
+        const prompt = spyOn(SessionPrompt, "prompt").mockImplementation((async (input: SessionPrompt.PromptInput) => {
+          turns++
+          if (turns === 1) {
+            await Bun.sleep(0)
+            Collab.runtime().abort(parentId)
+            CollabAgentNode.finish({
+              id: workerId,
+              runId: worker.run_id,
+              parentId,
+              status: "canceled",
+              phase: "main_loop",
+              error: { code: "CANCELED", message: "concurrent cancel" },
+              timeEnded: Date.now(),
+              report: {
+                kind: "child_failed",
+                payload: {
+                  childAgentId: workerId,
+                  childName: worker.name,
+                  reason: "canceled",
+                  message: "concurrent cancel",
                 },
-              })
-              return {
-                info: {
-                  role: "assistant",
-                  error: new MessageV2.AbortedError({ message: "The operation was aborted." }).toObject(),
-                },
-                parts: [],
-              } as never
-            }
-            return { info: { role: "assistant" }, parts: [] } as never
-          }) as unknown as typeof SessionPrompt.prompt,
-        )
+              },
+            })
+            return {
+              info: {
+                role: "assistant",
+                parentID: input.messageID,
+                error: new MessageV2.AbortedError({ message: "The operation was aborted." }).toObject(),
+              },
+              parts: [],
+            } as never
+          }
+          return { info: { role: "assistant", parentID: input.messageID }, parts: [] } as never
+        }) as unknown as typeof SessionPrompt.prompt)
 
         try {
           await CollabLoop.start(parentId)
@@ -361,7 +363,9 @@ describe("spawned collab failures", () => {
 
           await CollabLoop.start(parentId)
           expect(turns).toBe(3)
-          expect(CollabMessage.list(parentId, { kind: "child_failed" }).every((item) => item.status === "consumed")).toBe(true)
+          expect(
+            CollabMessage.list(parentId, { kind: "child_failed" }).every((item) => item.status === "consumed"),
+          ).toBe(true)
           expect(CollabAgentNode.load(parentId).error).toBeNull()
         } finally {
           Collab.runtime().abort(parentId)

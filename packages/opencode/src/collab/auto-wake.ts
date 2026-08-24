@@ -2,17 +2,16 @@ import { Bus } from "@/bus"
 import { Instance } from "@/project/instance"
 import { Log } from "@/util/log"
 import { Session } from "@/session"
-import { MessageV2 } from "@/session/message-v2"
 import { SessionPrompt } from "@/session/prompt"
 import { SessionStatus } from "@/session/status"
 import { SessionOwnership } from "@/session/ownership"
-import { Identifier } from "@/id/id"
 import { CollabAgentNode } from "./agent-node"
 import { CollabMessage } from "./message"
 import { CollabSupervisor } from "./supervisor"
 import { CollabLoop } from "./loop"
 import { CollabRuntime } from "./runtime"
 import { CollabEvent } from "./events"
+import { CollabDelivery } from "./delivery"
 import {
   buildChildDonePart,
   buildChildFailedPart,
@@ -180,6 +179,7 @@ export namespace CollabAutoWake {
     drive: (fresh: AgentInfo, current: Set<string>) => void | Promise<void>,
   ) {
     const session = await Session.get(node.session_id)
+    if (session.time.archived) return
     if (session.directory === Instance.directory) return drive(node, inflight)
     return Instance.provide({
       directory: session.directory,
@@ -302,14 +302,36 @@ export namespace CollabAutoWake {
       const delivery = (msgs[0].payload_json as { deliveryMessageId?: unknown }).deliveryMessageId
       const messageID = typeof delivery === "string" ? delivery : undefined
       if (abort.aborted) throw new Error("Session ownership lost during direct delivery")
-      const turn = await deliver(node, messageID, drafts, msgs)
+      const turn = await CollabDelivery.deliver({
+        node,
+        msgs,
+        messageID,
+        match: (msg) => matchParts(msg.parts, drafts),
+        prompt: (id) =>
+          SessionPrompt.prompt({
+            sessionID: node.session_id,
+            messageID: id,
+            agent: node.subagent_type,
+            model: node.spec.model,
+            parts: drafts,
+          }),
+      })
       if (abort.aborted) throw new Error("Session ownership lost during direct delivery")
-      if (!(await delivered(turn.result, node, turn.messageID))) {
+      if (!(await CollabDelivery.delivered(turn.result, node, turn.messageID))) {
         throw new Error("Direct callback did not produce its assistant turn")
       }
       CollabMessage.ack(msgs)
     } catch (err) {
+      if (err instanceof CollabDelivery.Exhausted) {
+        CollabMessage.drop(err.claims)
+        CollabMessage.retry(
+          msgs.filter((msg) => !err.claims.some((claim) => claim.id === msg.id)),
+          false,
+        )
+        return
+      }
       CollabMessage.retry(msgs, false)
+      if (err instanceof CollabDelivery.ClaimChanged || err instanceof CollabDelivery.Stale) return
       const fresh = CollabAgentNode.tryLoad(agentId)
       if (fresh && !CollabAgentNode.isStopped(fresh)) {
         CollabRuntime.schedule(agentId, 1000, () => void tryDriveDirectById(agentId, state().inflight))
@@ -339,79 +361,6 @@ export namespace CollabAutoWake {
   // cascade), bail out after this many iterations per session acquisition and let
   // the next Bus event re-enter. Prevents pathological spin.
   const MAX_DRIVE_ITERATIONS = 64
-
-  async function delivered(result: MessageV2.WithParts, node: AgentInfo, messageID?: string) {
-    if (result.info.role !== "assistant") return false
-    if (result.info.error) return false
-    if (!messageID || result.info.parentID === messageID) return true
-    return derived(node.session_id, result.info.parentID, messageID)
-  }
-
-  async function derived(sessionID: string, current: string, target: string, seen = new Set<string>()) {
-    if (current === target) return true
-    if (seen.has(current)) return false
-    seen.add(current)
-    const msg = await MessageV2.get({ sessionID, messageID: current }).catch(() => undefined)
-    if (msg?.info.role !== "user") return false
-    const origin = msg.parts.flatMap((part) => {
-      if (part.type !== "text") return []
-      if (part.text !== "" || part.synthetic !== true || part.ignored !== true) return []
-      const value = part.metadata?.originMessageID
-      return typeof value === "string" ? [value] : []
-    })[0]
-    if (!origin) return false
-    return derived(sessionID, origin, target, seen)
-  }
-
-  async function deliver(
-    node: AgentInfo,
-    messageID: string | undefined,
-    parts: PromptPartDraft[],
-    msgs: CollabMessage.Row[],
-  ) {
-    const stale = msgs.flatMap((msg) => {
-      const payload = msg.payload_json
-      if (typeof payload !== "object" || payload === null) return []
-      const id = "staleDeliveryMessageId" in payload ? payload.staleDeliveryMessageId : undefined
-      return typeof id === "string" && id !== messageID ? [id] : []
-    })
-    await Promise.all(
-      [...new Set(stale)].map((id) =>
-        Session.removeMessage({ sessionID: node.session_id, messageID: id }).catch(() => undefined),
-      ),
-    )
-    const exact = messageID
-      ? await MessageV2.get({ sessionID: node.session_id, messageID }).catch(() => undefined)
-      : undefined
-    if (exact?.info.role === "user" && matchParts(exact.parts, parts)) {
-      const prior = await SessionPrompt.loop({ sessionID: node.session_id })
-      if (await delivered(prior, node, exact.info.id)) return { result: prior, messageID: exact.info.id }
-      if (prior.info.role === "assistant" && prior.info.parentID === exact.info.id) {
-        await Session.removeMessage({ sessionID: node.session_id, messageID: prior.info.id })
-        return { result: prior, messageID: exact.info.id }
-      }
-      const next = Identifier.ascending("message")
-      if (!CollabMessage.redeliver(msgs, next)) throw new Error("Callback delivery claim changed before refresh")
-      await Session.removeMessage({ sessionID: node.session_id, messageID: exact.info.id })
-      const result = await SessionPrompt.prompt({
-        sessionID: node.session_id,
-        messageID: next,
-        agent: node.subagent_type,
-        model: node.spec.model,
-        parts,
-      })
-      return { result, messageID: next }
-    }
-    if (exact) await Session.removeMessage({ sessionID: node.session_id, messageID: exact.info.id })
-    const result = await SessionPrompt.prompt({
-      sessionID: node.session_id,
-      messageID,
-      agent: node.subagent_type,
-      model: node.spec.model,
-      parts,
-    })
-    return { result, messageID }
-  }
 
   async function maybeWakeOrBlock(node: AgentInfo, inflight: Set<string>) {
     if (!CollabAgentNode.isActive(node.status)) return
@@ -562,12 +511,17 @@ export namespace CollabAutoWake {
         const errorInfo: AgentError = { code: "CANCELED", message: cancel.reason }
         const latched = (() => {
           try {
-            return CollabAgentNode.transition(node.id, node.status, { error: errorInfo }, {
-              runId: node.run_id,
-              parentId: node.parent_agent_id,
-              status: node.status,
-              timeUpdated: node.time_updated,
-            })
+            return CollabAgentNode.transition(
+              node.id,
+              node.status,
+              { error: errorInfo },
+              {
+                runId: node.run_id,
+                parentId: node.parent_agent_id,
+                status: node.status,
+                timeUpdated: node.time_updated,
+              },
+            )
           } catch {
             return
           }
@@ -604,12 +558,17 @@ export namespace CollabAutoWake {
         }
         const latched = (() => {
           try {
-            return CollabAgentNode.transition(node.id, node.status, { error: errorInfo }, {
-              runId: node.run_id,
-              parentId: node.parent_agent_id,
-              status: node.status,
-              timeUpdated: node.time_updated,
-            })
+            return CollabAgentNode.transition(
+              node.id,
+              node.status,
+              { error: errorInfo },
+              {
+                runId: node.run_id,
+                parentId: node.parent_agent_id,
+                status: node.status,
+                timeUpdated: node.time_updated,
+              },
+            )
           } catch {
             return
           }
@@ -658,12 +617,25 @@ export namespace CollabAutoWake {
         CollabMessage.retry(msgs, false)
         return false
       }
-      const turn = await deliver(node, messageID, parts, msgs)
+      const turn = await CollabDelivery.deliver({
+        node,
+        msgs,
+        messageID,
+        match: (msg) => matchParts(msg.parts, parts),
+        prompt: (id) =>
+          SessionPrompt.prompt({
+            sessionID: node.session_id,
+            messageID: id,
+            agent: node.subagent_type,
+            model: node.spec.model,
+            parts,
+          }),
+      })
       if (abort.aborted) {
         CollabMessage.retry(msgs, false)
         return false
       }
-      if (!(await delivered(turn.result, node, turn.messageID))) {
+      if (!(await CollabDelivery.delivered(turn.result, node, turn.messageID))) {
         throw new Error("Callback did not produce its assistant turn")
       }
       CollabMessage.ack(msgs)
@@ -673,6 +645,14 @@ export namespace CollabAutoWake {
         agentId,
         error: err instanceof Error ? err.message : String(err),
       })
+      if (err instanceof CollabDelivery.Exhausted) {
+        CollabMessage.drop(err.claims)
+        CollabMessage.retry(
+          msgs.filter((msg) => !err.claims.some((claim) => claim.id === msg.id)),
+          false,
+        )
+        return false
+      }
       const fresh = CollabAgentNode.tryLoad(agentId)
       if (fresh && CollabAgentNode.isActive(fresh.status)) {
         CollabMessage.retry(msgs, false)

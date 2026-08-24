@@ -1,3 +1,5 @@
+import path from "path"
+
 import { describe, expect, spyOn, test } from "bun:test"
 
 import { Agent } from "../../src/agent/agent"
@@ -20,6 +22,7 @@ async function seed() {
   const child = await Session.create({ parentID: main.id, title: "child" })
   const research = crypto.randomUUID()
   const atomId = crypto.randomUUID()
+  const plan = path.join(Instance.directory, "exp_results", "plan.md")
   const now = Date.now()
 
   Database.use((db) => {
@@ -46,6 +49,7 @@ async function seed() {
         exp_name: "test",
         atom_id: atomId,
         exp_session_id: experiment.id,
+        exp_plan_path: plan,
         code_path: Instance.directory,
         time_created: now,
         time_updated: now,
@@ -53,7 +57,7 @@ async function seed() {
       .run()
   })
 
-  return { main, atom, experiment, child, research }
+  return { main, atom, experiment, child, research, plan }
 }
 
 describe("research.session-agent", () => {
@@ -142,14 +146,11 @@ describe("research.session-agent", () => {
           expect(goal?.execute).toBeDefined()
           expect(tools.question).toBeUndefined()
           expect(
-            await goal.execute!(
-              { oldString: "", newString: "# Controller Research Goal" },
-              {
-                toolCallId: "goal-allow",
-                abortSignal: new AbortController().signal,
-                messages: [],
-              } as never,
-            ),
+            await goal.execute!({ oldString: "", newString: "# Controller Research Goal" }, {
+              toolCallId: "goal-allow",
+              abortSignal: new AbortController().signal,
+              messages: [],
+            } as never),
           ).toMatchObject({ output: "goal file created successfully." })
 
           await expect(
@@ -181,14 +182,11 @@ describe("research.session-agent", () => {
             messages: [],
           })
           await expect(
-            deniedTools.research_goal_edit.execute!(
-              { oldString: "", newString: "# Denied Goal" },
-              {
-                toolCallId: "goal-deny",
-                abortSignal: new AbortController().signal,
-                messages: [],
-              } as never,
-            ),
+            deniedTools.research_goal_edit.execute!({ oldString: "", newString: "# Denied Goal" }, {
+              toolCallId: "goal-deny",
+              abortSignal: new AbortController().signal,
+              messages: [],
+            } as never),
           ).rejects.toThrow()
           expect(await ResearchSessionAgent.policy(leaf.session_id)).toBeUndefined()
           expect(await ResearchSessionAgent.resolve({ sessionID: leaf.session_id })).toBe("research")
@@ -202,14 +200,14 @@ describe("research.session-agent", () => {
               actions: ["ask"],
             }),
           ).toBeUndefined()
-          expect((await ResearchSessionAgent.compose({ sessionID: leaf.session_id, agent: research })).prompt).toContain(
-            "## Delegated Research constraint",
-          )
+          expect(
+            (await ResearchSessionAgent.compose({ sessionID: leaf.session_id, agent: research })).prompt,
+          ).toContain("## Delegated Research constraint")
           expect(await ResearchSessionAgent.policy(task.id)).toBeUndefined()
           expect(await ResearchSessionAgent.resolve({ sessionID: task.id })).toBe("general")
-          await expect(
-            ResearchSessionAgent.resolve({ sessionID: task.id, agent: "deep_research" }),
-          ).rejects.toThrow("Controller task sessions")
+          await expect(ResearchSessionAgent.resolve({ sessionID: task.id, agent: "deep_research" })).rejects.toThrow(
+            "Controller task sessions",
+          )
           expect((await ResearchSessionAgent.compose({ sessionID: task.id, agent: research })).prompt).toContain(
             "## Delegated Research constraint",
           )
@@ -314,6 +312,35 @@ describe("research.session-agent", () => {
         await expect(
           SessionPrompt.shell({ sessionID: item.experiment.id, agent: "research", command: "true" }),
         ).rejects.toThrow("not available in experiment sessions")
+      },
+    })
+  })
+
+  test("composes Experiment Plan with a dedicated prompt and exact plan edit access", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const item = await seed()
+        const base = (await Agent.get("plan"))!
+        const plan = await ResearchSessionAgent.compose({ sessionID: item.experiment.id, agent: base })
+        const target = path.relative(Instance.worktree, item.plan)
+
+        expect(base.prompt).toBeUndefined()
+        expect(plan.name).toBe("plan")
+        expect(plan.prompt).toContain("user-facing Plan mode for the experiment")
+        expect(plan.prompt).toContain("Persist it to `exp_plan_path` only when explicitly requested")
+        expect(plan.prompt).not.toContain("You are the autonomous experiment agent")
+        expect(PermissionNext.evaluate("edit", target, plan.permission).action).toBe("allow")
+        expect(PermissionNext.evaluate("edit", "src/trainer.ts", plan.permission).action).toBe("deny")
+        expect(PermissionNext.evaluate("bash", "*", plan.permission).action).toBe("allow")
+        expect(PermissionNext.evaluate("ssh", "*", plan.permission).action).toBe("allow")
+        expect(PermissionNext.evaluate("experiment_query", "*", plan.permission).action).toBe("allow")
+        expect(PermissionNext.evaluate("experiment_remote_task_get", "*", plan.permission).action).toBe("allow")
+        expect(PermissionNext.evaluate("plan_exit", "*", plan.permission).action).toBe("allow")
+        expect(PermissionNext.evaluate("task", "explore", plan.permission).action).toBe("allow")
+        expect(PermissionNext.evaluate("task", "general", plan.permission).action).toBe("deny")
+        expect(await ResearchSessionAgent.compose({ sessionID: item.atom.id, agent: base })).toBe(base)
       },
     })
   })

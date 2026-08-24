@@ -310,6 +310,8 @@ describe("Collab Controller spawn policy", () => {
           expect(CollabAgentNode.targets(created.session_id, "task")).toEqual([
             "experiment_plan",
             "experiment_commit",
+            "explore",
+            "general",
           ])
           expect(CollabLoop.timeout(CollabAgentNode.load(atom.id))).toBeUndefined()
           expect(CollabLoop.timeout(CollabAgentNode.load(created.id))).toBeUndefined()

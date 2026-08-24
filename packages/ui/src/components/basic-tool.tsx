@@ -320,7 +320,9 @@ function args(input: Record<string, unknown> | undefined) {
   if (!input) return []
   const skip = new Set(["description", "query", "url", "filePath", "path", "pattern", "name"])
   return Object.entries(input)
-    .filter(([key]) => !skip.has(key))
+    .filter(
+      ([key]) => !skip.has(key) && !/(?:api[_-]?key|password|passwd|token|secret|authorization|credential)/i.test(key),
+    )
     .flatMap(([key, value]) => {
       if (typeof value === "string") return [`${key}=${value}`]
       if (typeof value === "number") return [`${key}=${value}`]

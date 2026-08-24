@@ -1,6 +1,17 @@
 import { useFilteredList } from "@opencode-ai/ui/hooks"
 import { useSpring } from "@opencode-ai/ui/motion-spring"
-import { createEffect, on, Component, Show, onCleanup, Switch, Match, createMemo, createSignal, createResource } from "solid-js"
+import {
+  createEffect,
+  on,
+  Component,
+  Show,
+  onCleanup,
+  Switch,
+  Match,
+  createMemo,
+  createSignal,
+  type JSX,
+} from "solid-js"
 import { createStore } from "solid-js/store"
 import { createFocusSignal } from "@solid-primitives/active-element"
 import { useLocal } from "@/context/local"
@@ -65,10 +76,12 @@ interface PromptInputProps {
   class?: string
   compact?: boolean
   agent?: string
+  research?: "main" | "atom" | "experiment"
   ref?: (el: HTMLDivElement) => void
   newSessionWorktree?: string
   onNewSessionWorktreeReset?: () => void
   onSubmit?: () => void
+  actions?: JSX.Element
 }
 
 const EXAMPLES = [
@@ -135,11 +148,6 @@ type ServerConfig =
 type ServerRow = {
   id: string
   config: ServerConfig
-}
-
-type ExperimentSession = {
-  exp_id: string
-  remote_server_config: ServerConfig | null
 }
 
 function serverLabel(row: ServerRow) {
@@ -367,44 +375,34 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     return items.filter((item) => !item.comment?.trim())
   })
 
-  const [servers, serversActions] = createResource(async () => {
-    const res = await sdk.client.research.server.list()
-    return ((res.data ?? []) as ServerRow[]).filter((item) => item.config.mode === "direct" || item.config.mode === "ssh_config")
-  })
+  const [servers, setServers] = createSignal<ServerRow[]>([])
+  let serverVersion = 0
+  const loadServers = () => {
+    const current = ++serverVersion
+    void sdk.client.research.server
+      .list()
+      .then((res) => {
+        if (current !== serverVersion) return
+        setServers(
+          ((res.data ?? []) as ServerRow[]).filter(
+            (item) => item.config.mode === "direct" || item.config.mode === "ssh_config",
+          ),
+        )
+      })
+      .catch(() => {
+        if (current === serverVersion) setServers([])
+      })
+  }
+  createEffect(loadServers)
+  onCleanup(() => serverVersion++)
 
-  const sshServers = createMemo(() => servers() ?? [])
+  const sshServers = createMemo(() => servers())
   const sshServerOptions = createMemo(() => sshServers().map((item) => item.id))
-
-  const [experiment] = createResource(
-    () => params.id,
-    async (id) => {
-      if (!id) return null
-      const res = await sdk.client.research.experiment.bySession({ sessionId: id })
-      return (res.data ?? null) as ExperimentSession | null
-    },
-  )
-  const [atom] = createResource(
-    () => params.id,
-    async (id) => {
-      if (!id) return null
-      const res = await sdk.client.research.session.atom.get({ sessionId: id })
-      return res.data?.atom ?? null
-    },
-  )
-  const [research] = createResource(
-    () => sync.project?.id,
-    async (projectId) => {
-      return sdk.client.research.project
-        .get({ projectId })
-        .then((res) => res.data ?? null)
-        .catch(() => null)
-    },
-  )
   const policy = createMemo(() => {
     if (props.agent) return { names: [props.agent], default: props.agent }
-    if (experiment()) return { names: [...SESSION_AGENTS.experiment], default: "experiment" }
-    if (atom()) return { names: [...SESSION_AGENTS.atom], default: "research" }
-    if (research()) return { names: [...SESSION_AGENTS.main], default: "research" }
+    if (props.research === "experiment") return { names: [...SESSION_AGENTS.experiment], default: "experiment" }
+    if (props.research === "atom") return { names: [...SESSION_AGENTS.atom], default: "research" }
+    if (props.research === "main") return { names: [...SESSION_AGENTS.main], default: "research" }
   })
   const agents = createMemo(() => {
     const value = policy()
@@ -430,7 +428,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     const next = (index + direction + available.length) % available.length
     selectAgent(available[next]?.name)
   }
-  const remoteTaskAvailable = createMemo(() => !!experiment())
+  const remoteTaskAvailable = createMemo(() => props.research === "experiment")
 
   createEffect(() => {
     if (store.mode !== "ssh") return
@@ -581,7 +579,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     if (props.agent && mode !== "normal") return
     setStore("mode", mode)
     setStore("popover", null)
-    if (mode === "ssh") void serversActions.refetch()
+    if (mode === "ssh") loadServers()
     requestAnimationFrame(() => editorRef?.focus())
   }
 
@@ -1740,9 +1738,9 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               "px-2 pt-5 pb-2 gap-1.5": !!props.compact,
             }}
           >
-            <div class="flex items-center gap-1.5 min-w-0 flex-1 relative">
+            <div class="flex items-center gap-1.5 min-w-0 flex-1 relative overflow-hidden">
               <div
-                class="h-7 flex items-center gap-1.5 max-w-[360px] min-w-0 absolute inset-y-0 left-0"
+                class="h-7 flex items-center gap-1.5 max-w-[360px] min-w-0 absolute inset-y-0 left-0 overflow-hidden"
                 style={{
                   padding: "0 4px 0 8px",
                   opacity: 1 - buttonsSpring(),
@@ -1780,7 +1778,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                 </Show>
                 <div class="size-4 shrink-0" />
               </div>
-              <div class="flex items-center gap-1.5 min-w-0 flex-1">
+              <div class="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
                 <TooltipKeybind
                   placement="top"
                   gutter={4}
@@ -1795,7 +1793,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                         options={agentNames()}
                         current={selectedAgent()?.name ?? ""}
                         onSelect={selectAgent}
-                        class={props.compact ? "capitalize max-w-[96px]" : "capitalize max-w-[160px]"}
+                        class={props.compact ? "capitalize min-w-0 max-w-[96px]" : "capitalize min-w-0 max-w-[160px]"}
                         valueClass="truncate text-13-regular"
                         triggerStyle={{
                           height: "28px",
@@ -1907,7 +1905,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                       current={local.model.variant.current() ?? "default"}
                       label={(x) => (x === "default" ? language.t("common.default") : x)}
                       onSelect={(x) => local.model.variant.set(x === "default" ? undefined : x)}
-                      class="capitalize max-w-[160px]"
+                      class="capitalize min-w-0 max-w-[160px]"
                       valueClass="truncate text-13-regular"
                       triggerStyle={{
                         height: "28px",
@@ -1922,7 +1920,8 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                 </Show>
               </div>
             </div>
-            <div class="shrink-0">
+            <div class="shrink-0 flex items-center gap-1">
+              {props.actions}
               <RadioGroup
                 options={(remoteTaskAvailable() ? ["shell", "ssh", "remote-task", "normal"] : ["shell", "ssh", "normal"]) as Mode[]}
                 current={store.mode}

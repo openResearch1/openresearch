@@ -1,4 +1,4 @@
-import { For, Index, createEffect, createMemo, createSignal, on, onCleanup, Show, type JSX } from "solid-js"
+import { For, Index, Suspense, createEffect, createMemo, createSignal, on, onCleanup, Show, type JSX } from "solid-js"
 import { useSessionID } from "@/context/session-id"
 import { Button } from "@opencode-ai/ui/button"
 import { FileIcon } from "@opencode-ai/ui/file-icon"
@@ -6,10 +6,10 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { SessionTurn } from "@opencode-ai/ui/session-turn"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import type { AssistantMessage, Message as MessageType, Part, TextPart, UserMessage } from "@opencode-ai/sdk/v2"
-import { Binary } from "@opencode-ai/util/binary"
 import { getFilename } from "@opencode-ai/util/path"
 import { shouldMarkBoundaryGesture, normalizeWheelDelta } from "@/pages/session/message-gesture"
 import { createTimelineStaging } from "@/pages/session/timeline-staging"
+import type { CollabActivity } from "@/pages/session/composer/session-collab-activity"
 import { useLanguage } from "@/context/language"
 import { useSettings } from "@/context/settings"
 import { useSync } from "@/context/sync"
@@ -96,7 +96,10 @@ export function MessageTimeline(props: {
   onTurnBackfillScroll: () => void
   onAutoScrollInteraction: (event: MouseEvent) => void
   onPreserveScrollAnchor: (target: HTMLElement) => void
+  onStagingChange: (staging: boolean) => void
+  onStagingReady: () => void
   centered: boolean
+  collabActivity: CollabActivity
   setContentRef: (el: HTMLDivElement) => void
   turnStart: number
   historyMore: boolean
@@ -136,12 +139,14 @@ export function MessageTimeline(props: {
     ),
   )
   const sessionStatus = createMemo(() => sync.data.session_status[sessionID() ?? ""]?.type ?? "idle")
+  const order = createMemo(
+    () => new Map(sessionMessages().filter((message) => message.role === "user").map((message, index) => [message.id, index])),
+  )
   const activeMessageID = createMemo(() => {
     const messages = sessionMessages()
     const message = pending()
     if (message?.parentID) {
-      const result = Binary.search(messages, message.parentID, (item) => item.id)
-      const parent = result.found ? messages[result.index] : messages.find((item) => item.id === message.parentID)
+      const parent = messages.find((item) => item.id === message.parentID)
       if (parent?.role === "user") return parent.id
     }
 
@@ -175,15 +180,27 @@ export function MessageTimeline(props: {
     turnStart: () => props.turnStart,
     messages: () => props.renderedUserMessages,
     config: stageCfg,
+    onReady: props.onStagingReady,
   })
   const rendered = createMemo(() => staging.messages().map((message) => message.id))
+  createEffect(() => props.onStagingChange(!staging.ready()))
+  onCleanup(() => props.onStagingChange(false))
 
   return (
     <Show
       when={!props.mobileChanges}
-      fallback={<div class="relative h-full overflow-hidden">{props.mobileFallback}</div>}
+      fallback={
+        <div class="relative h-full overflow-hidden">
+          <Suspense>{props.mobileFallback}</Suspense>
+        </div>
+      }
     >
-      <div class="relative w-full h-full min-w-0">
+      <div
+        data-timeline-staging={staging.ready() ? undefined : ""}
+        aria-hidden={staging.ready() ? undefined : "true"}
+        class="relative w-full h-full min-w-0"
+        style={{ visibility: staging.ready() ? "visible" : "hidden" }}
+      >
         <div
           class="absolute left-1/2 -translate-x-1/2 bottom-6 z-[60] pointer-events-none transition-all duration-200 ease-out"
           classList={{
@@ -202,6 +219,7 @@ export function MessageTimeline(props: {
         </div>
         <Show when={!props.remote}>
           <SessionTimelineHeader
+            collabActivity={props.collabActivity}
             centered={props.centered}
             showHeader={showHeader}
             sessionKey={sessionKey}
@@ -213,6 +231,7 @@ export function MessageTimeline(props: {
           />
         </Show>
         <ScrollView
+          data-session-timeline=""
           data-remote-timeline={props.remote ? "true" : undefined}
           reverse
           viewportRef={props.setScrollRef}
@@ -281,15 +300,12 @@ export function MessageTimeline(props: {
             <div
               ref={props.setContentRef}
               role="log"
-              class="flex flex-col items-start justify-start transition-[margin]"
+              class="flex flex-col items-start justify-start w-full"
               style={{ "padding-top": "var(--session-title-height)" }}
               classList={{
-                "w-full": true,
                 "gap-2 pb-16": !props.remote,
                 "gap-1.5 pt-3 pb-6": !!props.remote,
-                "md:max-w-[500px] md:mx-auto 2xl:max-w-[700px]": props.centered,
-                "mt-0.5": props.centered,
-                "mt-0": !props.centered,
+                "md:max-w-[1000px] md:mx-auto": props.centered,
               }}
             >
               <Show when={props.turnStart > 0 || props.historyMore}>
@@ -322,7 +338,7 @@ export function MessageTimeline(props: {
                   const queued = createMemo(() => {
                     if (active()) return false
                     const activeID = activeMessageID()
-                    if (activeID) return messageID > activeID
+                    if (activeID) return (order().get(messageID) ?? -1) > (order().get(activeID) ?? -1)
                     return false
                   })
                   const comments = createMemo(() => messageComments(sync.data.part[messageID] ?? []), [], {
@@ -340,10 +356,7 @@ export function MessageTimeline(props: {
                         props.onRegisterMessage(el, messageID)
                         onCleanup(() => props.onUnregisterMessage(messageID))
                       }}
-                      classList={{
-                        "min-w-0 w-full max-w-full": true,
-                        "md:max-w-[500px] 2xl:max-w-[700px]": props.centered,
-                      }}
+                      class="min-w-0 w-full max-w-full"
                     >
                       <Show when={commentCount() > 0}>
                         <div class="w-full px-4 md:px-5 pb-2">

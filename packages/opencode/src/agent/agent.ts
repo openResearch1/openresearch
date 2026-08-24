@@ -34,12 +34,12 @@ import PROMPT_DEEP_RESEARCH_SEARCH_VERIFY from "./prompt/deep_research_search_ve
 import PROMPT_DEEP_RESEARCH_GENERATE from "./prompt/deep_research_generate.txt"
 import PROMPT_INTERACTION from "./prompt/shared-interaction.txt"
 import PROMPT_WORKSPACE from "./prompt/shared-workspace-safety.txt"
-import PROMPT_CODE from "./prompt/shared-code-editing.txt"
 import { PermissionNext } from "@/permission/next"
 import { mergeDeep, pipe, sortBy, values } from "remeda"
 import { Global } from "@/global"
 import path from "path"
 import { Plugin } from "@/plugin"
+import { Flag } from "@/flag/flag"
 import { Skill } from "../skill"
 
 export namespace Agent {
@@ -139,12 +139,13 @@ export namespace Agent {
             remote_terminal_wait: "deny",
             remote_terminal_list: "deny",
             remote_terminal_stop: "deny",
-            question: "allow",
             plan_enter: "allow",
             task: {
               "*": "deny",
               experiment_plan: "allow",
               experiment_commit: "allow",
+              explore: "allow",
+              general: "allow",
             },
             spawn_agent: {
               "*": "deny",
@@ -168,7 +169,7 @@ export namespace Agent {
           }),
           user,
         ),
-        prompt: [PROMPT_INTERACTION, PROMPT_WORKSPACE, PROMPT_CODE, PROMPT_EXPERIMENT].join("\n\n"),
+        prompt: [PROMPT_INTERACTION, PROMPT_WORKSPACE, PROMPT_EXPERIMENT].join("\n\n"),
         mode: "primary",
         native: true,
       },
@@ -257,6 +258,7 @@ export namespace Agent {
         permission: PermissionNext.merge(
           defaults,
           PermissionNext.fromConfig({
+            workflow: "deny",
             question: "allow",
             plan_enter: "allow",
             spawn_agent: "allow",
@@ -364,7 +366,7 @@ export namespace Agent {
           defaults,
           PermissionNext.fromConfig({
             question: "allow",
-            plan_exit: "allow",
+            plan_exit: Flag.OPENCODE_EXPERIMENTAL_PLAN_MODE ? "allow" : "deny",
             external_directory: {
               [path.join(Global.Path.data, "plans", "*")]: "allow",
             },
@@ -387,6 +389,8 @@ export namespace Agent {
           PermissionNext.fromConfig({
             todoread: "deny",
             todowrite: "deny",
+            spawn_agent: "deny",
+            workflow: "deny",
           }),
           user,
         ),

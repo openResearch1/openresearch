@@ -1,7 +1,6 @@
 import { createSignal, Show, For, Index, createMemo, createEffect, onCleanup } from "solid-js"
-import { useNavigate } from "@solidjs/router"
 import { useSDK } from "@/context/sdk"
-import { base64Encode } from "@opencode-ai/util/encode"
+import { useData } from "@opencode-ai/ui/context"
 import { useFile } from "@/context/file"
 import { useLanguage } from "@/context/language"
 import { Markdown } from "@opencode-ai/ui/markdown"
@@ -512,7 +511,7 @@ export function ExpProgressTab(
 ) {
   const language = useLanguage()
   const sdk = useSDK()
-  const navigate = useNavigate()
+  const data = useData()
   const [readyLoading, setReadyLoading] = createSignal(false)
   const [readyError, setReadyError] = createSignal<string | null>(null)
   const [conflicts, setConflicts] = createSignal<{ exp_id: string; exp_session_id: string | null }[]>([])
@@ -556,7 +555,7 @@ export function ExpProgressTab(
       const res = await sdk.client.research.experiment.session.create({ expId })
       const sessionId = res.data?.session_id
       if (sessionId) {
-        navigate(`/${base64Encode(sdk.directory)}/session/${sessionId}`)
+        data.navigateToSession?.(sessionId)
       }
     } catch (err) {
       console.error("[experiment-tab] failed to get/create experiment session", err)

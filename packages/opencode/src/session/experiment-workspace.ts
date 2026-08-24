@@ -1,6 +1,7 @@
 import { CollabAgentNode } from "@/collab/agent-node"
 import { ExperimentTable } from "@/research/research.sql"
 import { Database, eq } from "@/storage/db"
+import PROMPT_EXPERIMENT_CODE from "./prompt/experiment-code-editing.txt"
 import { SessionTable } from "./session.sql"
 
 function root(sessionID: string): string {
@@ -32,9 +33,14 @@ export namespace ExperimentWorkspace {
     }
   }
 
-  export function prompt(sessionID: string) {
+  export function prompt(sessionID: string, agent: string) {
     const experiment = resolve(sessionID)
     if (!experiment) return
-    return `<experiment-workspace code_path=${JSON.stringify(experiment.code_path)}>Use code_path for experiment code operations. Other workspace files may be read for context.</experiment-workspace>`
+    const workspace = `<experiment-workspace code_path=${JSON.stringify(experiment.code_path)}>Use code_path for experiment code operations. Other workspace files may be read for context.</experiment-workspace>`
+    if (agent === "plan") {
+      return `<experiment-workspace code_path=${JSON.stringify(experiment.code_path)} exp_plan_path=${JSON.stringify(experiment.exp_plan_path)}>Use code_path for read-only experiment inspection. All files are read-only unless the user explicitly requests plan persistence; then only exp_plan_path may be edited.</experiment-workspace>`
+    }
+    if (agent === "project_runtime_env_setup" || agent === "experiment_resource_prepare") return workspace
+    return [workspace, PROMPT_EXPERIMENT_CODE].join("\n\n")
   }
 }

@@ -6,9 +6,9 @@ import { ExperimentRemoteTaskListener } from "@/research/experiment-remote-task-
 import { forceRefreshRemoteTask } from "@/research/experiment-remote-task-watcher"
 import { ExperimentTable, RemoteServerTable } from "@/research/research.sql"
 import {
+  control,
   inspectRemoteTask,
   parseInspectOutput,
-  readRemoteTaskLog,
   session,
   startRemoteTask,
 } from "@/research/remote-task-runner"
@@ -17,7 +17,7 @@ import { Database, eq } from "@/storage/db"
 
 const kind = z.enum(["resource_download", "experiment_run", "env_setup"])
 
-const blocked = [/\bscreen\s+-d/, /\bnohup\b/, /\bssh(pass)?\b/, /<<['"]?[A-Z_]+['"]?/, /\bbash\s+-s\b/]
+const blocked = [/\bscreen\s+-d/, /\bnohup\b/, /\bssh(pass)?\b/]
 
 function summary(task: ReturnType<typeof ExperimentRemoteTask.listByExp>[number]) {
   return {
@@ -38,11 +38,10 @@ function summary(task: ReturnType<typeof ExperimentRemoteTask.listByExp>[number]
 }
 
 export function assertRawRemoteCommand(command: string) {
-  const value = command.trim()
-  if (!value) throw new Error("command must be a non-empty raw remote command")
-  if (!blocked.some((rule) => rule.test(value))) return value
+  if (!command.trim()) throw new Error("command must be a non-empty remote command or multiline shell script")
+  if (!blocked.some((rule) => rule.test(command))) return command
   throw new Error(
-    "command must be the raw remote business command only; do not include ssh, sshpass, screen, nohup, heredoc, or other wrapper layers",
+    "command must be an unwrapped remote business command or multiline shell script; do not include ssh, sshpass, screen, nohup, or other task-management wrappers",
   )
 }
 
@@ -59,7 +58,7 @@ function server(expId: string) {
 
 export const ExperimentRemoteTaskStartTool = Tool.define("experiment_remote_task_start", {
   description:
-    "Start a remote long-running experiment task. Pass only the raw remote business command; this tool owns the ssh/heredoc/screen wrapper.",
+    "Start a remote long-running experiment task from an unattended business command or multiline shell script. The tool owns SSH transport, screen detachment, PTY logging, and completion tracking.",
   parameters: z.object({
     expId: z.string().describe("Experiment ID for the task record."),
     kind,
@@ -68,9 +67,9 @@ export const ExperimentRemoteTaskStartTool = Tool.define("experiment_remote_task
     command: z
       .string()
       .describe(
-        "Raw remote business command only, such as a modelscope download or training command. Do not include ssh, sshpass, screen, nohup, heredoc, or wrapper scripts.",
+        "Unattended remote business command or multiline shell script. Normal shell syntax, business-level heredocs, and application-owned tee or redirection are allowed. Do not add ssh/sshpass, screen/nohup, polling, or tee/redirection solely for the managed task log.",
       ),
-    resourceKey: z.string().optional().describe("Stable resource key for resource download deduplication."),
+    resourceKey: z.string().optional().describe("Stable resource key associated with the remote task."),
     targetPath: z.string().nullable().optional().describe("Final remote target path produced by the command."),
     sourceSelection: z
       .string()
@@ -101,6 +100,13 @@ export const ExperimentRemoteTaskStartTool = Tool.define("experiment_remote_task
       remoteRoot: params.remoteRoot,
       screenName: task.screen_name,
       command,
+    }).catch((err) => {
+      ExperimentRemoteTask.update({
+        taskId: task.task_id,
+        status: "failed",
+        errorMessage: err instanceof Error ? err.message : String(err),
+      })
+      throw err
     })
     if (!result.ok) {
       ExperimentRemoteTask.update({ taskId: task.task_id, status: "failed", errorMessage: result.output || "failed" })
@@ -137,7 +143,7 @@ export const ExperimentRemoteTaskGetTool = Tool.define("experiment_remote_task_g
     waitForTerminal: z
       .boolean()
       .optional()
-      .describe("For running tasks, wait until the remote task reaches a terminal status before returning."),
+      .describe("For active tasks, wait until the remote task reaches a terminal status before returning."),
     waitTimeoutMs: z
       .number()
       .positive()
@@ -165,7 +171,7 @@ export const ExperimentRemoteTaskGetTool = Tool.define("experiment_remote_task_g
       if (existing.exp_id !== params.expId)
         throw new Error(`remote task does not belong to experiment: ${params.taskId}`)
     }
-    await forceRefreshRemoteTask(params.expId, { taskId: params.taskId })
+    const refreshed = await forceRefreshRemoteTask(params.expId, { taskId: params.taskId })
     let task = params.taskId ? ExperimentRemoteTask.get(params.taskId) : ExperimentRemoteTask.current(params.expId)
     if (!task) {
       throw new Error(
@@ -212,7 +218,7 @@ export const ExperimentRemoteTaskGetTool = Tool.define("experiment_remote_task_g
       }
     }
     let waited = false
-    if (params.waitForTerminal && task.status === "running") {
+    if (params.waitForTerminal && (task.status === "pending" || task.status === "running")) {
       waited = true
       await ctx.metadata({
         title: `Waiting: ${task.title}`,
@@ -233,20 +239,27 @@ export const ExperimentRemoteTaskGetTool = Tool.define("experiment_remote_task_g
       })
     }
     const server = normalizeRemoteServerConfig(JSON.parse(task.server))
-    const live = task.log_path
-      ? await inspectRemoteTask({
-          server,
-          logPath: task.log_path,
-          screenName: task.screen_name,
-          targetPath: task.target_path,
-        })
-      : null
-    const tail = task.log_path ? await readRemoteTaskLog({ server, logPath: task.log_path, lines: 20 }) : null
-    const screen = live
-      ? parseInspectOutput(live.output).screen || "unknown"
-      : task.status === "running"
-        ? "unknown"
-        : "stopped"
+    let inspection = refreshed.inspections.find((item) => item.taskId === task.task_id)
+    if (waited && task.log_path) {
+      const paths = control(task.remote_root, task.task_id, task.screen_name)
+      const result = await inspectRemoteTask({
+        server,
+        logPath: task.log_path,
+        screenName: task.screen_name,
+        exitPath: paths.exitPath,
+        pendingPath: paths.pendingPath,
+        targetPath: task.target_path,
+      })
+      inspection = { taskId: task.task_id, result, meta: parseInspectOutput(result.output) }
+    }
+    const inspectError = inspection && !inspection.result.ok ? inspection.result.output || "unknown error" : null
+    const state = inspection?.meta.screen
+    const screen = inspectError
+      ? "inspect_failed"
+      : state === "stopped" && inspection?.meta.managed && inspection.meta.code === undefined && task.status === "running"
+        ? "starting"
+        : state || (task.status === "pending" ? "starting" : task.status === "running" ? "unknown" : "stopped")
+    const tail = inspection?.result.ok ? inspection.meta.tail.split("\n").slice(-20).join("\n") : ""
     const error = task.status === "failed" || task.status === "crashed" ? task.error_message : null
 
     return {
@@ -261,6 +274,7 @@ export const ExperimentRemoteTaskGetTool = Tool.define("experiment_remote_task_g
         `Server: ${remoteServerLabel(server)}`,
         `Log: ${task.log_path ?? "-"}`,
         task.error_message ? `Error: ${task.error_message}` : null,
+        inspectError && !task.error_message ? `Screen inspect error: ${inspectError}` : null,
         listening ? "" : null,
         listening
           ? duplicate
@@ -271,7 +285,7 @@ export const ExperimentRemoteTaskGetTool = Tool.define("experiment_remote_task_g
         listening ? "The framework will automatically resume this session when the task reaches a terminal status." : null,
         "",
         "Last 20 log lines:",
-        tail?.output || "(log unavailable)",
+        tail || "(log unavailable)",
       ]
         .filter(Boolean)
         .join("\n"),
@@ -288,9 +302,11 @@ export const ExperimentRemoteTaskGetTool = Tool.define("experiment_remote_task_g
         terminal: ExperimentRemoteTask.isTerminal(task.status),
         phase: listening ? "listening_terminal" : waited ? "terminal" : "inspected",
         screen,
+        screenLine: inspection?.meta.screenLine ?? "",
+        screenInspectError: inspectError,
         logPath: task.log_path,
         errorMessage: error,
-        tail: tail?.output || "",
+        tail,
       },
     }
   },
@@ -303,7 +319,7 @@ export const ExperimentRemoteTaskListTool = Tool.define("experiment_remote_task_
     expId: z.string().describe("Experiment ID whose active remote tasks should be listed."),
   }),
   async execute(params) {
-    await forceRefreshRemoteTask(params.expId)
+    if (ExperimentRemoteTask.listActiveByExp(params.expId).length) await forceRefreshRemoteTask(params.expId)
     const tasks = ExperimentRemoteTask.listActiveByExp(params.expId)
     return {
       title: `${tasks.length} active remote task(s)`,

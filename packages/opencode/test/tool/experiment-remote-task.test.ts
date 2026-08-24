@@ -9,11 +9,17 @@ describe("tool.experiment-remote-task", () => {
     expect(cmd).toContain("modelscope download")
   })
 
+  test("preserves multiline scripts with business heredocs and tee", () => {
+    const cmd = "  set -euo pipefail\ncat <<'DATA' | tee result.txt\nvalue\nDATA\n  "
+
+    expect(assertRawRemoteCommand(cmd)).toBe(cmd)
+  })
+
   test("rejects wrapped command", () => {
     expect(() =>
       assertRawRemoteCommand(
         "mkdir -p /mnt/zhouzih && screen -dmS cub_download bash -lc 'echo START $(date) >> /mnt/zhouzih/cub_download.log'",
       ),
-    ).toThrow("raw remote business command only")
+    ).toThrow("unwrapped remote business command or multiline shell script")
   })
 })

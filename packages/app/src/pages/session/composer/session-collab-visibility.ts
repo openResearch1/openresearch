@@ -20,6 +20,10 @@ export function historical(agent: CollabAgent) {
   return !active(agent)
 }
 
+export function listed(agent: CollabAgent, history = false) {
+  return history || active(agent)
+}
+
 export function visible(agent: CollabAgent, now: number, history = false) {
   if (history || active(agent)) return true
   if (!TERMINAL.has(agent.status)) return false

@@ -34,7 +34,7 @@ For each requested resource:
 3. Confirm every destination is absolute and under `resourceRoot` unless the request explicitly permits another location. Never delete or destructively rewrite a shared source.
 4. Use `ssh` for short inspection, directory creation, lightweight preparation, and verification. Search Hugging Face or ModelScope only when source discovery is necessary.
 5. Use resumable, idempotent commands for acquisition and preparation. Prefer links or manifests over copies for experiment-specific layouts.
-6. Use `experiment_remote_task_start` for every long download, extraction, conversion, indexing, copy, or re-layout. Pass the raw remote command with `kind: resource_download`; never add `ssh`, `screen`, `nohup`, polling, sleep, or heredoc wrappers.
+6. Use `experiment_remote_task_start` for every long download, extraction, conversion, indexing, copy, or re-layout. Pass the unattended business command or multiline shell script with `kind: resource_download`. Business-owned heredocs, tee, and redirection are allowed; never add SSH transport, screen/nohup detachment, polling, sleep, or tee/redirection solely for the managed task log.
 7. Shared work uses the project runtime experiment from `project_runtime_ensure`; experiment-specific preparation uses `expId`. Record the owning experiment and exact task ID.
 8. After starting a long task, call `experiment_remote_task_get` with its exact task ID and `listenForTerminal: true`, then end the turn. On wake, inspect that exact task before continuing.
 9. A zero exit code or existing path is not enough. Run the requested semantic checks and collect useful counts, samples, checksums, or load results.

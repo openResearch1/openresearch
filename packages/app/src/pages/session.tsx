@@ -4,10 +4,10 @@ import {
   onCleanup,
   Show,
   Match,
+  Suspense,
   Switch,
   createMemo,
   createEffect,
-  createComputed,
   on,
   onMount,
   untrack,
@@ -45,9 +45,13 @@ import { TerminalPanel } from "@/pages/session/terminal-panel"
 import { createSessionHistoryWindow, emptyUserMessages } from "@/pages/session/history-window"
 import { useSessionCommands } from "@/pages/session/use-session-commands"
 import { useSessionHashScroll } from "@/pages/session/use-session-hash-scroll"
+import { useSessionResearch } from "@/pages/session/session-research"
 import { same } from "@/utils/same"
+import * as MessageOrder from "@/utils/message"
 import { formatServerError } from "@/utils/server-errors"
 import { Icon } from "@opencode-ai/ui/icon"
+
+const sessionFreshness = 15_000
 
 export default function Page(props: { remote?: boolean; backHref?: string } = {}) {
   const globalSync = useGlobalSync()
@@ -80,6 +84,7 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
     git: false,
     pendingMessage: undefined as string | undefined,
     scrollGesture: 0,
+    timelineStaging: true,
     scroll: {
       overflow: false,
       bottom: true,
@@ -87,10 +92,11 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
   })
 
   const collabActivity = useCollabActivity(() => params.id)
-  const composer = createSessionComposerState({
-    extraActive: collabActivity.active,
-    extraDone: collabActivity.done,
-  })
+  const research = useSessionResearch(() => params.id)
+  const reviewEnabled = createMemo(
+    () => !!sync.project?.id && research.ready() && !research.error() && !research.project(),
+  )
+  const composer = createSessionComposerState()
 
   const sessionKey = createMemo(() => `${params.dir}${params.id ? "/" + params.id : ""}`)
   const workspaceKey = createMemo(() => params.dir ?? "")
@@ -204,17 +210,8 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
     return sync.session.history.loading(id)
   })
 
-  const userMessages = createMemo(
-    () => messages().filter((m) => m.role === "user") as UserMessage[],
-    emptyUserMessages,
-    { equals: same },
-  )
   const visibleUserMessages = createMemo(
-    () => {
-      const revert = revertMessageID()
-      if (!revert) return userMessages()
-      return userMessages().filter((m) => m.id < revert)
-    },
+    () => MessageOrder.prefix(messages(), revertMessageID()).filter((m): m is UserMessage => m.role === "user"),
     emptyUserMessages,
     {
       equals: same,
@@ -239,7 +236,6 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
       (next, prev) => {
         if (!prev) return
         if (next.dir === prev.dir && next.id === prev.id) return
-        if (prev.id) sync.session.evict(prev.id, prev.dir)
         if (!next.id) resetSessionModel(local)
       },
       { defer: true },
@@ -251,19 +247,7 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
     mobileTab: "session" as "session" | "changes",
     changes: "session" as "session" | "turn",
     newSessionWorktree: "main",
-    deferRender: false,
   })
-
-  createComputed((prev) => {
-    const key = sessionKey()
-    if (key !== prev) {
-      setStore("deferRender", true)
-      requestAnimationFrame(() => {
-        setTimeout(() => setStore("deferRender", false), 0)
-      })
-    }
-    return key
-  }, sessionKey())
 
   const turnDiffs = createMemo(() => lastUserMessage()?.summary?.diffs ?? [])
   const reviewDiffs = createMemo(() => (store.changes === "session" ? diffs() : turnDiffs()))
@@ -280,12 +264,19 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
     const found = visibleUserMessages()?.find((m) => m.id === store.messageId)
     return found ?? lastUserMessage()
   })
-  const researchSessionKind = createMemo<ResearchSessionKind | undefined>(() => {
-    if (!collabActivity.ready()) return
+  const sessionKind = createMemo<ResearchSessionKind | "main" | undefined>(() => {
+    const kind = research.kind()
+    if (kind === "experiment" || kind === "atom") return kind
+    if (!collabActivity.ready() || !research.ready()) return
     if (collabActivity.controllerRoot()) return "controller"
     const metadata = collabActivity.rootAgent()?.spec.metadata
     if (typeof metadata?.expId === "string") return "experiment"
     if (typeof metadata?.atomId === "string") return "atom"
+    return kind
+  })
+  const researchSessionKind = createMemo<ResearchSessionKind | undefined>(() => {
+    const kind = sessionKind()
+    return kind === "main" ? undefined : kind
   })
   const setActiveMessage = (message: UserMessage | undefined) => {
     setStore("messageId", message?.id)
@@ -384,15 +375,62 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
 
   const hasScrollGesture = () => Date.now() - ui.scrollGesture < scrollGestureWindowMs
 
+  let refreshFrame: number | undefined
+  let refreshTimer: number | undefined
+  const clearRefresh = () => {
+    if (refreshFrame !== undefined) cancelAnimationFrame(refreshFrame)
+    if (refreshTimer !== undefined) window.clearTimeout(refreshTimer)
+    refreshFrame = undefined
+    refreshTimer = undefined
+  }
+  createEffect(
+    on([() => sdk.directory, () => params.id] as const, ([directory, id]) => {
+      clearRefresh()
+      if (!id) return
+      const cached = untrack(() => sync.data.message[id] !== undefined)
+      const status = untrack(() => sync.data.session_status[id]?.type)
+      const stale = cached && status !== "busy" && status !== "retry" && !sync.session.fresh(id, sessionFreshness)
+      if (stale) {
+        refreshFrame = requestAnimationFrame(() => {
+          refreshFrame = undefined
+          refreshTimer = window.setTimeout(() => {
+            refreshTimer = undefined
+            if (sdk.directory !== directory || params.id !== id) return
+            if (sync.session.fresh(id, sessionFreshness)) return
+            const status = sync.data.session_status[id]?.type
+            if (status === "busy" || status === "retry") return
+            void sync.session.reload(id)
+          }, 0)
+        })
+      }
+      void sync.session.sync(id)
+    }),
+  )
+  onCleanup(clearRefresh)
+
   createEffect(
     on([() => sdk.directory, () => params.id] as const, ([, id]) => {
       if (!id) return
       untrack(() => {
-        void sync.session.sync(id)
         void sync.session.todo(id)
         void sync.session.workflow(id)
       })
     }),
+  )
+
+  createEffect(
+    on(
+      () => ({ id: params.id, status: sync.data.session_status[params.id ?? ""]?.type ?? "idle" }),
+      (next, prev) => {
+        if (!prev) return
+        if (!next.id || next.id !== prev.id) return
+        if (next.status !== "idle") return
+        if (prev.status !== "busy" && prev.status !== "retry") return
+        if (sync.data.message[next.id] === undefined) return
+        untrack(() => void sync.session.reload(next.id!))
+      },
+      { defer: true },
+    ),
   )
 
   createEffect(() => {
@@ -414,9 +452,9 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
 
   createEffect(
     on(
-      () => visibleUserMessages().at(-1)?.id,
-      (lastId, prevLastId) => {
-        if (lastId && prevLastId && lastId > prevLastId) {
+      () => visibleUserMessages().at(-1),
+      (last, prev) => {
+        if (last && prev && MessageOrder.compare(last, prev) > 0) {
           setStore("messageId", undefined)
         }
       },
@@ -564,8 +602,8 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
       .filter((tab) => tab !== "context" && tab !== "review"),
   )
 
-  const mobileChanges = createMemo(() => !isDesktop() && store.mobileTab === "changes")
-  const reviewTab = createMemo(() => isDesktop())
+  const mobileChanges = createMemo(() => !isDesktop() && reviewEnabled() && store.mobileTab === "changes")
+  const reviewTab = createMemo(() => isDesktop() && reviewEnabled())
 
   const fileTreeTab = () => layout.fileTree.tab()
   const setFileTreeTab = (value: "changes" | "all") => layout.fileTree.setTab(value)
@@ -647,7 +685,7 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
     loadingClass: string
     emptyClass: string
   }) => (
-    <Show when={!store.deferRender}>
+    <Show when={sessionKey()} keyed>
       <Switch>
         <Match when={store.changes === "turn" && !!params.id}>
           <SessionReviewTab
@@ -880,7 +918,7 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
 
     const wants = isDesktop()
       ? desktopFileTreeOpen() || (desktopReviewOpen() && activeTab() === "review")
-      : store.mobileTab === "changes"
+      : reviewEnabled() && store.mobileTab === "changes"
     if (!wants) return
     if (sync.data.session_diff[id] !== undefined) return
     if (sync.status === "loading") return
@@ -982,6 +1020,7 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
     on(
       sessionKey,
       () => {
+        setUi("timelineStaging", true)
         scrollSpy.clear()
       },
       { defer: true },
@@ -1027,6 +1066,7 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
       historyFillFrame = undefined
 
       if (!params.id || !messagesReady()) return
+      if (ui.timelineStaging) return
       if (autoScroll.userScrolled() || historyLoading()) return
 
       const el = scroller
@@ -1072,7 +1112,7 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
 
       dockHeight = next
 
-      if (stick) autoScroll.smoothScrollToBottom()
+      if (stick) autoScroll.snapToBottom()
 
       if (el) scheduleScrollState(el)
       scrollSpy.markDirty()
@@ -1080,10 +1120,10 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
     },
   )
 
-  const { clearMessageHash, scrollToMessage } = useSessionHashScroll({
+  const { applyHash, clearMessageHash, scrollToMessage } = useSessionHashScroll({
     sessionKey,
     sessionID: () => params.id,
-    messagesReady,
+    messagesReady: () => messagesReady() && !ui.timelineStaging,
     visibleUserMessages,
     turnStart: historyWindow.turnStart,
     currentMessageId: () => store.messageId,
@@ -1145,7 +1185,7 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
       <div class="flex-1 min-h-0 flex flex-col md:flex-row">
         <Show when={!props.remote}>
           <SessionMobileTabs
-            open={!isDesktop() && !!params.id}
+            open={!isDesktop() && !!params.id && reviewEnabled()}
             mobileTab={store.mobileTab}
             hasReview={hasReview()}
             reviewCount={reviewCount()}
@@ -1172,7 +1212,21 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
                 <Show
                   when={activeMessage()}
                   fallback={
-                    <Show when={researchSessionKind()} keyed>
+                    <Show
+                      when={researchSessionKind()}
+                      keyed
+                      fallback={
+                        <Show when={!messagesReady()}>
+                          <div
+                            data-component="session-loading"
+                            class="h-full flex items-center justify-center text-13-regular text-text-weak"
+                          >
+                            {language.t("common.loading")}
+                            {language.t("common.loading.ellipsis")}
+                          </div>
+                        </Show>
+                      }
+                    >
                       {(kind) => <ResearchSessionView kind={kind} />}
                     </Show>
                   }
@@ -1202,7 +1256,33 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
                     onTurnBackfillScroll={historyWindow.onScrollerScroll}
                     onAutoScrollInteraction={autoScroll.handleInteraction}
                     onPreserveScrollAnchor={autoScroll.preserve}
+                    onStagingChange={(value) => {
+                      setUi("timelineStaging", value)
+                      if (!value) scheduleHistoryFill()
+                    }}
+                    onStagingReady={() => {
+                      const target =
+                        ui.pendingMessage ?? store.messageId ?? layout.pendingMessage.consume(sessionKey())
+                      if (target && ui.pendingMessage !== target) setUi("pendingMessage", target)
+                      if (window.location.hash || target) {
+                        return new Promise<void>((resolve) => {
+                          requestAnimationFrame(() => {
+                            if (window.location.hash) {
+                              applyHash("auto")
+                            } else {
+                              const message = visibleUserMessages().find((item) => item.id === target)
+                              if (message) scrollToMessage(message, "auto")
+                            }
+                            requestAnimationFrame(() => resolve())
+                          })
+                        })
+                      }
+                      autoScroll.snapToBottom()
+                      const root = scroller
+                      if (root) scheduleScrollState(root)
+                    }}
                     centered={centered()}
+                    collabActivity={collabActivity}
                     setContentRef={(el) => {
                       content = el
                       autoScroll.contentRef(el)
@@ -1249,7 +1329,9 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
             compact={props.remote}
             state={composer}
             collabActivity={collabActivity}
-            ready={!store.deferRender && messagesReady()}
+            research={research}
+            kind={sessionKind()}
+            ready={messagesReady()}
             centered={centered()}
             inputRef={(el) => {
               inputRef = el
@@ -1283,13 +1365,18 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
         </div>
 
         <Show when={!props.remote}>
-          <SessionSidePanel
-            collabActivity={collabActivity}
-            reviewPanel={reviewPanel}
-            activeDiff={tree.activeDiff}
-            focusReviewDiff={focusReviewDiff}
-            size={size}
-          />
+          <Suspense>
+            <SessionSidePanel
+              collabActivity={collabActivity}
+              research={research}
+              review={reviewEnabled}
+              kind={sessionKind()}
+              reviewPanel={reviewPanel}
+              activeDiff={tree.activeDiff}
+              focusReviewDiff={focusReviewDiff}
+              size={size}
+            />
+          </Suspense>
         </Show>
       </div>
 

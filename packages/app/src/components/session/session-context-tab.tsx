@@ -6,6 +6,7 @@ import { useLayout } from "@/context/layout"
 import { checksum } from "@opencode-ai/util/encode"
 import { findLast } from "@opencode-ai/util/array"
 import { same } from "@/utils/same"
+import * as MessageOrder from "@/utils/message"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Accordion } from "@opencode-ai/ui/accordion"
 import { StickyAccordionHeader } from "@opencode-ai/ui/sticky-accordion-header"
@@ -110,18 +111,11 @@ export function SessionContextTab() {
     { equals: same },
   )
 
-  const userMessages = createMemo(
-    () => messages().filter((m) => m.role === "user") as UserMessage[],
-    emptyUserMessages,
-    { equals: same },
-  )
-
   const visibleUserMessages = createMemo(
-    () => {
-      const revert = info()?.revert?.messageID
-      if (!revert) return userMessages()
-      return userMessages().filter((m) => m.id < revert)
-    },
+    () =>
+      MessageOrder.prefix(messages(), info()?.revert?.messageID).filter(
+        (message): message is UserMessage => message.role === "user",
+      ),
     emptyUserMessages,
     { equals: same },
   )

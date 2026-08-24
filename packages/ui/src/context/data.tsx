@@ -6,7 +6,7 @@ type Data = {
   provider?: ProviderListResponse
   session: Session[]
   session_status: {
-    [sessionID: string]: SessionStatus
+    [sessionID: string]: SessionStatus | undefined
   }
   session_diff: {
     [sessionID: string]: FileDiff[]
@@ -22,9 +22,23 @@ type Data = {
   }
 }
 
-export type NavigateToSessionFn = (sessionID: string) => boolean | void
+export type NavigateToSessionFn = (sessionID: string) => void
 
 export type SessionHrefFn = (sessionID: string) => string
+
+export type AgentTarget = {
+  agentId?: string
+  sessionId?: string
+  atomId?: string
+  experimentId?: string
+}
+
+export type AgentInfo = AgentTarget & {
+  type: string
+  name?: string
+}
+
+export type ResolveAgentInfoFn = (target: AgentTarget) => AgentInfo | Promise<AgentInfo | undefined> | undefined
 
 export const { use: useData, provider: DataProvider } = createSimpleContext({
   name: "Data",
@@ -33,6 +47,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
     directory: string
     onNavigateToSession?: NavigateToSessionFn
     onSessionHref?: SessionHrefFn
+    onResolveAgentInfo?: ResolveAgentInfoFn
   }) => {
     return {
       get store() {
@@ -43,6 +58,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
       },
       navigateToSession: props.onNavigateToSession,
       sessionHref: props.onSessionHref,
+      resolveAgentInfo: props.onResolveAgentInfo,
     }
   },
 })

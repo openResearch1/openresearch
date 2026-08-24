@@ -1,5 +1,6 @@
 import { and, Database, eq, inArray } from "@/storage/db"
 import { CollabAgentTable } from "@/collab/collab.sql"
+import { CollabAgentNode } from "@/collab/agent-node"
 import { CollabMessage } from "@/collab/message"
 import type { RemoteTaskTerminalPayload } from "@/collab/types"
 import { RemoteTaskListenerTable } from "./remote-task-listener.sql"
@@ -23,7 +24,12 @@ export namespace ExperimentRemoteTaskListener {
       if (terminal.has(task.status)) return { listening: false as const, duplicate: false, task }
       const agent = tx.select().from(CollabAgentTable).where(eq(CollabAgentTable.id, input.agentId)).get()
       if (!agent) throw new Error(`collab agent not found: ${input.agentId}`)
-      const state = lifecycle(agent)
+      const restored = CollabAgentNode.restoreExperiment(agent.id)
+      const current = tx.select().from(CollabAgentTable).where(eq(CollabAgentTable.id, restored.id)).get()!
+      if ((current.spec_json as { metadata?: Record<string, unknown> }).metadata?.stoppedByUser === true) {
+        throw new Error(`collab agent was stopped by user: ${current.id}`)
+      }
+      const state = lifecycle(current)
 
       const existing = tx
         .select()
@@ -73,10 +79,18 @@ export namespace ExperimentRemoteTaskListener {
     )
   }
 
-  export function clear(agentIds: string[]) {
+  export function clear(agentIds: string[], mode?: "direct" | "collab") {
     if (!agentIds.length) return
     Database.use((db) =>
-      db.delete(RemoteTaskListenerTable).where(inArray(RemoteTaskListenerTable.agent_id, agentIds)).run(),
+      db
+        .delete(RemoteTaskListenerTable)
+        .where(
+          and(
+            inArray(RemoteTaskListenerTable.agent_id, agentIds),
+            mode ? eq(RemoteTaskListenerTable.mode, mode) : undefined,
+          ),
+        )
+        .run(),
     )
   }
 
@@ -91,7 +105,20 @@ export namespace ExperimentRemoteTaskListener {
         .where(eq(RemoteTaskListenerTable.agent_id, agentId))
         .all()
       const now = Date.now()
+      const stopped = (agent.spec_json as { metadata?: Record<string, unknown> }).metadata?.stoppedByUser === true
       for (const row of rows) {
+        if (stopped && row.listener.mode === "collab") {
+          tx.delete(RemoteTaskListenerTable)
+            .where(
+              and(
+                eq(RemoteTaskListenerTable.task_id, row.listener.task_id),
+                eq(RemoteTaskListenerTable.agent_id, row.listener.agent_id),
+                eq(RemoteTaskListenerTable.mode, "collab"),
+              ),
+            )
+            .run()
+          continue
+        }
         if (
           row.listener.mode !== "collab" ||
           (active.has(agent.status) && !!row.listener.run_id && row.listener.run_id === agent.run_id)
@@ -135,8 +162,37 @@ export namespace ExperimentRemoteTaskListener {
           tx.insert(RemoteTaskListenerTable).values(claimed).run()
           return
         }
-        const agent = tx.select().from(CollabAgentTable).where(eq(CollabAgentTable.id, claimed.agent_id)).get()
+        let agent = tx.select().from(CollabAgentTable).where(eq(CollabAgentTable.id, claimed.agent_id)).get()
         if (!agent) return
+        let metadata = (agent.spec_json as { metadata?: Record<string, unknown> }).metadata
+        if (metadata?.stoppedByUser === true && claimed.mode === "collab") return
+        if (metadata?.stoppedByUser === true) {
+          CollabAgentNode.restoreExperiment(agent.id)
+          agent = tx.select().from(CollabAgentTable).where(eq(CollabAgentTable.id, claimed.agent_id)).get()
+          if (!agent) return
+          metadata = (agent.spec_json as { metadata?: Record<string, unknown> }).metadata
+          if (metadata?.stoppedByUser !== true) {
+            tx.delete(RemoteTaskListenerTable)
+              .where(
+                and(
+                  eq(RemoteTaskListenerTable.agent_id, agent.id),
+                  eq(RemoteTaskListenerTable.mode, "collab"),
+                ),
+              )
+              .run()
+          }
+        }
+        if (metadata?.stoppedByUser === true) {
+          if (
+            claimed.mode === "direct" &&
+            agent.subagent_type === "experiment" &&
+            typeof metadata.atomId === "string" &&
+            typeof metadata.expId === "string"
+          ) {
+            tx.insert(RemoteTaskListenerTable).values(claimed).run()
+          }
+          return
+        }
         const collab =
           claimed.mode === "collab" && active.has(agent.status) && !!claimed.run_id && claimed.run_id === agent.run_id
         const payload: RemoteTaskTerminalPayload = {

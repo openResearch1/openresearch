@@ -32,8 +32,6 @@ export function createSessionComposerBlocked() {
 
 export function createSessionComposerState(options?: {
   closeMs?: number | (() => number)
-  extraActive?: () => boolean
-  extraDone?: () => boolean
 }) {
   const params = useSessionID()
   const sdk = useSDK()
@@ -72,7 +70,7 @@ export function createSessionComposerState(options?: {
 
   const [store, setStore] = createStore({
     responding: undefined as string | undefined,
-    dock: todos().length > 0 || !!options?.extraActive?.(),
+    dock: todos().length > 0,
     closing: false,
     opening: false,
   })
@@ -130,18 +128,15 @@ export function createSessionComposerState(options?: {
     }, closeMs())
   }
 
-  const extraActive = createMemo(() => options?.extraActive?.() ?? false)
-  const extraDone = createMemo(() => options?.extraDone?.() ?? true)
-
   createEffect(
     on(
-      () => [todos().length, done(), sourceWorkflow()?.instance.status, extraActive(), extraDone()] as const,
-      ([count, complete, , extraOn, extraFinished], prev) => {
+      () => [todos().length, done(), sourceWorkflow()?.instance.status] as const,
+      ([count, complete], prev) => {
         if (raf) cancelAnimationFrame(raf)
         raf = undefined
 
-        const show = count > 0 || !!sourceWorkflow() || extraOn
-        const settled = (count === 0 || complete) && workflowDone() && extraFinished
+        const show = count > 0 || !!sourceWorkflow()
+        const settled = (count === 0 || complete) && workflowDone()
 
         if (!show) {
           if (timer) window.clearTimeout(timer)

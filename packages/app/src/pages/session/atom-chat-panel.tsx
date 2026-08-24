@@ -2,7 +2,7 @@ import { createEffect, createMemo, createSignal, For, on, Show } from "solid-js"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { SessionTurn } from "@opencode-ai/ui/session-turn"
 import { Icon } from "@opencode-ai/ui/icon"
-import { DataProvider } from "@opencode-ai/ui/context"
+import { DataProvider, useData } from "@opencode-ai/ui/context"
 import type { AssistantMessage, Message, UserMessage } from "@opencode-ai/sdk/v2"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
@@ -14,22 +14,33 @@ import { createSessionComposerState } from "@/pages/session/composer/session-com
 import { useCollabActivity } from "@/pages/session/composer/session-collab-activity"
 import { createSessionHistoryWindow } from "@/pages/session/history-window"
 import { createTimelineStaging } from "@/pages/session/timeline-staging"
+import { useSessionResearch } from "@/pages/session/session-research"
+import * as MessageOrder from "@/utils/message"
 
 const CHAT_MIN_WIDTH = 360
 const CHAT_MAX_WIDTH = 900
 const CHAT_DEFAULT_WIDTH = 520
+const SESSION_FRESHNESS = 15_000
 
 export function AtomChatPanel(props: { atomSessionId: string; onClose: () => void; title?: string }) {
+  const parent = useData()
   const sdk = useSDK()
   const sync = useSync()
   const [panelWidth, setPanelWidth] = createSignal(CHAT_DEFAULT_WIDTH)
   const [dragging, setDragging] = createSignal(false)
+  const load = (id: string) => {
+    const cached = sync.data.message[id] !== undefined
+    const status = sync.data.session_status[id]?.type
+    if (!cached || status === "busy" || status === "retry") return sync.session.sync(id)
+    if (sync.session.fresh(id, SESSION_FRESHNESS)) return sync.session.sync(id)
+    return sync.session.reload(id)
+  }
 
   // Sync session data so messages are loaded
   createEffect(
     on(
       () => props.atomSessionId,
-      (id) => void sync.session.sync(id),
+      (id) => void load(id),
     ),
   )
 
@@ -41,14 +52,15 @@ export function AtomChatPanel(props: { atomSessionId: string; onClose: () => voi
   })
   const canGoBack = createMemo(() => sessionStack().length > 0)
 
-  const navigateToChildSession = (sessionID: string): true => {
+  const navigateToChildSession = (sessionID: string) => {
     setSessionStack((prev) => [...prev, sessionID])
-    void sync.session.sync(sessionID)
-    return true
+    void load(sessionID)
   }
 
   const goBack = () => {
-    setSessionStack((prev) => prev.slice(0, -1))
+    const next = sessionStack().slice(0, -1)
+    setSessionStack(next)
+    void load(next.at(-1) ?? props.atomSessionId)
   }
 
   // Reset stack when root atom session changes
@@ -140,6 +152,7 @@ export function AtomChatPanel(props: { atomSessionId: string; onClose: () => voi
           directory={sdk.directory}
           onNavigateToSession={navigateToChildSession}
           onSessionHref={sessionHref}
+          onResolveAgentInfo={parent.resolveAgentInfo}
         >
           <AtomChatInner sessionID={currentSessionID()} canGoBack={canGoBack()} onGoBack={goBack} />
         </DataProvider>
@@ -152,28 +165,51 @@ function AtomChatInner(props: { sessionID: string; canGoBack: boolean; onGoBack:
   const settings = useSettings()
   const sync = useSync()
   const collabActivity = useCollabActivity(() => props.sessionID)
-  const composer = createSessionComposerState({
-    extraActive: collabActivity.active,
-    extraDone: collabActivity.done,
+  const research = useSessionResearch(() => props.sessionID)
+  const kind = createMemo(() => {
+    const value = research.kind()
+    if (value === "experiment" || value === "atom") return value
+    if (!collabActivity.ready() || !research.ready()) return
+    if (collabActivity.controllerRoot()) return "controller" as const
+    const metadata = collabActivity.rootAgent()?.spec.metadata
+    if (typeof metadata?.expId === "string") return "experiment" as const
+    if (typeof metadata?.atomId === "string") return "atom" as const
+    return value
   })
+  const composer = createSessionComposerState()
   let scroller: HTMLDivElement | undefined
 
   const emptyMessages: Message[] = []
   const messages = createMemo(() => sync.data.message[props.sessionID] ?? emptyMessages)
-  const userMessages = createMemo(() => messages().filter((m): m is UserMessage => m.role === "user"))
+  const visible = createMemo(() => MessageOrder.prefix(messages(), sync.session.get(props.sessionID)?.revert?.messageID))
+  const userMessages = createMemo(() => visible().filter((m): m is UserMessage => m.role === "user"))
+  const order = createMemo(() => new Map(userMessages().map((message, index) => [message.id, index])))
   const sessionStatus = createMemo(() => sync.data.session_status[props.sessionID]?.type ?? "idle")
   const working = createMemo(() => sessionStatus() === "busy")
 
+  createEffect(
+    on(
+      sessionStatus,
+      (status, prev) => {
+        if (status !== "idle") return
+        if (prev !== "busy" && prev !== "retry") return
+        if (sync.data.message[props.sessionID] === undefined) return
+        void sync.session.reload(props.sessionID)
+      },
+      { defer: true },
+    ),
+  )
+
   // Find the last incomplete assistant message (still streaming/thinking)
   const pending = createMemo(() =>
-    messages().findLast(
+    visible().findLast(
       (item): item is AssistantMessage => item.role === "assistant" && typeof item.time.completed !== "number",
     ),
   )
 
   // Determine which user message is "active" (its assistant reply is being generated)
   const activeMessageID = createMemo(() => {
-    const allMessages = messages()
+    const allMessages = visible()
     const message = pending()
     if (message?.parentID) {
       const parent = allMessages.find((item) => item.id === message.parentID)
@@ -197,7 +233,7 @@ function AtomChatInner(props: { sessionID: string; canGoBack: boolean; onGoBack:
 
   const historyWindow = createSessionHistoryWindow({
     sessionID: () => props.sessionID,
-    messagesReady: () => messages().length > 0,
+    messagesReady: () => sync.data.message[props.sessionID] !== undefined,
     visibleUserMessages: userMessages,
     historyMore,
     historyLoading,
@@ -212,9 +248,13 @@ function AtomChatInner(props: { sessionID: string; canGoBack: boolean; onGoBack:
     turnStart: () => historyWindow.turnStart(),
     messages: () => historyWindow.renderedUserMessages(),
     config: { init: 1, batch: 3 },
+    onReady: () => autoScroll.snapToBottom(),
   })
 
   const rendered = createMemo(() => staging.messages().map((msg) => msg.id))
+  const timelineReady = createMemo(
+    () => sync.data.message[props.sessionID] !== undefined && (userMessages().length === 0 || staging.ready()),
+  )
 
   // Scroll state tracking for scroll-to-bottom button
   const [scrollState, setScrollState] = createSignal({ overflow: false, bottom: true })
@@ -275,7 +315,12 @@ function AtomChatInner(props: { sessionID: string; canGoBack: boolean; onGoBack:
       </Show>
 
       {/* Messages area */}
-      <div class="relative flex-1 min-h-0">
+      <div
+        data-timeline-staging={timelineReady() ? undefined : ""}
+        aria-hidden={timelineReady() ? undefined : "true"}
+        class="relative flex-1 min-h-0"
+        style={{ visibility: timelineReady() ? "visible" : "hidden" }}
+      >
         {/* Scroll-to-bottom button */}
         <div
           class="absolute left-1/2 -translate-x-1/2 bottom-4 z-[60] pointer-events-none transition-all duration-200 ease-out"
@@ -336,7 +381,7 @@ function AtomChatInner(props: { sessionID: string; canGoBack: boolean; onGoBack:
                   const queued = createMemo(() => {
                     if (active()) return false
                     const activeID = activeMessageID()
-                    if (activeID) return messageID > activeID
+                    if (activeID) return (order().get(messageID) ?? -1) > (order().get(activeID) ?? -1)
                     return false
                   })
                   return (
@@ -367,9 +412,11 @@ function AtomChatInner(props: { sessionID: string; canGoBack: boolean; onGoBack:
 
       {/* Composer with permission/question docks */}
       <div class="shrink-0">
-        <SessionComposerRegion
+      <SessionComposerRegion
           state={composer}
-          collabActivity={collabActivity}
+        collabActivity={collabActivity}
+        research={research}
+        kind={kind()}
           ready={true}
           centered={false}
           inputRef={() => {}}

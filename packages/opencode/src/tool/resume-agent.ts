@@ -1,6 +1,7 @@
 import z from "zod"
 import { Collab } from "@/collab"
 import { CollabAgentNode } from "@/collab/agent-node"
+import { ResearchSessionControl } from "@/research/session-control"
 import { Tool } from "./tool"
 import DESCRIPTION from "./resume-agent.txt"
 
@@ -70,8 +71,9 @@ export const ResumeAgentTool = Tool.define("resume_agent", async () => {
         },
       })
 
+      const caller = Collab.getBySession(ctx.sessionID)
       target = Collab.tryGet(params.agent_id)
-      if (!target || !Collab.isAncestor(callerNode.id, target.id)) {
+      if (!caller || !target || !Collab.isAncestor(caller.id, target.id)) {
         return {
           title: "resume_agent",
           metadata: mk(false),
@@ -89,6 +91,12 @@ export const ResumeAgentTool = Tool.define("resume_agent", async () => {
           expectedParentAgentId: target.parent_agent_id,
           expectedRunId: target.run_id,
           expectedGeneration: CollabAgentNode.generation(target.spec),
+          startParent:
+            target.parent_agent_id === caller.id &&
+            !CollabAgentNode.isActive(caller.status) &&
+            ResearchSessionControl.canStartHumanRun(ctx.sessionID)
+              ? "human"
+              : undefined,
         })
         return {
           title: "resume_agent",

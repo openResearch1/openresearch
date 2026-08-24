@@ -16,8 +16,8 @@ import { DialogSelectModel } from "@/components/dialog-select-model"
 import { DialogSelectMcp } from "@/components/dialog-select-mcp"
 import { DialogFork } from "@/components/dialog-fork"
 import { showToast } from "@opencode-ai/ui/toast"
-import { findLast } from "@opencode-ai/util/array"
 import { extractPromptFromParts } from "@/utils/prompt"
+import * as MessageOrder from "@/utils/message"
 import { UserMessage } from "@opencode-ai/sdk/v2"
 import { canAddSelectionContext } from "@/pages/session/session-command-helpers"
 
@@ -58,10 +58,18 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
   const status = createMemo(() => sync.data.session_status[params.id ?? ""] ?? idle)
   const messages = createMemo(() => (params.id ? (sync.data.message[params.id] ?? []) : []))
   const userMessages = createMemo(() => messages().filter((m) => m.role === "user") as UserMessage[])
-  const visibleUserMessages = createMemo(() => {
+  const promptMessages = createMemo(() =>
+    userMessages().filter((message) =>
+      (sync.data.part[message.id] ?? []).some((part) => ["text", "file", "agent", "subtask"].includes(part.type)),
+    ),
+  )
+  const visibleUserMessages = createMemo(() =>
+    MessageOrder.prefix(messages(), info()?.revert?.messageID).filter((m): m is UserMessage => m.role === "user"),
+  )
+  const revertReady = createMemo(() => {
     const revert = info()?.revert?.messageID
-    if (!revert) return userMessages()
-    return userMessages().filter((m) => m.id < revert)
+    if (!revert) return true
+    return promptMessages().some((message) => message.id === revert)
   })
 
   const showAllFiles = () => {
@@ -287,7 +295,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       title: language.t("command.session.undo"),
       description: language.t("command.session.undo.description"),
       slash: "undo",
-      disabled: !params.id || visibleUserMessages().length === 0,
+      disabled: !params.id || promptMessages().length === 0 || !revertReady(),
       onSelect: async () => {
         const sessionID = params.id
         if (!sessionID) return
@@ -295,7 +303,11 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
           await sdk.client.session.abort({ sessionID }).catch(() => {})
         }
         const revert = info()?.revert?.messageID
-        const message = findLast(userMessages(), (x) => !revert || x.id < revert)
+        const users = promptMessages()
+        const found = revert ? users.findIndex((message) => message.id === revert) : users.length
+        if (found === -1) return
+        const index = found
+        const message = users[index - 1]
         if (!message) return
         await sdk.client.session.revert({ sessionID, messageID: message.id })
         const parts = sync.data.part[message.id]
@@ -303,8 +315,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
           const restored = extractPromptFromParts(parts, { directory: sdk.directory })
           prompt.set(restored)
         }
-        const priorMessage = findLast(userMessages(), (x) => x.id < message.id)
-        setActiveMessage(priorMessage)
+        setActiveMessage(users[index - 2])
       },
     }),
     sessionCommand({
@@ -312,23 +323,24 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       title: language.t("command.session.redo"),
       description: language.t("command.session.redo.description"),
       slash: "redo",
-      disabled: !params.id || !info()?.revert?.messageID,
+      disabled: !params.id || !info()?.revert?.messageID || !revertReady(),
       onSelect: async () => {
         const sessionID = params.id
         if (!sessionID) return
         const revertMessageID = info()?.revert?.messageID
         if (!revertMessageID) return
-        const nextMessage = userMessages().find((x) => x.id > revertMessageID)
+        const users = promptMessages()
+        const index = users.findIndex((message) => message.id === revertMessageID)
+        if (index === -1) return
+        const nextMessage = users[index + 1]
         if (!nextMessage) {
           await sdk.client.session.unrevert({ sessionID })
           prompt.reset()
-          const lastMsg = findLast(userMessages(), (x) => x.id >= revertMessageID)
-          setActiveMessage(lastMsg)
+          setActiveMessage(users.at(-1))
           return
         }
         await sdk.client.session.revert({ sessionID, messageID: nextMessage.id })
-        const priorMsg = findLast(userMessages(), (x) => x.id < nextMessage.id)
-        setActiveMessage(priorMsg)
+        setActiveMessage(users[index])
       },
     }),
     sessionCommand({

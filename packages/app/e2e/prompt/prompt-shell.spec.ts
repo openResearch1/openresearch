@@ -57,6 +57,15 @@ test("shell mode runs a command in the project directory", async ({ page, withPr
       )
       .toEqual(expect.objectContaining({ cwd: directory, output: expect.stringContaining("README.md") }))
 
+    const shell = page.locator('[data-component="shell-rolling-results"]').last()
+    const arrow = shell.locator('[data-slot="shell-rolling-arrow"]')
+    await expect(arrow).toHaveAttribute("data-open", "false")
+    await expect(shell.locator('[data-component="shell-expanded-shell"]')).not.toBeVisible()
+
+    await shell.locator('[data-slot="shell-rolling-header-clip"]').click()
+    await expect(arrow).toHaveAttribute("data-open", "true")
+    await expect(shell.locator('[data-component="shell-expanded-shell"]')).toBeVisible()
+
     await expect(prompt).toHaveText("")
   })
 })

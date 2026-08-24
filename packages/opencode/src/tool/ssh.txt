@@ -1,6 +1,9 @@
 Execute a bash command on a remote server via SSH.
 
 - Connects either with direct SSH credentials or via a host defined in an SSH config file
+- Prefer a stored remote server ID when one is available so saved credentials are loaded securely
+- JSON direct configs without a password reuse credentials from a unique stored server with the same address, port, and user
+- SSH config mode relies on OpenSSH config, keys, and SSH Agent unless an explicit password is provided
 - Runs the given command on the remote server and returns stdout + stderr
 - The command runs in the remote user's default shell
 - Default timeout is 120 seconds; override with the timeout parameter

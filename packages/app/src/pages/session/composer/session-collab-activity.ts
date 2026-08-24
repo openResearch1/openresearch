@@ -3,7 +3,7 @@ import { createStore, produce, reconcile } from "solid-js/store"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useData } from "@opencode-ai/ui/context"
 import type { CollabAgent } from "@opencode-ai/sdk/v2/client"
-import { failure, hasCollabActivity, isAgentControlled } from "./session-collab-control"
+import { failure, isAgentControlled } from "./session-collab-control"
 import { descendants } from "./session-collab-scope"
 
 const ACTIVE_STATUSES = new Set(["pending", "running", "blocked_on_children", "waiting_interaction"])
@@ -16,8 +16,6 @@ export type CollabActivity = {
   activeChildren: Accessor<CollabAgent[]>
   controllerRoot: Accessor<boolean>
   controlled: Accessor<boolean>
-  active: Accessor<boolean>
-  done: Accessor<boolean>
   getAgent: (id: string) => CollabAgent | undefined
 }
 
@@ -231,12 +229,7 @@ export function useCollabActivity(sessionID: Accessor<string | undefined>): Coll
     const root = rootAgent()
     return !!root && root.subagent_type === "controller" && !root.parent_agent_id && root.root_agent_id === root.id
   })
-  const active = createMemo(() => {
-    const root = rootAgent()
-    return hasCollabActivity(root, controllerRoot(), activeChildren().length)
-  })
   const controlled = createMemo(() => isAgentControlled(rootAgent()))
-  const done = createMemo(() => !active())
 
   return {
     ready: () => state.ready,
@@ -246,8 +239,6 @@ export function useCollabActivity(sessionID: Accessor<string | undefined>): Coll
     activeChildren,
     controllerRoot,
     controlled,
-    active,
-    done,
     getAgent: (id) => state.agents[id],
   }
 }

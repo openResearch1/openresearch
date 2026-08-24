@@ -1,10 +1,9 @@
 import { createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js"
 import { createStore } from "solid-js/store"
-import { useNavigate } from "@solidjs/router"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { useData } from "@opencode-ai/ui/context"
 import { showToast } from "@opencode-ai/ui/toast"
-import { base64Encode } from "@opencode-ai/util/encode"
 import { useSDK } from "@/context/sdk"
 import { legacyTask, RemoteTaskPanel } from "@/pages/session/remote-task-panel"
 
@@ -98,7 +97,7 @@ function watchNotice(watch: WatchRow) {
 
 export function WatchesTab(props: { onOpenFile?: (filePath: string) => void }) {
   const sdk = useSDK()
-  const navigate = useNavigate()
+  const data = useData()
   const dialog = useDialog()
   const [watches, setWatches] = createSignal<WatchRow[]>([])
   const [loading, setLoading] = createSignal(true)
@@ -132,7 +131,7 @@ export function WatchesTab(props: { onOpenFile?: (filePath: string) => void }) {
       const res = await sdk.client.research.experiment.session.create({ expId })
       const sessionId = res.data?.session_id
       if (sessionId) {
-        navigate(`/${base64Encode(sdk.directory)}/session/${sessionId}`)
+        data.navigateToSession?.(sessionId)
       }
     } catch (err) {
       console.error("[watches-tab] failed to get/create experiment session", err)

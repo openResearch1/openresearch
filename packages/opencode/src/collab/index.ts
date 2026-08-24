@@ -190,6 +190,7 @@ export namespace Collab {
     expectedParentAgentId?: string | null
     expectedRunId?: string | null
     expectedGeneration?: number
+    startParent?: "human"
   }): Promise<AgentInfo> {
     CollabProgressHook.ensure()
     CollabAutoWake.ensure()
@@ -248,10 +249,11 @@ export namespace Collab {
 
       if (node.parent_agent_id) {
         const parent = CollabAgentNode.tryLoad(node.parent_agent_id)
+        const start = input.startParent === "human" && parent && !CollabAgentNode.isActive(parent.status)
         if (
           !parent ||
-          !CollabAgentNode.isActive(parent.status) ||
-          (parent.error && parent.error.code !== "MODEL_UNAVAILABLE")
+          (!start &&
+            (!CollabAgentNode.isActive(parent.status) || (parent.error && parent.error.code !== "MODEL_UNAVAILABLE")))
         ) {
           throw new Error(
             `Cannot resume agent ${node.id}: parent ${node.parent_agent_id} is not available (parent status=${parent?.status ?? "missing"}).`,
@@ -304,6 +306,7 @@ export namespace Collab {
           parentId: node.parent_agent_id,
           generation: CollabAgentNode.generation(node.spec),
           resume: true,
+          startParent: input.startParent,
         })
       }
 

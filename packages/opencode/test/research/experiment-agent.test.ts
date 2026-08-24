@@ -19,6 +19,7 @@ import { Provider } from "../../src/provider/provider"
 import { ExperimentAgent } from "../../src/research/experiment-agent"
 import { ExperimentRemoteTask } from "../../src/research/experiment-remote-task"
 import { ExperimentRemoteTaskListener } from "../../src/research/experiment-remote-task-listener"
+import { RemoteTaskListenerTable } from "../../src/research/remote-task-listener.sql"
 import { ResearchSessionControl } from "../../src/research/session-control"
 import { AtomTable, ExperimentTable, RemoteTaskTable, ResearchProjectTable } from "../../src/research/research.sql"
 import { Session } from "../../src/session"
@@ -27,6 +28,7 @@ import { SessionPrompt } from "../../src/session/prompt"
 import { SessionStatus } from "../../src/session/status"
 import { SessionOwnership } from "../../src/session/ownership"
 import { Database } from "../../src/storage/db"
+import { ResumeAgentTool } from "../../src/tool/resume-agent"
 import { SpawnAgentTool } from "../../src/tool/spawn-agent"
 import type { Tool } from "../../src/tool/tool"
 import { tmpdir } from "../fixture/fixture"
@@ -181,6 +183,249 @@ describe("research.experiment-agent", () => {
     })
   })
 
+  test("controller stop clears collab listeners and preserves direct experiment listeners", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const item = await seed()
+        const attached = await ExperimentAgent.attach(item.expId)
+        let child = CollabAgentNode.load(attached.agentId!)
+        const root = CollabAgentNode.load(child.parent_agent_id!)
+        const direct = ExperimentRemoteTask.create({
+          expId: item.expId,
+          kind: "experiment_run",
+          title: "Direct listener task",
+          server: "{}",
+          remoteRoot: "/tmp",
+          screenName: "direct-listener",
+          command: "python train.py",
+        })
+        ExperimentRemoteTaskListener.register({ taskId: direct.task_id, agentId: child.id })
+        expect(ExperimentRemoteTaskListener.has(child.id, "direct")).toBeDefined()
+
+        child = CollabAgentNode.activate(child.id)
+        const collab = ExperimentRemoteTask.create({
+          expId: item.expId,
+          kind: "env_setup",
+          title: "Collab listener task",
+          server: "{}",
+          remoteRoot: "/tmp",
+          screenName: "collab-listener",
+          command: "pip install dependency",
+        })
+        ExperimentRemoteTaskListener.register({ taskId: collab.task_id, agentId: child.id })
+        expect(ExperimentRemoteTaskListener.has(child.id, "collab")).toBeDefined()
+
+        await Collab.stop(root.id)
+
+        const restored = CollabAgentNode.load(child.id)
+        expect(restored.status).toBe("idle")
+        expect(restored.run_id).toBeNull()
+        expect(restored.initiator).toBeNull()
+        expect(restored.error).toBeNull()
+        expect(restored.spec.metadata?.stoppedByUser).toBeUndefined()
+        expect(ExperimentRemoteTaskListener.has(child.id, "direct")).toBeDefined()
+        expect(ExperimentRemoteTaskListener.has(child.id, "collab")).toBeUndefined()
+
+        ExperimentRemoteTask.update({ taskId: direct.task_id, status: "finished", errorMessage: null })
+        ExperimentRemoteTask.update({ taskId: collab.task_id, status: "finished", errorMessage: null })
+        expect(CollabMessage.list(child.id, { kind: "session_remote_task_terminal" })).toMatchObject([
+          { status: "pending", payload_json: { taskId: direct.task_id } },
+        ])
+        expect(CollabMessage.list(child.id, { kind: "remote_task_terminal" })).toHaveLength(0)
+
+        const next = ExperimentRemoteTask.create({
+          expId: item.expId,
+          kind: "resource_download",
+          resourceKey: "dataset",
+          title: "Post-stop listener task",
+          server: "{}",
+          remoteRoot: "/tmp",
+          screenName: "post-stop-listener",
+          command: "download dataset",
+        })
+        const listener = ExperimentRemoteTaskListener.register({ taskId: next.task_id, agentId: child.id })
+        expect(listener.listening).toBe(true)
+        ExperimentRemoteTask.update({ taskId: next.task_id, status: "finished", errorMessage: null })
+        expect(CollabMessage.list(child.id, { kind: "session_remote_task_terminal" })).toHaveLength(2)
+      },
+    })
+  })
+
+  test("registering a listener restores a legacy stopped experiment", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const item = await seed()
+        const attached = await ExperimentAgent.attach(item.expId)
+        const child = CollabAgentNode.load(attached.agentId!)
+        const root = CollabAgentNode.load(child.parent_agent_id!)
+        const stopped = CollabAgentNode.stop(root.id)
+        const legacy = ExperimentRemoteTask.create({
+          expId: item.expId,
+          kind: "env_setup",
+          title: "Legacy collab listener task",
+          server: "{}",
+          remoteRoot: "/tmp",
+          screenName: "legacy-collab-listener",
+          command: "pip install dependency",
+        })
+        Database.use((db) =>
+          db
+            .insert(RemoteTaskListenerTable)
+            .values({
+              task_id: legacy.task_id,
+              agent_id: child.id,
+              mode: "collab",
+              run_id: child.run_id,
+              time_created: Date.now(),
+              time_updated: Date.now(),
+            })
+            .run(),
+        )
+        CollabAgentNode.ready(root.id, stopped.generation, stopped.token)
+        CollabAgentNode.restart(root.id)
+        expect(CollabAgentNode.load(child.id).spec.metadata?.stoppedByUser).toBe(true)
+        const task = ExperimentRemoteTask.create({
+          expId: item.expId,
+          kind: "experiment_run",
+          title: "Recovered listener task",
+          server: "{}",
+          remoteRoot: "/tmp",
+          screenName: "recovered-listener",
+          command: "python train.py",
+        })
+
+        const listener = ExperimentRemoteTaskListener.register({ taskId: task.task_id, agentId: child.id })
+
+        expect(listener.listening).toBe(true)
+        expect(CollabAgentNode.load(child.id)).toMatchObject({
+          status: "idle",
+          run_id: null,
+          initiator: null,
+          error: null,
+        })
+        expect(CollabAgentNode.load(child.id).spec.metadata?.stoppedByUser).toBeUndefined()
+        expect(ExperimentRemoteTaskListener.has(child.id, "collab")).toBeUndefined()
+        ExperimentRemoteTask.update({ taskId: task.task_id, status: "finished" })
+        ExperimentRemoteTask.update({ taskId: legacy.task_id, status: "finished" })
+        expect(CollabMessage.list(child.id, { kind: "session_remote_task_terminal" })).toHaveLength(1)
+      },
+    })
+  })
+
+  test("delays a direct callback until controller stop cleanup restores the experiment", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const item = await seed()
+        const attached = await ExperimentAgent.attach(item.expId)
+        const child = CollabAgentNode.load(attached.agentId!)
+        const root = CollabAgentNode.load(child.parent_agent_id!)
+        const task = ExperimentRemoteTask.create({
+          expId: item.expId,
+          kind: "experiment_run",
+          title: "Stop race task",
+          server: "{}",
+          remoteRoot: "/tmp",
+          screenName: "stop-race",
+          command: "python train.py",
+        })
+        ExperimentRemoteTaskListener.register({ taskId: task.task_id, agentId: child.id })
+        const stopped = CollabAgentNode.stop(root.id)
+
+        expect(() => ExperimentRemoteTask.update({ taskId: task.task_id, status: "finished" })).not.toThrow()
+        expect(ExperimentRemoteTask.get(task.task_id)?.status).toBe("finished")
+        expect(ExperimentRemoteTaskListener.has(child.id, "direct")).toBeDefined()
+        expect(CollabMessage.list(child.id, { kind: "session_remote_task_terminal" })).toHaveLength(0)
+
+        CollabAgentNode.ready(root.id, stopped.generation, stopped.token)
+        ExperimentRemoteTaskListener.reconcile(child.id)
+        ExperimentRemoteTaskListener.reconcile(child.id)
+
+        expect(CollabAgentNode.load(child.id).status).toBe("idle")
+        expect(CollabAgentNode.load(child.id).spec.metadata?.stoppedByUser).toBeUndefined()
+        expect(ExperimentRemoteTaskListener.has(child.id)).toBeUndefined()
+        expect(CollabMessage.list(child.id, { kind: "session_remote_task_terminal" })).toMatchObject([
+          { status: "pending", payload_json: { taskId: task.task_id, status: "finished" } },
+        ])
+      },
+    })
+  })
+
+  test("reconcile removes a collab listener during the controller stop window", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const item = await seed()
+        const attached = await ExperimentAgent.attach(item.expId)
+        const child = CollabAgentNode.activate(attached.agentId!)
+        const root = CollabAgentNode.load(child.parent_agent_id!)
+        const task = ExperimentRemoteTask.create({
+          expId: item.expId,
+          kind: "experiment_run",
+          title: "Stopped collab listener task",
+          server: "{}",
+          remoteRoot: "/tmp",
+          screenName: "stopped-collab-listener",
+          command: "python train.py",
+        })
+        ExperimentRemoteTaskListener.register({ taskId: task.task_id, agentId: child.id })
+        expect(ExperimentRemoteTaskListener.has(child.id, "collab")).toBeDefined()
+        CollabAgentNode.stop(root.id)
+
+        ExperimentRemoteTaskListener.reconcile(child.id)
+
+        expect(ExperimentRemoteTaskListener.has(child.id)).toBeUndefined()
+        ExperimentRemoteTask.update({ taskId: task.task_id, status: "finished" })
+        expect(CollabMessage.list(child.id, { kind: "session_remote_task_terminal" })).toHaveLength(0)
+      },
+    })
+  })
+
+  test("a restored experiment can start human work while its controller remains stopped", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const item = await seed()
+        const attached = await ExperimentAgent.attach(item.expId)
+        const child = CollabAgentNode.load(attached.agentId!)
+        const root = CollabAgentNode.load(child.parent_agent_id!)
+        await Collab.stop(root.id)
+        expect(CollabAgentNode.load(child.id).status).toBe("idle")
+        expect(CollabAgentNode.load(root.id).status).toBe("canceled")
+
+        const rebound = await ExperimentAgent.attach(item.expId)
+        expect(rebound).toMatchObject({ status: "attached", agentId: child.id })
+        expect(CollabAgentNode.load(root.id).status).toBe("canceled")
+
+        const release = ExperimentAgent.claimHuman(item.exp!.id)
+        const start = spyOn(CollabLoop, "start").mockResolvedValue()
+        try {
+          expect(ResearchSessionControl.canStartHumanRun(item.exp!.id)).toBe(true)
+          const spawned = await Collab.spawn({
+            parentSessionId: item.exp!.id,
+            name: "independent experiment child",
+            subagentType: "general",
+            spec: { initialPrompt: "continue independently" },
+            startParent: "human",
+          })
+          expect(spawned.parent_agent_id).toBe(child.id)
+          expect(CollabAgentNode.load(child.id)).toMatchObject({ status: "running", initiator: "human" })
+          expect(CollabAgentNode.load(root.id).status).toBe("canceled")
+        } finally {
+          start.mockRestore()
+          release()
+        }
+      },
+    })
+  })
+
   test("drives a remote task listener in the experiment session directory", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
@@ -279,7 +524,7 @@ describe("research.experiment-agent", () => {
     })
   })
 
-  test("delivers a new callback when a resource task id is reused", async () => {
+  test("uses a new task id when retrying a resource task", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
       directory: tmp.path,
@@ -299,35 +544,16 @@ describe("research.experiment-agent", () => {
         }
         const first = ExperimentRemoteTask.create(input)
         ExperimentRemoteTaskListener.register({ taskId: first.task_id, agentId: child.id })
-        Database.use((db) =>
-          db
-            .update(RemoteTaskTable)
-            .set({ status: "finished", time_updated: Date.now() })
-            .where(eq(RemoteTaskTable.task_id, first.task_id))
-            .run(),
-        )
-        CollabMessage.post({
-          recipientAgentId: child.id,
-          runId: null,
-          kind: "session_remote_task_terminal",
-          payload: {
-            taskId: first.task_id,
-            expId: item.expId,
-            kind: first.kind,
-            title: first.title,
-            status: "finished",
-            logPath: first.log_path,
-            errorMessage: null,
-          },
-        })
+        ExperimentRemoteTask.update({ taskId: first.task_id, status: "failed", errorMessage: "download failed" })
         CollabMessage.ack(CollabMessage.drain(child.id, "direct"))
-        await Bun.sleep(2)
 
         const second = ExperimentRemoteTask.create(input)
-        expect(second.task_id).toBe(first.task_id)
+        expect(second.task_id).not.toBe(first.task_id)
         ExperimentRemoteTaskListener.register({ taskId: second.task_id, agentId: child.id })
         ExperimentRemoteTask.update({ taskId: second.task_id, status: "finished" })
 
+        expect(ExperimentRemoteTask.get(first.task_id)?.status).toBe("failed")
+        expect(ExperimentRemoteTask.get(second.task_id)?.status).toBe("finished")
         expect(CollabMessage.list(child.id, { kind: "session_remote_task_terminal" })).toMatchObject([
           { status: "consumed" },
           { status: "pending" },
@@ -400,12 +626,10 @@ describe("research.experiment-agent", () => {
         expect(ExperimentRemoteTaskListener.has(child.id, "collab")).toBeDefined()
 
         let directory: string | undefined
-        const prompt = spyOn(SessionPrompt, "prompt").mockImplementation(
-          (async () => {
-            directory = Instance.directory
-            return undefined as never
-          }) as unknown as typeof SessionPrompt.prompt,
-        )
+        const prompt = spyOn(SessionPrompt, "prompt").mockImplementation((async (input: SessionPrompt.PromptInput) => {
+          directory = Instance.directory
+          return { info: { role: "assistant", parentID: input.messageID }, parts: [] } as never
+        }) as unknown as typeof SessionPrompt.prompt)
         const source = path.join(tmp.path, "source-collab")
         const detector = path.join(tmp.path, "detector-collab")
         await fs.mkdir(source)
@@ -434,9 +658,7 @@ describe("research.experiment-agent", () => {
           expect(directory).toBe(tmp.path)
           expect(prompt).toHaveBeenCalledTimes(1)
           expect(CollabAgentNode.load(child.id).status).toBe("completed")
-          expect(CollabMessage.list(child.id, { kind: "remote_task_terminal" })).toMatchObject([
-            { status: "consumed" },
-          ])
+          expect(CollabMessage.list(child.id, { kind: "remote_task_terminal" })).toMatchObject([{ status: "consumed" }])
           expect(CollabMessage.list(parent.id, { kind: "child_done" })).toHaveLength(1)
           expect(CollabAgentNode.load(parent.id).active_children).toBe(0)
         } finally {
@@ -465,17 +687,24 @@ describe("research.experiment-agent", () => {
           release = resolve
         })
         let calls = 0
-        const messages = spyOn(Session, "messages").mockImplementation(
-          (async (input: { sessionID: string; limit?: number }) => {
-            calls++
-            if (calls === 1) {
-              started()
-              await gate
-            }
-            return original(input)
-          }) as unknown as typeof Session.messages,
+        const messages = spyOn(Session, "messages").mockImplementation((async (input: {
+          sessionID: string
+          limit?: number
+        }) => {
+          calls++
+          if (calls === 1) {
+            started()
+            await gate
+          }
+          return original(input)
+        }) as unknown as typeof Session.messages)
+        const prompt = spyOn(SessionPrompt, "prompt").mockImplementation(
+          (async (input: SessionPrompt.PromptInput) =>
+            ({
+              info: { role: "assistant", parentID: input.messageID },
+              parts: [],
+            }) as never) as unknown as typeof SessionPrompt.prompt,
         )
-        const prompt = spyOn(SessionPrompt, "prompt").mockResolvedValue(undefined as never)
         const run = CollabLoop.start(child.id)
         try {
           await ready
@@ -498,9 +727,7 @@ describe("research.experiment-agent", () => {
           await run
           expect(prompt).toHaveBeenCalledTimes(1)
           expect(CollabAgentNode.load(child.id).status).toBe("completed")
-          expect(CollabMessage.list(child.id, { kind: "remote_task_terminal" })).toMatchObject([
-            { status: "consumed" },
-          ])
+          expect(CollabMessage.list(child.id, { kind: "remote_task_terminal" })).toMatchObject([{ status: "consumed" }])
         } finally {
           release()
           CollabRuntime.abort(child.id)
@@ -640,7 +867,13 @@ describe("research.experiment-agent", () => {
           providerID: "atom",
           modelID: "current",
         })
-        const prompt = spyOn(SessionPrompt, "prompt").mockResolvedValue(undefined as never)
+        const prompt = spyOn(SessionPrompt, "prompt").mockImplementation(
+          (async (input: SessionPrompt.PromptInput) =>
+            ({
+              info: { role: "assistant", parentID: input.messageID },
+              parts: [],
+            }) as never) as unknown as typeof SessionPrompt.prompt,
+        )
         try {
           await Collab.resume({
             agentId: child.id,
@@ -907,6 +1140,96 @@ describe("research.experiment-agent", () => {
     })
   })
 
+  test("human experiment resume promotes its idle parent and reopens a failed child", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const item = await seed()
+        const attached = await ExperimentAgent.attach(item.expId)
+        const parent = CollabAgentNode.load(attached.agentId!)
+        const run = CollabAgentNode.activate(parent.id, undefined, "human")
+        const session = await Collab.createSubSession({ title: "timed out child" })
+        const child = CollabAgentNode.create({
+          id: Identifier.ascending("collab_agent"),
+          sessionId: session.id,
+          parentAgentId: parent.id,
+          name: "timed out child",
+          projectId: Instance.project.id,
+          rootAgentId: parent.root_agent_id,
+          subagentType: "general",
+          spec: { initialPrompt: "wait", policy: { timeout_ms: 1 } },
+        })
+        CollabAgentNode.finish({
+          id: child.id,
+          runId: child.run_id,
+          parentId: child.parent_agent_id,
+          status: "failed",
+          phase: "main_loop",
+          error: { code: "TIMEOUT", message: "Agent exceeded its 1ms timeout." },
+          timeEnded: Date.now(),
+          report: {
+            kind: "child_failed",
+            payload: {
+              childAgentId: child.id,
+              childName: child.name,
+              reason: "timeout",
+              message: "Agent exceeded its 1ms timeout.",
+            },
+          },
+        })
+        CollabMessage.dropPending(parent.id)
+        CollabAgentNode.finish({
+          id: parent.id,
+          runId: run.run_id,
+          parentId: run.parent_agent_id,
+          status: "completed",
+          phase: "main_loop",
+          result: { summary: "handled timeout" },
+          timeEnded: Date.now(),
+        })
+        const failed = CollabAgentNode.load(child.id)
+        expect(failed.status).toBe("failed")
+        expect(CollabAgentNode.load(parent.id)).toMatchObject({ status: "idle", active_children: 0 })
+
+        const ctx = {
+          sessionID: item.exp!.id,
+          messageID: Identifier.ascending("message"),
+          agent: "experiment",
+          abort: new AbortController().signal,
+          messages: [],
+          metadata: () => {},
+          ask: async () => {},
+        } satisfies Tool.Context
+        const tool = await ResumeAgentTool.init()
+        const start = spyOn(CollabLoop, "start").mockResolvedValue()
+        const release = ExperimentAgent.claimHuman(item.exp!.id)
+        let event: { active_children: number; initiator: "human" | "agent" | null } | undefined
+        const off = Bus.subscribe(CollabEvent.AgentStatus, (input) => {
+          if (input.properties.agentId === parent.id) event = input.properties
+        })
+        try {
+          const result = await tool.execute({ agent_id: child.id, prompt: "continue the same task" }, ctx)
+          const resumed = CollabAgentNode.load(child.id)
+          const active = CollabAgentNode.load(parent.id)
+          const atom = CollabAgentNode.load(parent.parent_agent_id!)
+
+          expect(result.output).toContain("status: running")
+          expect(resumed.status).toBe("running")
+          expect(resumed.run_id).not.toBe(failed.run_id)
+          expect(resumed.error).toBeNull()
+          expect(active).toMatchObject({ status: "running", initiator: "human", active_children: 1 })
+          expect(atom.active_children).toBe(0)
+          expect(event).toMatchObject({ initiator: "human", active_children: 1 })
+        } finally {
+          off()
+          release()
+          start.mockRestore()
+        }
+      },
+    })
+  })
+
   test("human experiment spawn uses Collab without reporting completion to Atom", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
@@ -990,12 +1313,10 @@ describe("research.experiment-agent", () => {
           }),
         ).toBe(true)
         const inputs: SessionPrompt.PromptInput[] = []
-        const prompt = spyOn(SessionPrompt, "prompt").mockImplementation(
-          (async (input: SessionPrompt.PromptInput) => {
-            inputs.push(input)
-            return undefined as never
-          }) as unknown as typeof SessionPrompt.prompt,
-        )
+        const prompt = spyOn(SessionPrompt, "prompt").mockImplementation((async (input: SessionPrompt.PromptInput) => {
+          inputs.push(input)
+          return { info: { role: "assistant", parentID: input.messageID }, parts: [] } as never
+        }) as unknown as typeof SessionPrompt.prompt)
         CollabAutoWake.setEnabled(true)
         try {
           CollabAutoWake.wake(item.exp!.id)
@@ -1115,11 +1436,152 @@ describe("research.experiment-agent", () => {
 
         const settled = CollabAgentNode.load(parent.id)
         expect(settled.status).toBe("idle")
+        expect(settled.error).toBeNull()
         expect(settled.initiator).toBeNull()
         expect(CollabMessage.list(parent.id, { kind: "cancel" })).toHaveLength(1)
         expect(CollabMessage.list(child.id, { kind: "cancel" })).toHaveLength(1)
         expect(CollabMessage.list(grandchild.id, { kind: "cancel" })).toHaveLength(1)
         expect(CollabMessage.list(settled.parent_agent_id!, { kind: "child_failed" })).toHaveLength(0)
+      },
+    })
+  })
+
+  test("recovers an interrupted human run before resuming and spawning", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const item = await seed()
+        const attached = await ExperimentAgent.attach(item.expId)
+        const parent = CollabAgentNode.activate(attached.agentId!, undefined, "human")
+        const session = await Collab.createSubSession({ title: "interrupted child" })
+        const child = CollabAgentNode.create({
+          id: Identifier.ascending("collab_agent"),
+          sessionId: session.id,
+          parentAgentId: parent.id,
+          name: "interrupted child",
+          projectId: Instance.project.id,
+          rootAgentId: parent.root_agent_id,
+          subagentType: "general",
+          spec: { initialPrompt: "wait" },
+        })
+        const nested = await Collab.createSubSession({ title: "nested interrupted child" })
+        const grandchild = CollabAgentNode.create({
+          id: Identifier.ascending("collab_agent"),
+          sessionId: nested.id,
+          parentAgentId: child.id,
+          name: "nested interrupted child",
+          projectId: Instance.project.id,
+          rootAgentId: parent.root_agent_id,
+          subagentType: "general",
+          spec: { initialPrompt: "wait deeper" },
+        })
+        const task = ExperimentRemoteTask.create({
+          expId: item.expId,
+          kind: "env_setup",
+          title: "Install dependency",
+          server: "{}",
+          remoteRoot: "/tmp",
+          screenName: "install",
+          command: "pip install dependency",
+        })
+        ExperimentRemoteTask.update({ taskId: task.task_id, status: "running" })
+        ExperimentRemoteTaskListener.register({ taskId: task.task_id, agentId: parent.id })
+        expect(ExperimentRemoteTaskListener.has(parent.id, "collab")).toBeDefined()
+
+        ResearchSessionControl.assertAbort(item.exp!.id)
+        expect(CollabMessage.drain(parent.id)[0]?.status).toBe("processing")
+        CollabAgentNode.transition(parent.id, "blocked_on_children", {
+          phase: "awaiting_children",
+          error: { code: "CANCELED", message: "Canceled by human" },
+        })
+        CollabAgentNode.bumpActiveChildren(parent.id, 3)
+
+        const recovered = await ExperimentAgent.recover(parent.id)
+        expect(recovered?.status).toBe("idle")
+        expect(recovered?.error).toBeNull()
+        expect(recovered?.active_children).toBe(0)
+        expect(CollabAgentNode.load(child.id).status).toBe("canceled")
+        expect(CollabAgentNode.load(grandchild.id).status).toBe("canceled")
+        expect(ExperimentRemoteTaskListener.has(parent.id)).toBeUndefined()
+        expect(ExperimentRemoteTask.get(task.task_id)?.status).toBe("running")
+
+        const start = spyOn(CollabLoop, "start").mockResolvedValue()
+        try {
+          const resumed = await Collab.resume({ agentId: parent.id, prompt: "continue the experiment" })
+          expect(resumed.status).toBe("running")
+          expect(resumed.error).toBeNull()
+
+          const spawned = await Collab.spawn({
+            parentSessionId: item.exp!.id,
+            name: "replacement child",
+            subagentType: "general",
+            spec: { initialPrompt: "continue" },
+          })
+          expect(spawned.parent_agent_id).toBe(parent.id)
+          expect(spawned.status).toBe("pending")
+        } finally {
+          start.mockRestore()
+        }
+      },
+    })
+  })
+
+  test("direct human spawn repairs a legacy idle canceled experiment", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const item = await seed()
+        const attached = await ExperimentAgent.attach(item.expId)
+        const legacy = CollabAgentNode.transition(attached.agentId!, "idle", {
+          error: { code: "CANCELED", message: "Canceled by human" },
+          timeEnded: Date.now(),
+        })
+        expect(legacy.error?.code).toBe("CANCELED")
+
+        const release = ExperimentAgent.claimHuman(item.exp!.id)
+        const start = spyOn(CollabLoop, "start").mockResolvedValue()
+        try {
+          const child = await Collab.spawn({
+            parentSessionId: item.exp!.id,
+            name: "child after legacy cancel",
+            subagentType: "general",
+            spec: { initialPrompt: "continue" },
+            startParent: "human",
+          })
+          const parent = CollabAgentNode.load(legacy.id)
+          expect(parent.status).toBe("running")
+          expect(parent.initiator).toBe("human")
+          expect(parent.error).toBeNull()
+          expect(child.parent_agent_id).toBe(parent.id)
+          expect(child.status).toBe("pending")
+        } finally {
+          start.mockRestore()
+          release()
+        }
+      },
+    })
+  })
+
+  test("startup recovery drains an interrupted human experiment", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const item = await seed()
+        const attached = await ExperimentAgent.attach(item.expId)
+        const active = CollabAgentNode.activate(attached.agentId!, undefined, "human")
+        CollabAgentNode.transition(active.id, "blocked_on_children", {
+          phase: "awaiting_children",
+          error: { code: "CANCELED", message: "Canceled by human" },
+        })
+
+        await CollabRecovery.scan()
+
+        const recovered = CollabAgentNode.load(active.id)
+        expect(recovered.status).toBe("idle")
+        expect(recovered.error).toBeNull()
       },
     })
   })
@@ -1143,7 +1605,13 @@ describe("research.experiment-agent", () => {
             parts: [{ type: "text", text: "continue with this model" }],
           }),
         ).toBe(true)
-        const prompt = spyOn(SessionPrompt, "prompt").mockResolvedValue(undefined as never)
+        const prompt = spyOn(SessionPrompt, "prompt").mockImplementation(
+          (async (input: SessionPrompt.PromptInput) =>
+            ({
+              info: { role: "assistant", parentID: input.messageID },
+              parts: [],
+            }) as never) as unknown as typeof SessionPrompt.prompt,
+        )
         try {
           await CollabLoop.start(active.id)
           expect(prompt.mock.calls[0]?.[0].model).toEqual({ providerID: "available", modelID: "replacement" })

@@ -12,6 +12,14 @@ export type TimelineStageInput = {
   turnStart: () => number
   messages: () => UserMessage[]
   config: StageConfig
+  onReady?: () => void | Promise<void>
+}
+
+export const hasStaged = (sessions: string[], session: string) => sessions.includes(session)
+
+export const rememberStaged = (sessions: string[], session: string) => {
+  if (hasStaged(sessions, session)) return sessions
+  return [...sessions.slice(-15), session]
 }
 
 /**
@@ -24,16 +32,22 @@ export type TimelineStageInput = {
 export function createTimelineStaging(input: TimelineStageInput) {
   const [state, setState] = createStore({
     activeSession: "",
-    completedSession: "",
+    completed: [] as string[],
     count: 0,
   })
   const [readySession, setReadySession] = createSignal("")
   let active = ""
+  let preparing = ""
+  const done = (session: string) => hasStaged(state.completed, session)
+  const complete = (session: string) => {
+    if (done(session)) return
+    setState("completed", (items) => rememberStaged(items, session))
+  }
 
   const stagedCount = createMemo(() => {
     const total = input.messages().length
     if (input.turnStart() <= 0) return total
-    if (state.completedSession === input.sessionKey()) return total
+    if (done(input.sessionKey())) return total
     const init = Math.min(total, input.config.init)
     if (state.count <= init) return init
     if (state.count >= total) return total
@@ -56,7 +70,18 @@ export function createTimelineStaging(input: TimelineStageInput) {
   const scheduleReady = (sessionKey: string) => {
     if (input.sessionKey() !== sessionKey) return
     if (readySession() === sessionKey) return
-    setReadySession(sessionKey)
+    if (preparing === sessionKey) return
+    preparing = sessionKey
+    const finish = () => {
+      if (preparing === sessionKey) preparing = ""
+      if (input.sessionKey() === sessionKey) setReadySession(sessionKey)
+    }
+    const result = input.onReady?.()
+    if (result) {
+      void result.then(finish, finish)
+      return
+    }
+    finish()
   }
 
   createEffect(
@@ -69,8 +94,8 @@ export function createTimelineStaging(input: TimelineStageInput) {
           setReadySession("")
         }
 
-        const staging = state.activeSession === sessionKey && state.completedSession !== sessionKey
-        const shouldStage = isWindowed && total > input.config.init && state.completedSession !== sessionKey
+        const staging = state.activeSession === sessionKey && !done(sessionKey)
+        const shouldStage = isWindowed && total > input.config.init && !done(sessionKey)
 
         if (staging && !switched && shouldStage && frame !== undefined) return
 
@@ -78,11 +103,8 @@ export function createTimelineStaging(input: TimelineStageInput) {
 
         if (shouldStage) setReadySession("")
         if (!shouldStage) {
-          setState({
-            activeSession: "",
-            completedSession: isWindowed ? sessionKey : state.completedSession,
-            count: total,
-          })
+          if (isWindowed) complete(sessionKey)
+          setState({ activeSession: "", count: total })
           if (total <= 0) {
             setReadySession("")
             return
@@ -102,13 +124,17 @@ export function createTimelineStaging(input: TimelineStageInput) {
           }
           const currentTotal = input.messages().length
           count = Math.min(currentTotal, count + input.config.batch)
-          startTransition(() => setState("count", count))
           if (count >= currentTotal) {
-            setState({ completedSession: sessionKey, activeSession: "" })
-            frame = undefined
-            scheduleReady(sessionKey)
+            setState("count", count)
+            complete(sessionKey)
+            setState("activeSession", "")
+            frame = requestAnimationFrame(() => {
+              frame = undefined
+              scheduleReady(sessionKey)
+            })
             return
           }
+          startTransition(() => setState("count", count))
           frame = requestAnimationFrame(step)
         }
         frame = requestAnimationFrame(step)
@@ -118,7 +144,7 @@ export function createTimelineStaging(input: TimelineStageInput) {
 
   const isStaging = createMemo(() => {
     const key = input.sessionKey()
-    return state.activeSession === key && state.completedSession !== key
+    return state.activeSession === key && !done(key)
   })
   const ready = createMemo(() => readySession() === input.sessionKey())
 

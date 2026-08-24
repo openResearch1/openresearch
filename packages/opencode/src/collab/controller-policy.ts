@@ -25,7 +25,7 @@ export namespace ControllerPolicy {
     }
     if (input.role === "research_main" || input.role === "atom") return common
     if (input.role === "leaf") return input.agent && common.includes(input.agent) ? common : []
-    if (input.role === "experiment") return ["experiment_plan", "experiment_commit"]
+    if (input.role === "experiment") return ["experiment_plan", "experiment_commit", "explore", "general"]
     return []
   }
 

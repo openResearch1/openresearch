@@ -3,7 +3,10 @@ import { dict as en } from "./en"
 type Keys = keyof typeof en
 
 export const dict = {
-  "session.collab.emptyActive": "沒有活躍的子代理程式",
+  "session.collab.open": "開啟 Collab",
+  "session.collab.openActive": "開啟 Collab，{{count}} 個活躍工作",
+  "session.collab.tooltipActive": "Collab · {{count}} 個活躍工作",
+  "session.collab.emptyActive": "沒有活躍的 Collab 智能體",
   "session.collab.showCompleted": "顯示已完成",
   "session.collab.hideCompleted": "隱藏已完成",
   "session.collab.stop.button": "停止 Controller",

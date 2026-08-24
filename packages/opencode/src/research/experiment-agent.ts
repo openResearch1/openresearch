@@ -3,6 +3,7 @@ import { and, eq, isNull } from "drizzle-orm"
 import { Bus } from "@/bus"
 import { CollabAgentNode } from "@/collab/agent-node"
 import { CollabEvent } from "@/collab/events"
+import { CollabRecovery } from "@/collab/recovery"
 import { CollabRuntime } from "@/collab/runtime"
 import { Identifier } from "@/id/id"
 import { Instance } from "@/project/instance"
@@ -96,8 +97,12 @@ export namespace ExperimentAgent {
   }
 
   export async function recover(agentId: string) {
-    const node = CollabAgentNode.tryLoad(agentId)
-    if (node?.initiator === "human" && CollabAgentNode.isActive(node.status)) return node
+    let node = CollabAgentNode.tryLoad(agentId)
+    if (node?.initiator === "human" && CollabAgentNode.isActive(node.status)) {
+      if (!node.error || node.error.code === "MODEL_UNAVAILABLE") return node
+      node = (await CollabRecovery.drain(node.id)) ?? node
+      if (CollabAgentNode.isActive(node.status)) return node
+    }
     const expId = node?.spec.metadata?.expId
     if (typeof expId !== "string") return node
     const result = await attach(expId, { force: true })
@@ -223,10 +228,15 @@ export namespace ExperimentAgent {
       policy: { ...root.spec.policy, on_fail: "continue" },
       metadata: { ...root.spec.metadata, atomId: atom.atom_id },
     })
-    if (!root.parent_agent_id && root.root_agent_id === root.id && !CollabAgentNode.isActive(root.status)) {
+    if (
+      !root.parent_agent_id &&
+      root.root_agent_id === root.id &&
+      !CollabAgentNode.isActive(root.status) &&
+      !CollabAgentNode.isStopped(root)
+    ) {
       root = CollabAgentNode.activate(root.id)
     }
-    const node = previous ?? CollabAgentNode.loadBySessionId(session.id)
+    let node = previous ?? CollabAgentNode.loadBySessionId(session.id)
     if (!node) {
       const info = CollabAgentNode.create({
         id: Identifier.ascending("collab_agent"),
@@ -241,6 +251,7 @@ export namespace ExperimentAgent {
       })
       return { status: "attached", agentId: info.id }
     }
+    node = CollabAgentNode.restoreExperiment(node.id)
 
     const metadata = node.spec.metadata
     if (node.parent_agent_id && (metadata?.expId !== expId || metadata.atomId !== atomId)) {

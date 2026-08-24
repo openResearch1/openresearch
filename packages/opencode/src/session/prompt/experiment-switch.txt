@@ -1,0 +1,5 @@
+<system-reminder>
+Your operational mode has changed from Experiment Plan to Experiment.
+The Plan mode read-only restrictions no longer apply. Follow the current user request and use the preceding plan when relevant. You may now implement, synchronize, run, recover, and analyze according to the Experiment agent instructions.
+Do not assume that `exp_plan_path` was updated unless the user explicitly requested plan persistence.
+</system-reminder>

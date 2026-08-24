@@ -1,7 +1,9 @@
 import path from "path"
 import { describe, expect, spyOn, test } from "bun:test"
 import { fileURLToPath } from "url"
+import { Agent } from "../../src/agent/agent"
 import { Instance } from "../../src/project/instance"
+import { Identifier } from "../../src/id/id"
 import { Session } from "../../src/session"
 import { LLM } from "../../src/session/llm"
 import { MessageV2 } from "../../src/session/message-v2"
@@ -643,6 +645,143 @@ describe("session.prompt parallel tools", () => {
           expect(patch?.files.some((file) => file.endsWith("/race.txt"))).toBe(true)
         } finally {
           stream.mockRestore()
+        }
+      },
+    })
+  })
+})
+
+describe("session.prompt message order", () => {
+  test("processes a new user message after the ID timestamp wraps", async () => {
+    await using tmp = await tmpdir({ git: true })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({})
+        const wrap = 2 ** 36
+        const user = await Session.updateMessage({
+          id: Identifier.create("message", false, wrap - 2),
+          sessionID: session.id,
+          role: "user",
+          agent: "general",
+          model: { providerID: "opencode", modelID: "kimi-k2.5-free" },
+          time: { created: wrap - 2 },
+        })
+        await Session.updateMessage({
+          id: Identifier.create("message", false, wrap - 1),
+          sessionID: session.id,
+          role: "assistant",
+          parentID: user.id,
+          mode: "general",
+          agent: "general",
+          modelID: "kimi-k2.5-free",
+          providerID: "opencode",
+          path: { cwd: tmp.path, root: tmp.path },
+          cost: 0,
+          tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+          time: { created: wrap - 1, completed: wrap - 1 },
+          finish: "stop",
+        })
+        const next = await Session.updateMessage({
+          id: Identifier.create("message", false, wrap + 1),
+          sessionID: session.id,
+          role: "user",
+          agent: "general",
+          model: { providerID: "opencode", modelID: "kimi-k2.5-free" },
+          time: { created: wrap + 1 },
+        })
+        await Session.updatePart({
+          id: Identifier.ascending("part"),
+          sessionID: session.id,
+          messageID: next.id,
+          type: "text",
+          text: "continue after wrap",
+        })
+        const tied = await Session.create({})
+        const time = wrap + 10
+        const prior = await Session.updateMessage({
+          id: Identifier.create("message", false, time),
+          sessionID: tied.id,
+          role: "user",
+          agent: "general",
+          model: { providerID: "opencode", modelID: "kimi-k2.5-free" },
+          time: { created: time },
+        })
+        await Session.updateMessage({
+          id: Identifier.create("message", false, time),
+          sessionID: tied.id,
+          role: "assistant",
+          parentID: prior.id,
+          mode: "general",
+          agent: "general",
+          modelID: "kimi-k2.5-free",
+          providerID: "opencode",
+          path: { cwd: tmp.path, root: tmp.path },
+          cost: 0,
+          tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+          time: { created: time, completed: time },
+          finish: "stop",
+        })
+        const latest = await Session.updateMessage({
+          id: Identifier.create("message", false, time),
+          sessionID: tied.id,
+          role: "user",
+          agent: "general",
+          model: { providerID: "opencode", modelID: "kimi-k2.5-free" },
+          time: { created: time },
+        })
+        await Session.updatePart({
+          id: Identifier.ascending("part"),
+          sessionID: tied.id,
+          messageID: latest.id,
+          type: "text",
+          text: "continue in the same millisecond",
+        })
+
+        let turns = 0
+        const agent = spyOn(Agent, "get").mockResolvedValue({
+          name: "general",
+          mode: "primary",
+          permission: [],
+          options: {},
+        })
+        const stream = spyOn(LLM, "stream").mockImplementation(async (input) => {
+          if (input.small) {
+            return {
+              text: Promise.resolve("Wrapped IDs"),
+              fullStream: (async function* () {})(),
+            } as unknown as Awaited<ReturnType<typeof LLM.stream>>
+          }
+          turns++
+          return {
+            fullStream: (async function* () {
+              yield { type: "start" }
+              yield {
+                type: "finish-step",
+                finishReason: "stop",
+                usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+              }
+              yield { type: "finish" }
+            })(),
+          } as unknown as Awaited<ReturnType<typeof LLM.stream>>
+        })
+
+        try {
+          const result = await SessionPrompt.loop({ sessionID: session.id })
+          expect(turns).toBe(1)
+          expect(result.info.role).toBe("assistant")
+          if (result.info.role !== "assistant") throw new Error("expected assistant message")
+          expect(result.info.parentID).toBe(next.id)
+          const second = await SessionPrompt.loop({ sessionID: tied.id })
+          expect(turns).toBe(2)
+          if (second.info.role !== "assistant") throw new Error("expected assistant message")
+          expect(second.info.parentID).toBe(latest.id)
+        } finally {
+          stream.mockRestore()
+          agent.mockRestore()
+          await Session.remove(session.id)
+          await Session.remove(tied.id)
         }
       },
     })

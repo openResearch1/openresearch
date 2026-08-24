@@ -14,7 +14,7 @@ import { CollabLoop } from "./loop"
 import { CollabProgressHook } from "./progress-hook"
 import { CollabAutoWake } from "./auto-wake"
 import { CollabSupervisor } from "./supervisor"
-import type { ChildDonePayload, ChildFailedPayload } from "./types"
+import type { AgentInfo, ChildDonePayload, ChildFailedPayload } from "./types"
 
 export namespace CollabRecovery {
   const log = Log.create({ service: "collab.recovery" })
@@ -38,9 +38,35 @@ export namespace CollabRecovery {
     }
     const nodes = CollabAgentNode.loadByProject(Instance.project.id)
     for (const node of nodes) {
-      ExperimentRemoteTaskListener.reconcile(node.id)
-      CollabMessage.reconcileRemoteTerminals(node.id)
+      const current = CollabAgentNode.isExperiment(node) ? CollabAgentNode.restoreExperiment(node.id) : node
+      ExperimentRemoteTaskListener.reconcile(current.id)
+      CollabMessage.reconcileRemoteTerminals(current.id)
     }
+  }
+
+  export async function drain(agentId: string): Promise<AgentInfo | undefined> {
+    let node = CollabAgentNode.tryLoad(agentId)
+    if (!node || !CollabAgentNode.isActive(node.status)) return node
+    if ((!node.error || node.error.code === "MODEL_UNAVAILABLE") && !CollabMessage.hasPendingKind(node.id, "cancel")) {
+      return node
+    }
+
+    CollabMessage.retryProcessing(node.id)
+    CollabAgentNode.recomputeActiveChildren(node.id)
+    node = CollabAgentNode.load(node.id)
+    if (node.error && node.error.code !== "MODEL_UNAVAILABLE") {
+      CollabSupervisor.cancelChildren(node.id, { reason: node.error.message, initiator: "parent" })
+    }
+    await CollabLoop.start(node.id)
+
+    for (const child of CollabAgentNode.loadChildren(node.id)) await drain(child.id)
+
+    CollabAgentNode.recomputeActiveChildren(node.id)
+    node = CollabAgentNode.load(node.id)
+    if (CollabAgentNode.isActive(node.status) && node.error && node.error.code !== "MODEL_UNAVAILABLE") {
+      await CollabLoop.start(node.id)
+    }
+    return CollabAgentNode.tryLoad(node.id)
   }
 
   export async function scan() {
@@ -123,6 +149,10 @@ export namespace CollabRecovery {
         },
         guard,
       )
+    }
+    for (const node of CollabAgentNode.loadActiveByProject(project.id)) {
+      if (!node.parent_agent_id || !node.error || node.error.code === "MODEL_UNAVAILABLE") continue
+      await drain(node.id)
     }
     const active = CollabAgentNode.loadActiveByProject(project.id)
     log.info("scan.start", { project: project.id, activeCount: active.length })

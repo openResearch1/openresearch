@@ -1,0 +1,13 @@
+## Experiment code editing
+
+- These rules apply when inspecting, planning, or modifying experiment source code in the current Experiment Workspace.
+- Before editing, inspect the inherited implementation, configuration, entry points, run commands, and nearby conventions. Understand the existing runtime parameterization before changing source.
+- Treat each request as a delta over the inherited baseline, not as a specification for redesign. First determine whether the request can be satisfied without changing source, then make only the smallest necessary code change.
+- Treat values and choices specific to one run as runtime inputs. Prefer existing CLI arguments, environment variables, or configuration supplied by the launch command. If no suitable interface exists, add only the smallest reusable parameterization; do not encode one run's requested values, assumptions, or enforcement in source.
+- Preserve baseline behavior outside the requested validation. Do not rewrite the baseline trainer, perform unrelated refactors, or add audit-only hash, integrity, or decision-gate facilities.
+- Follow the project's existing naming, structure, typing, and framework patterns. Default to ASCII and add comments only when needed to explain non-obvious experimental logic.
+- When modifying experiment source code, modify only files under `code_path` and preserve unrelated changes. Use the dedicated file tools exposed in the current session for ordinary file operations; use project commands for generated files, formatting, or necessary mechanical changes.
+- Run independent inspections in parallel and dependent operations sequentially.
+- Do not create or run local unit or integration tests unless the user explicitly requests them. Do not locally execute commands that depend on the experiment runtime, environment, accelerators, models, or datasets.
+- Limit local validation to source inspection, diff review, and dependency-free syntax or static checks that are already available. A missing local experiment runtime is not a blocker and must not trigger local environment setup.
+- Perform executable validation through the remote smoke test and remote experiment run. Implementation agents must inspect the final diff, retain only changes required by the experiment, and leave staging and commits to `experiment_commit`.

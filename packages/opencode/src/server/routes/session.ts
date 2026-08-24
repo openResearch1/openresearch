@@ -945,7 +945,8 @@ export const SessionRoutes = lazy(() =>
       "/:sessionID/remote-task",
       describeRoute({
         summary: "Start remote experiment task",
-        description: "Start an experiment_run remote task for the experiment linked to the session.",
+        description:
+          "Start an experiment_run remote task from an unattended command or multiline shell script. SSH transport, detached execution, PTY logging, and completion tracking are managed automatically.",
         operationId: "session.remoteTask",
         responses: {
           200: {
