@@ -37,7 +37,7 @@ import { useCollabActivity } from "@/pages/session/composer/session-collab-activ
 import { createOpenReviewFile, createSizing } from "@/pages/session/helpers"
 import { MessageTimeline } from "@/pages/session/message-timeline"
 import { type DiffStyle, SessionReviewTab, type SessionReviewTabProps } from "@/pages/session/review-tab"
-import { resetSessionModel, syncSessionModel } from "@/pages/session/session-model-helpers"
+import { latest, resetSessionModel, syncSessionModel } from "@/pages/session/session-model-helpers"
 import { createScrollSpy } from "@/pages/session/scroll-spy"
 import { SessionMobileTabs } from "@/pages/session/session-mobile-tabs"
 import { SessionSidePanel } from "@/pages/session/session-side-panel"
@@ -217,7 +217,7 @@ export default function Page(props: { remote?: boolean; backHref?: string } = {}
       equals: same,
     },
   )
-  const lastUserMessage = createMemo(() => visibleUserMessages().at(-1))
+  const lastUserMessage = createMemo(() => latest(visibleUserMessages(), sync.data.part))
 
   createEffect(
     on(

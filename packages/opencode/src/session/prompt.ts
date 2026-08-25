@@ -1617,7 +1617,21 @@ Return a concise plan in the conversation by default. Do not call plan_exit; let
   async function insertReminders(input: { messages: MessageV2.WithParts[]; agent: Agent.Info; session: Session.Info }) {
     const userMessage = input.messages.findLast((msg) => msg.info.role === "user")
     if (!userMessage) return input.messages
-    const assistantMessage = input.messages.findLast((msg) => msg.info.role === "assistant")
+    const callbacks = new Set(
+      input.messages
+        .filter(
+          (msg) =>
+            msg.info.role === "user" &&
+            msg.parts.some((part) => part.type === "collab_return" && part.kind === "remote_task_terminal"),
+        )
+        .map((msg) => msg.info.id),
+    )
+    // Keep a callback's own steps together without letting completed callbacks consume a later user mode switch.
+    const assistantMessage = input.messages.findLast(
+      (msg) =>
+        msg.info.role === "assistant" &&
+        (!callbacks.has(msg.info.parentID) || msg.info.parentID === userMessage.info.id),
+    )
     const experiment = ExperimentWorkspace.resolve(input.session.id)
 
     // Original logic when experimental plan mode is disabled

@@ -100,6 +100,25 @@ test("uses Experiment Plan reminders and clears them when manually returning to 
           sessionID: session.id,
           agent: "experiment",
           model: { providerID: "opencode", modelID: "kimi-k2.5-free" },
+          parts: [
+            {
+              type: "collab_return",
+              kind: "remote_task_terminal",
+              headline: "Remote task finished",
+              body: "Task ID: task-1\nStatus: finished",
+            },
+          ],
+        })
+        const callback = calls.at(-1)!
+        expect(callback.agent.name).toBe("experiment")
+        expect(JSON.stringify(callback.messages)).toContain(
+          "Your operational mode has changed from Experiment Plan to Experiment",
+        )
+
+        await SessionPrompt.prompt({
+          sessionID: session.id,
+          agent: "experiment",
+          model: { providerID: "opencode", modelID: "kimi-k2.5-free" },
           parts: [{ type: "text", text: "continue with the approved scope" }],
         })
         const experiment = calls.at(-1)!
