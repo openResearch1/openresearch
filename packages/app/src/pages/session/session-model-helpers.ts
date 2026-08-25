@@ -1,4 +1,4 @@
-import type { UserMessage } from "@opencode-ai/sdk/v2"
+import type { Part, UserMessage } from "@opencode-ai/sdk/v2"
 import { batch } from "solid-js"
 
 type Local = {
@@ -24,6 +24,13 @@ type Local = {
     }
   }
 }
+
+export const latest = (messages: UserMessage[], parts: Record<string, Part[] | undefined>) =>
+  messages.findLast((msg) => {
+    const list = parts[msg.id]
+    if (!list) return false
+    return !list.some((part) => part.type === "collab_return" && part.kind === "remote_task_terminal")
+  })
 
 export const resetSessionModel = (local: Local) => {
   const agent = local.agent.current()

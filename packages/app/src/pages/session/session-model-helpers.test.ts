@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test"
-import type { UserMessage } from "@opencode-ai/sdk/v2"
-import { resetSessionModel, syncSessionModel } from "./session-model-helpers"
+import type { Part, UserMessage } from "@opencode-ai/sdk/v2"
+import { latest, resetSessionModel, syncSessionModel } from "./session-model-helpers"
 
-const message = (input?: Partial<Pick<UserMessage, "agent" | "model" | "variant">>) =>
+const message = (input?: Partial<Pick<UserMessage, "id" | "agent" | "model" | "variant">>) =>
   ({
-    id: "msg",
+    id: input?.id ?? "msg",
     sessionID: "session",
     role: "user",
     time: { created: 1 },
@@ -12,6 +12,30 @@ const message = (input?: Partial<Pick<UserMessage, "agent" | "model" | "variant"
     model: input?.model ?? { providerID: "anthropic", modelID: "claude-sonnet-4" },
     variant: input?.variant,
   }) as UserMessage
+
+describe("latest", () => {
+  test("ignores remote task callbacks and messages whose parts have not arrived", () => {
+    const plan = message({ id: "plan", agent: "plan" })
+    const callback = message({ id: "callback", agent: "experiment" })
+    const pending = message({ id: "pending", agent: "build" })
+    const parts = {
+      plan: [{ id: "part-plan", sessionID: "session", messageID: "plan", type: "text", text: "plan" }],
+      callback: [
+        {
+          id: "part-callback",
+          sessionID: "session",
+          messageID: "callback",
+          type: "collab_return",
+          kind: "remote_task_terminal",
+          headline: "Remote task finished",
+          body: "Status: finished",
+        },
+      ],
+    } satisfies Record<string, Part[] | undefined>
+
+    expect(latest([plan, callback, pending], parts)).toBe(plan)
+  })
+})
 
 describe("syncSessionModel", () => {
   test("restores the last message model and variant", () => {
