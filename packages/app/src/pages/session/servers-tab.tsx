@@ -2,7 +2,9 @@ import { createMemo, createSignal, For, Match, onMount, Show, Switch } from "sol
 import { createStore } from "solid-js/store"
 import { useSDK } from "@/context/sdk"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { showToast } from "@opencode-ai/ui/toast"
 import { DialogPathPicker } from "@/components/dialog-new-research-project"
+import { formatServerError } from "@/utils/server-errors"
 
 type DirectNetwork = {
   mode: "direct"
@@ -209,10 +211,12 @@ export function ServersTab() {
   const [error, setError] = createSignal(false)
   const [adding, setAdding] = createSignal(false)
   const [editingId, setEditingId] = createSignal<string | null>(null)
+  const [mirroringId, setMirroringId] = createSignal<string | null>(null)
   const [saving, setSaving] = createSignal(false)
   const [draft, setDraft] = createStore<Draft>(blank())
 
   const editing = createMemo(() => editingId() !== null)
+  const mirroring = createMemo(() => servers().find((server) => server.id === mirroringId()))
 
   const fetchServers = async () => {
     try {
@@ -238,6 +242,11 @@ export function ServersTab() {
     setServers((prev) => prev.filter((s) => s.id !== serverId))
     if (editingId() === serverId) {
       setEditingId(null)
+      setDraft(blank())
+    }
+    if (mirroringId() === serverId) {
+      setMirroringId(null)
+      setAdding(false)
       setDraft(blank())
     }
   }
@@ -286,21 +295,64 @@ export function ServersTab() {
     }
   }
 
+  const handleMirror = async () => {
+    const id = mirroringId()
+    if (!id || !valid(draft)) return
+    try {
+      setSaving(true)
+      const result = await sdk.client.research.server.mirror({
+        serverId: id,
+        config: buildConfig(draft),
+      })
+      if (result.error) {
+        throw new Error("message" in result.error ? result.error.message : "Mirror request failed")
+      }
+      if (!result.data) throw new Error("Mirror request returned no data")
+      await fetchServers()
+      setDraft(blank())
+      setMirroringId(null)
+      setAdding(false)
+      showToast({
+        variant: "success",
+        title: "Server mirrored",
+        description: `Copied ${result.data.copied.runtimes} runtimes, ${result.data.copied.environments} environments, and ${result.data.copied.resources} resources`,
+      })
+    } catch (error) {
+      showToast({
+        variant: "error",
+        title: "Failed to mirror server",
+        description: formatServerError(error),
+      })
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const startAdd = () => {
     setEditingId(null)
+    setMirroringId(null)
     setDraft(blank())
     setAdding(true)
   }
 
   const startEdit = (server: ServerRow) => {
     setAdding(false)
+    setMirroringId(null)
     setEditingId(server.id)
     setDraft(draftFromConfig(server.config))
+  }
+
+  const startMirror = (server: ServerRow) => {
+    setEditingId(null)
+    setMirroringId(server.id)
+    setDraft(blank())
+    setAdding(true)
   }
 
   const cancelEdit = () => {
     setAdding(false)
     setEditingId(null)
+    setMirroringId(null)
     setDraft(blank())
   }
 
@@ -353,8 +405,11 @@ export function ServersTab() {
     ))
   }
 
-  const Form = (props: { saveLabel: string; onSave: () => void; onCancel: () => void }) => (
+  const Form = (props: { saveLabel: string; description?: string; onSave: () => void; onCancel: () => void }) => (
     <div class="rounded-md border border-border-weak-base bg-background-base p-3 mb-2 flex flex-col gap-2">
+      <Show when={props.description}>
+        {(description) => <div class="text-11-regular text-text-weak">{description()}</div>}
+      </Show>
       <div class="grid grid-cols-2 gap-2">
         <label class="flex flex-col gap-1 text-11-regular text-text-weak">
           <span>Connection</span>
@@ -566,7 +621,16 @@ export function ServersTab() {
 
       <div class="flex-1 min-h-0 overflow-auto px-3 pb-3">
         <Show when={adding()}>
-          <Form saveLabel="Create" onSave={handleCreate} onCancel={cancelEdit} />
+          <Form
+            saveLabel={mirroring() ? "Mirror" : "Create"}
+            description={
+              mirroring()
+                ? `Mirror all project runtime records from ${describe(mirroring()!.config)}. Configure a new target below; remote files are not copied.`
+                : undefined
+            }
+            onSave={mirroring() ? handleMirror : handleCreate}
+            onCancel={cancelEdit}
+          />
         </Show>
 
         <Show when={editing()}>
@@ -589,7 +653,7 @@ export function ServersTab() {
           </Match>
           <Match when={true}>
             <div class="flex flex-col gap-2">
-              <div class="grid grid-cols-[minmax(140px,1fr)_80px_110px_minmax(120px,1fr)_80px] gap-2 px-2 py-1 text-11-regular text-text-weak uppercase tracking-wider">
+              <div class="grid grid-cols-[minmax(140px,1fr)_80px_110px_minmax(120px,1fr)_126px] gap-2 px-2 py-1 text-11-regular text-text-weak uppercase tracking-wider">
                 <div>Target</div>
                 <div>Conn</div>
                 <div>Network</div>
@@ -600,7 +664,7 @@ export function ServersTab() {
                 {(server) => {
                   const config = createMemo(() => normalize(server.config))
                   return (
-                    <div class="grid grid-cols-[minmax(140px,1fr)_80px_110px_minmax(120px,1fr)_80px] gap-2 items-center rounded-md border border-border-weak-base bg-background-base px-2 py-2 text-12-regular text-text-base">
+                    <div class="grid grid-cols-[minmax(140px,1fr)_80px_110px_minmax(120px,1fr)_126px] gap-2 items-center rounded-md border border-border-weak-base bg-background-base px-2 py-2 text-12-regular text-text-base">
                       <div class="truncate" title={describe(server.config)}>
                         {describe(server.config)}
                       </div>
@@ -612,6 +676,13 @@ export function ServersTab() {
                         {config().resource_root ?? "-"}
                       </div>
                       <div class="flex items-center justify-end gap-2">
+                        <button
+                          class="text-text-weak hover:text-text-strong transition-colors text-11-regular"
+                          onClick={() => startMirror(server)}
+                          title="Mirror server records"
+                        >
+                          Mirror
+                        </button>
                         <button
                           class="text-text-weak hover:text-text-strong transition-colors text-11-regular"
                           onClick={() => startEdit(server)}

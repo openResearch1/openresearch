@@ -18,6 +18,8 @@ import {
   ExperimentExecutionWatchTable,
   ExperimentWatchTable,
   RemoteTaskTable,
+  ProjectRuntimeEnvironmentTable,
+  ProjectRuntimeResourceTable,
 } from "@/research/research.sql"
 import { and, desc, eq } from "drizzle-orm"
 import { Session } from "@/session"
@@ -98,6 +100,7 @@ function taskJson(task: RemoteTaskRow) {
     title: task.title,
     kind: task.kind,
     status: task.status,
+    remote_server_id: task.remote_server_id,
     resource_key: task.resource_key,
     target_path: task.target_path,
     command: task.command,
@@ -163,6 +166,7 @@ const remoteTaskListItemSchema = z.object({
   title: z.string(),
   kind: z.enum(["resource_download", "experiment_run", "env_setup"]),
   status: z.enum(["pending", "running", "finished", "failed", "crashed", "canceled"]),
+  remote_server_id: z.string().nullable(),
   resource_key: z.string().nullable(),
   target_path: z.string().nullable(),
   command: z.string(),
@@ -2778,6 +2782,184 @@ export const ResearchRoutes = new Hono()
       return c.json({ id, config })
     },
   )
+  .post(
+    "/server/:serverId/mirror",
+    describeRoute({
+      summary: "Mirror a remote server and its project runtime records",
+      operationId: "research.server.mirror",
+      responses: {
+        200: {
+          description: "Mirrored remote server",
+          content: {
+            "application/json": {
+              schema: resolver(
+                z.object({
+                  id: z.string(),
+                  config: RemoteServerConfigSchema,
+                  copied: z.object({
+                    runtimes: z.number(),
+                    environments: z.number(),
+                    resources: z.number(),
+                  }),
+                }),
+              ),
+            },
+          },
+        },
+        ...errors(404),
+        500: {
+          description: "Runtime records are inconsistent",
+          content: {
+            "application/json": {
+              schema: resolver(z.object({ success: z.literal(false), message: z.string() })),
+            },
+          },
+        },
+      },
+    }),
+    validator(
+      "json",
+      z.object({
+        config: RemoteServerInputSchema,
+      }),
+    ),
+    async (c) => {
+      const sourceId = c.req.param("serverId")
+      const config = normalizeRemoteServerConfig(c.req.valid("json").config)
+      const result = Database.transaction((db) => {
+        const source = db.select().from(RemoteServerTable).where(eq(RemoteServerTable.id, sourceId)).get()
+        if (!source) return
+
+        const id = uniqueID()
+        const now = Date.now()
+        const runtimes = db
+          .select()
+          .from(ExperimentTable)
+          .where(and(eq(ExperimentTable.kind, "project_runtime"), eq(ExperimentTable.remote_server_id, sourceId)))
+          .all()
+        const environments = db
+          .select()
+          .from(ProjectRuntimeEnvironmentTable)
+          .where(eq(ProjectRuntimeEnvironmentTable.remote_server_id, sourceId))
+          .all()
+        const resources = db
+          .select()
+          .from(ProjectRuntimeResourceTable)
+          .where(eq(ProjectRuntimeResourceTable.remote_server_id, sourceId))
+          .all()
+        const ids = new Set(runtimes.map((item) => item.exp_id))
+        const env = environments.find((item) => !ids.has(item.runtime_exp_id))
+        if (env) return { error: `project runtime not found for environment: ${env.env_id}` }
+        const resource = resources.find((item) => !ids.has(item.runtime_exp_id))
+        if (resource) return { error: `project runtime not found for resource: ${resource.resource_id}` }
+
+        db.insert(RemoteServerTable)
+          .values({
+            id,
+            config: JSON.stringify(config),
+            time_created: now,
+            time_updated: now,
+          })
+          .run()
+
+        const targets = new Map<string, string>()
+        for (const source of runtimes) {
+          const key = ProjectRuntime.key(source.research_project_id, id)
+          const expId = ProjectRuntime.id(key)
+          db.insert(ExperimentTable)
+            .values({
+              exp_id: expId,
+              kind: "project_runtime",
+              runtime_key: key,
+              research_project_id: source.research_project_id,
+              exp_name: "[system] Project Runtime",
+              exp_session_id: null,
+              baseline_branch_name: null,
+              baseline_commit_sha: null,
+              exp_branch_name: null,
+              exp_result_path: null,
+              atom_id: null,
+              exp_result_summary_path: null,
+              exp_plan_path: null,
+              remote_server_id: id,
+              code_path: source.code_path,
+              remote_code_path: null,
+              status: "idle",
+              started_at: null,
+              finished_at: null,
+              time_created: now,
+              time_updated: now,
+            })
+            .run()
+          targets.set(source.exp_id, expId)
+        }
+
+        for (const source of environments) {
+          const runtime = targets.get(source.runtime_exp_id)
+          if (!runtime) throw new Error(`project runtime not found for environment: ${source.env_id}`)
+          db.insert(ProjectRuntimeEnvironmentTable)
+            .values({
+              env_id: uniqueID(),
+              research_project_id: source.research_project_id,
+              remote_server_id: id,
+              runtime_exp_id: runtime,
+              env_key: source.env_key,
+              conda_env_name: source.conda_env_name,
+              python_version: source.python_version,
+              spec: source.spec,
+              fingerprint: source.fingerprint,
+              status: source.status,
+              last_verified_at: source.last_verified_at,
+              error_message: source.error_message,
+              time_created: now,
+              time_updated: now,
+            })
+            .run()
+        }
+
+        for (const source of resources) {
+          const runtime = targets.get(source.runtime_exp_id)
+          if (!runtime) throw new Error(`project runtime not found for resource: ${source.resource_id}`)
+          db.insert(ProjectRuntimeResourceTable)
+            .values({
+              resource_id: uniqueID(),
+              research_project_id: source.research_project_id,
+              remote_server_id: id,
+              runtime_exp_id: runtime,
+              resource_key: source.resource_key,
+              type: source.type,
+              source: source.source,
+              target_path: source.target_path,
+              verify: source.verify,
+              fingerprint: source.fingerprint,
+              status: source.status,
+              last_verified_at: source.last_verified_at,
+              error_message: source.error_message,
+              time_created: now,
+              time_updated: now,
+            })
+            .run()
+        }
+
+        for (const runtime of targets.values()) {
+          ExperimentExecutionWatch.createOrGet(runtime, ProjectRuntime.title(id), "pending")
+        }
+
+        return {
+          id,
+          config,
+          copied: {
+            runtimes: runtimes.length,
+            environments: environments.length,
+            resources: resources.length,
+          },
+        }
+      })
+      if (!result) return c.json({ success: false, message: `server not found: ${sourceId}` }, 404)
+      if ("error" in result) return c.json({ success: false, message: result.error }, 500)
+      return c.json(result)
+    },
+  )
   .patch(
     "/server/:serverId",
     describeRoute({
@@ -4052,6 +4234,7 @@ export const ResearchRoutes = new Hono()
                     resource_key: w.resource_key,
                     title: w.title,
                     status: w.status,
+                    remote_server_id: w.remote_server_id ?? null,
                     server: w.server,
                     remote_root: w.remote_root,
                     target_path: w.target_path,

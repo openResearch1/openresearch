@@ -5,6 +5,7 @@ import { Log } from "@/util/log"
 import { Session } from "@/session"
 import { SessionOwnership } from "@/session/ownership"
 import { ExperimentRemoteTaskListener } from "@/research/experiment-remote-task-listener"
+import { ScheduledTask } from "@/scheduler/scheduled-task"
 import { Workflow } from "@/workflow"
 import { CollabMessageTable } from "./collab.sql"
 import { CollabAgentNode } from "./agent-node"
@@ -40,7 +41,8 @@ export namespace CollabRecovery {
     for (const node of nodes) {
       const current = CollabAgentNode.isExperiment(node) ? CollabAgentNode.restoreExperiment(node.id) : node
       ExperimentRemoteTaskListener.reconcile(current.id)
-      CollabMessage.reconcileRemoteTerminals(current.id)
+      ScheduledTask.reconcile(current.id)
+      CollabMessage.reconcileCallbacks(current.id)
     }
   }
 

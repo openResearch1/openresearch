@@ -18,6 +18,7 @@ import {
   buildChildProgressPart,
   buildChildWaitingPart,
   buildRemoteTaskTerminalPart,
+  buildScheduledTaskDuePart,
   finalizeParts,
   matchParts,
   type PromptPartDraft,
@@ -31,6 +32,7 @@ import type {
   ChildProgressPayload,
   ChildWaitingPayload,
   RemoteTaskTerminalPayload,
+  ScheduledTaskDuePayload,
   UserInputPayload,
 } from "./types"
 import { WAKE_MESSAGE_KINDS } from "./types"
@@ -64,7 +66,7 @@ export namespace CollabAutoWake {
       const unsubMsg = Bus.subscribe(CollabEvent.MessagePosted, (e) => {
         if (!enabled) return
         const { recipientAgentId, kind } = e.properties
-        if (kind === "session_remote_task_terminal") {
+        if (CollabMessage.isDirectKind(kind)) {
           void tryDriveDirectById(recipientAgentId, inflight).catch((err) =>
             log.error("onDirectMessagePosted", { recipientAgentId, error: String(err) }),
           )
@@ -197,8 +199,8 @@ export namespace CollabAutoWake {
   }
 
   async function driveNode(node: AgentInfo, inflight: Set<string>) {
-    CollabMessage.reconcileRemoteTerminals(node.id)
-    if (CollabMessage.hasPendingKind(node.id, "session_remote_task_terminal")) {
+    CollabMessage.reconcileCallbacks(node.id)
+    if (CollabMessage.hasPendingDirect(node.id)) {
       await maybeDriveDirect(node, inflight)
       return
     }
@@ -233,14 +235,14 @@ export namespace CollabAutoWake {
     if (inflight.has(node.session_id)) return
     if (SessionStatus.get(node.session_id).type === "busy") {
       if (
-        CollabMessage.hasOutstanding(node.id, "session_remote_task_terminal") ||
+        CollabMessage.hasOutstandingDirect(node.id) ||
         CollabMessage.hasOutstandingWakeMsg(node.id)
       ) {
         CollabRuntime.schedule(node.id, 1000, () => void tryDriveById(node.id, inflight))
       }
       return
     }
-    if (!CollabMessage.hasOutstanding(node.id, "session_remote_task_terminal")) return
+    if (!CollabMessage.hasOutstandingDirect(node.id)) return
 
     const release = SessionOwnership.claim(node.session_id, "collab")
     if (!release) {
@@ -265,7 +267,7 @@ export namespace CollabAutoWake {
       CollabMessage.retryProcessing(node.id)
       for (let i = 0; i < MAX_DRIVE_ITERATIONS; i++) {
         if (SessionStatus.get(node.session_id).type === "busy") return
-        if (!CollabMessage.hasPendingKind(node.id, "session_remote_task_terminal")) return
+        if (!CollabMessage.hasPendingDirect(node.id)) return
         await driveDirect(node.id, release.signal)
       }
       log.warn("maybeDriveDirect hit MAX_DRIVE_ITERATIONS cap", { agentId: node.id })
@@ -275,7 +277,7 @@ export namespace CollabAutoWake {
       release.signal.removeEventListener("abort", lost)
       release()
       if (
-        CollabMessage.hasOutstanding(node.id, "session_remote_task_terminal") ||
+        CollabMessage.hasOutstandingDirect(node.id) ||
         CollabMessage.hasOutstandingWakeMsg(node.id)
       ) {
         CollabRuntime.schedule(node.id, 1000, () => void tryDriveById(node.id, inflight))
@@ -296,7 +298,11 @@ export namespace CollabAutoWake {
     const node = CollabAgentNode.load(agentId)
     const msgs = CollabMessage.drain(agentId, "direct")
     try {
-      const parts = msgs.map((msg) => buildRemoteTaskTerminalPart(msg.payload_json as RemoteTaskTerminalPayload))
+      const parts = msgs.map((msg) =>
+        msg.kind === "session_remote_task_terminal"
+          ? buildRemoteTaskTerminalPart(msg.payload_json as RemoteTaskTerminalPayload)
+          : buildScheduledTaskDuePart(msg.payload_json as ScheduledTaskDuePayload),
+      )
       if (!parts.length) return
       const drafts = finalizeParts(parts)
       const delivery = (msgs[0].payload_json as { deliveryMessageId?: unknown }).deliveryMessageId
@@ -372,7 +378,7 @@ export namespace CollabAutoWake {
     if (SessionStatus.get(node.session_id).type === "busy") {
       if (
         CollabMessage.hasOutstandingWakeMsg(node.id) ||
-        CollabMessage.hasOutstanding(node.id, "session_remote_task_terminal")
+        CollabMessage.hasOutstandingDirect(node.id)
       ) {
         CollabRuntime.schedule(node.id, 1000, () => void tryDriveById(node.id, inflight))
       }
@@ -432,7 +438,7 @@ export namespace CollabAutoWake {
       release()
       if (
         CollabMessage.hasOutstandingWakeMsg(node.id) ||
-        CollabMessage.hasOutstanding(node.id, "session_remote_task_terminal")
+        CollabMessage.hasOutstandingDirect(node.id)
       ) {
         CollabRuntime.schedule(node.id, 1000, () => void tryDriveById(node.id, inflight))
       }
@@ -495,6 +501,9 @@ export namespace CollabAutoWake {
             break
           case "remote_task_terminal":
             returnParts.push(buildRemoteTaskTerminalPart(payload as RemoteTaskTerminalPayload))
+            break
+          case "scheduled_task_due":
+            returnParts.push(buildScheduledTaskDuePart(payload as ScheduledTaskDuePayload))
             break
           case "user_input": {
             const input = payload as UserInputPayload

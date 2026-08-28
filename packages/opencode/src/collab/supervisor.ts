@@ -3,6 +3,7 @@ import { SessionPrompt } from "@/session/prompt"
 import { SessionOwnership } from "@/session/ownership"
 import { SessionStatus } from "@/session/status"
 import { ExperimentRemoteTaskListener } from "@/research/experiment-remote-task-listener"
+import { ScheduledTask } from "@/scheduler/scheduled-task"
 import { CollabAgentNode } from "./agent-node"
 import { CollabMessage } from "./message"
 import { CollabRuntime } from "./runtime"
@@ -52,6 +53,8 @@ export namespace CollabSupervisor {
     const domains = new Set(exps)
     ExperimentRemoteTaskListener.clear(ids.filter((id) => !domains.has(id)))
     ExperimentRemoteTaskListener.clear(exps, "collab")
+    ScheduledTask.clear(ids.filter((id) => !domains.has(id)))
+    ScheduledTask.clear(exps, "collab")
     const loops: Promise<void>[] = []
     for (const item of result.agents) {
       const loop = CollabRuntime.clear(item.id)
@@ -72,6 +75,7 @@ export namespace CollabSupervisor {
     for (const id of exps) {
       CollabAgentNode.restoreExperiment(id)
       ExperimentRemoteTaskListener.reconcile(id)
+      ScheduledTask.reconcile(id)
     }
     log.info("stop", { agentId, count: ids.length })
     return root

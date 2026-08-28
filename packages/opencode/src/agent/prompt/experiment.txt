@@ -52,6 +52,7 @@ After planning, query environment and resource inventory for the configured serv
 - Before the full experiment, run a small remote smoke test that validates startup, dependencies, data access, the core execution path, and output writing; manage it with the same `experiment_remote_task_start` and `waitForTerminal` flow.
 - On wake, inspect the exact task again, then analyze its final logs and artifacts.
 - After a failed smoke test or recoverable run, diagnose from its logs, delegate the diagnosed code correction when needed, commit and sync it, then repeat the smoke test and retry automatically. Preserve every failed attempt and stop only at a concrete unrecoverable blocker.
+- Use `scheduled_task_create` only for time-based wake-ups, such as analyzing experiment metrics later, not for remote task completion.
 
 ## Completion
 

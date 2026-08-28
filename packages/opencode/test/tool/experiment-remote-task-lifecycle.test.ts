@@ -20,7 +20,7 @@ const startRemoteTaskMock = mock(async (input: { taskId: string; remoteRoot: str
   logPath: `${input.remoteRoot}/.openresearch/tasks/${input.taskId}/task.log`,
 }))
 
-const inspectRemoteTaskMock = mock(async () => ({
+const inspectRemoteTaskMock = mock(async (_input?: { server?: unknown }) => ({
   ok: true,
   output: "__SCREEN__\nrunning\n__TARGET__\nmissing\n__TAIL__\nSTART",
   code: 0,
@@ -214,11 +214,14 @@ describe("tool.experiment-remote-task lifecycle", () => {
           },
         })
         expect(result.output).toContain("Screen: openresearch")
+        expect(result.output).toContain("Remote Server ID: server-1")
+        expect(result.metadata.remoteServerId).toBe("server-1")
 
         const task = Database.use((db) =>
           db.select().from(RemoteTaskTable).where(eq(RemoteTaskTable.exp_id, "exp-1")).get(),
         )
         expect(task?.status).toBe("running")
+        expect(task?.remote_server_id).toBe("server-1")
         expect(task?.target_path).toBe("/mnt/zhouzih/pico_resources/cub200/source")
         expect(task?.log_path).toContain("/mnt/zhouzih/.openresearch/tasks/")
 
@@ -256,6 +259,61 @@ describe("tool.experiment-remote-task lifecycle", () => {
         )
         expect(synced?.stage).toBe("planning")
         expect(synced?.status).toBe("pending")
+      },
+    })
+  })
+
+  test("preserves the task server ID after the experiment switches servers", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        await seed(tmp.path)
+        const { ExperimentRemoteTaskGetTool, ExperimentRemoteTaskListTool, ExperimentRemoteTaskStartTool } =
+          await import("../../src/tool/experiment-remote-task")
+        const start = await ExperimentRemoteTaskStartTool.init()
+        const started = await start.execute(
+          {
+            expId: "exp-1",
+            kind: "experiment_run",
+            title: "Train model",
+            remoteRoot: "/mnt/zhouzih",
+            command: "python train.py",
+          },
+          ctx,
+        )
+        Database.use((db) =>
+          db
+            .insert(RemoteServerTable)
+            .values({
+              id: "server-2",
+              config: JSON.stringify({ mode: "direct", address: "10.0.0.2", port: 22, user: "root" }),
+            })
+            .run(),
+        )
+        Database.use((db) =>
+          db
+            .update(ExperimentTable)
+            .set({ remote_server_id: "server-2" })
+            .where(eq(ExperimentTable.exp_id, "exp-1"))
+            .run(),
+        )
+
+        inspectRemoteTaskMock.mockClear()
+        const get = await ExperimentRemoteTaskGetTool.init()
+        const result = await get.execute({ expId: "exp-1", taskId: started.metadata.taskId }, ctx)
+        expect(result.output).toContain("Remote Server ID: server-1")
+        expect(result.metadata.remoteServerId).toBe("server-1")
+        expect(inspectRemoteTaskMock.mock.calls[0]?.[0]?.server).toMatchObject({ address: "10.0.0.1" })
+
+        const list = await ExperimentRemoteTaskListTool.init()
+        const active = await list.execute({ expId: "exp-1" }, ctx)
+        expect(active.output).toContain("Remote Server ID: server-1")
+        expect(active.metadata.tasks[0]?.remoteServerId).toBe("server-1")
+
+        Database.use((db) => db.delete(RemoteServerTable).where(eq(RemoteServerTable.id, "server-1")).run())
+        const after = await get.execute({ expId: "exp-1", taskId: started.metadata.taskId }, ctx)
+        expect(after.metadata.remoteServerId).toBe("server-1")
       },
     })
   })
@@ -1070,6 +1128,7 @@ describe("tool.experiment-remote-task lifecycle", () => {
           expect(messages[0].payload_json).toMatchObject({
             taskId: started.metadata.taskId,
             expId: "exp-1",
+            remoteServerId: "server-1",
             status: "finished",
           })
           expect(Collab.workflowAsyncState(session.id)).toMatchObject({
@@ -1553,9 +1612,11 @@ describe("tool.experiment-remote-task lifecycle", () => {
         const list = (await response.json()) as Array<{
           error_message: string | null
           remote_task_error_message: string | null
+          remote_tasks: Array<{ remote_server_id: string | null }>
         }>
         expect(list[0]?.error_message).toBeNull()
         expect(list[0]?.remote_task_error_message).toBe("remote task stopped before writing completion marker")
+        expect(list[0]?.remote_tasks[0]?.remote_server_id).toBe("server-1")
       },
     })
   })

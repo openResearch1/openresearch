@@ -248,6 +248,7 @@ export namespace MessageV2 {
       "child_waiting",
       "child_progress",
       "remote_task_terminal",
+      "scheduled_task_due",
       "cancel",
       "user_input",
       "system",

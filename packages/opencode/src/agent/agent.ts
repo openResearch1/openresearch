@@ -86,6 +86,9 @@ export namespace Agent {
       question: "deny",
       plan_enter: "deny",
       plan_exit: "deny",
+      scheduled_task_create: "deny",
+      scheduled_task_list: "deny",
+      scheduled_task_cancel: "deny",
       // mirrors github.com/github/gitignore Node.gitignore pattern for .env files
       read: {
         "*": "allow",
@@ -158,6 +161,9 @@ export namespace Agent {
             experiment_remote_task_start: "allow",
             experiment_remote_task_get: "allow",
             experiment_remote_task_list: "allow",
+            scheduled_task_create: "allow",
+            scheduled_task_list: "allow",
+            scheduled_task_cancel: "allow",
             research_code_query: "allow",
             project_runtime_server_query: "allow",
             project_runtime_env_spec_inspect: "allow",

@@ -384,6 +384,7 @@ export function SessionSidePanel(props: {
     if (active === "atoms" && isResearchProject() && !isAtomSession() && !isExpSession()) return "atoms"
     if (active === "servers" && isResearchProject() && !isAtomSession() && !isExpSession()) return "servers"
     if (active === "watches" && isResearchProject() && !isAtomSession() && !isExpSession()) return "watches"
+    if (active === "watches" && isExpSession()) return "watches"
     if (active === "codes" && isResearchProject() && !isAtomSession() && !isExpSession()) return "codes"
     if (active === "atom-content" && isAtomSession()) return "atom-content"
     if (active === "atom-evidence" && isAtomSession()) return "atom-evidence"
@@ -550,6 +551,11 @@ export function SessionSidePanel(props: {
                         <Tabs.Trigger value="exp-result">
                           <div class="flex items-center gap-1.5">
                             <div>Result</div>
+                          </div>
+                        </Tabs.Trigger>
+                        <Tabs.Trigger value="watches">
+                          <div class="flex items-center gap-1.5">
+                            <div>Watches</div>
                           </div>
                         </Tabs.Trigger>
                         <button
@@ -738,7 +744,7 @@ export function SessionSidePanel(props: {
                     </Tabs.Content>
                   </Show>
 
-                  <Show when={isResearchProject() && !isAtomSession() ? researchProject() : null} keyed>
+                  <Show when={isResearchProject() && !isAtomSession() && !isExpSession() ? researchProject() : null} keyed>
                     {(project) => (
                       <>
                         <Tabs.Content value="atoms" class="flex flex-col h-full overflow-hidden contain-strict">
@@ -843,6 +849,14 @@ export function SessionSidePanel(props: {
                           <Show when={activeTab() === "exp-result"}>
                             <ExpResultTab
                               experiment={experiment}
+                              onOpenFile={(filePath) => openTab(file.tab(filePath))}
+                            />
+                          </Show>
+                        </Tabs.Content>
+                        <Tabs.Content value="watches" class="flex flex-col h-full overflow-hidden contain-strict">
+                          <Show when={activeTab() === "watches"}>
+                            <WatchesTab
+                              expId={experiment.exp_id}
                               onOpenFile={(filePath) => openTab(file.tab(filePath))}
                             />
                           </Show>

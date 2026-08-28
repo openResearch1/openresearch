@@ -1,13 +1,13 @@
 import { createHash, randomUUID } from "crypto"
 
-import { and, asc, eq, gte, inArray, isNull, ne, sql } from "drizzle-orm"
+import { and, asc, eq, gte, inArray, isNull, notInArray, sql } from "drizzle-orm"
 import { Database } from "@/storage/db"
 import { Bus } from "@/bus"
 import { Identifier } from "@/id/id"
 import { Log } from "@/util/log"
 import { CollabAgentTable, CollabMessageTable } from "./collab.sql"
 import type { ChildWaitingPayload, CollabMsgKind, UserInputPayload } from "./types"
-import { WAKE_MESSAGE_KINDS } from "./types"
+import { DIRECT_MESSAGE_KINDS, WAKE_MESSAGE_KINDS } from "./types"
 import { CollabEvent } from "./events"
 
 export namespace CollabMessage {
@@ -18,6 +18,10 @@ export namespace CollabMessage {
   const CHILD_TERMINAL_KINDS = new Set<CollabMsgKind>(["child_done", "child_failed"])
   const CHILD_REPORT_KINDS = new Set<CollabMsgKind>(["child_done", "child_failed", "child_waiting", "child_progress"])
   const ACTIVE_AGENT_STATUSES = new Set(["pending", "running", "blocked_on_children", "waiting_interaction"])
+
+  export function isDirectKind(kind: string): kind is CollabMsgKind {
+    return (DIRECT_MESSAGE_KINDS as readonly string[]).includes(kind)
+  }
 
   export type Row = typeof CollabMessageTable.$inferSelect
   export type Claim = Pick<Row, "id" | "claim_id">
@@ -56,7 +60,7 @@ export namespace CollabMessage {
         input.expectedLifecycle !== undefined ||
         CHILD_REPORT_KINDS.has(input.kind) ||
         input.kind === "cancel" ||
-        input.kind === "session_remote_task_terminal"
+        isDirectKind(input.kind)
       const recipient = guarded
         ? tx
             .select({
@@ -151,7 +155,7 @@ export namespace CollabMessage {
         if (
           ((CHILD_REPORT_KINDS.has(input.kind) || input.kind === "cancel") &&
             !ACTIVE_AGENT_STATUSES.has(recipient!.status)) ||
-          (input.kind === "session_remote_task_terminal" &&
+          (isDirectKind(input.kind) &&
             (recipient!.spec as { metadata?: { stoppedByUser?: unknown } }).metadata?.stoppedByUser === true)
         )
           return { id: undefined, inserted: false }
@@ -173,7 +177,9 @@ export namespace CollabMessage {
         base !== null &&
         (CHILD_REPORT_KINDS.has(input.kind) ||
           input.kind === "remote_task_terminal" ||
-          input.kind === "session_remote_task_terminal")
+          input.kind === "session_remote_task_terminal" ||
+          input.kind === "scheduled_task_due" ||
+          input.kind === "session_scheduled_task_due")
           ? {
               ...base,
               deliveryMessageId:
@@ -428,8 +434,8 @@ export namespace CollabMessage {
                 eq(CollabMessageTable.recipient_agent_id, agentId),
                 eq(CollabMessageTable.status, "pending"),
                 mode === "direct"
-                  ? eq(CollabMessageTable.kind, "session_remote_task_terminal")
-                  : ne(CollabMessageTable.kind, "session_remote_task_terminal"),
+                  ? inArray(CollabMessageTable.kind, [...DIRECT_MESSAGE_KINDS])
+                  : notInArray(CollabMessageTable.kind, [...DIRECT_MESSAGE_KINDS]),
               ),
             )
             .orderBy(asc(CollabMessageTable.id))
@@ -616,7 +622,7 @@ export namespace CollabMessage {
           and(
             eq(CollabMessageTable.recipient_agent_id, agentId),
             inArray(CollabMessageTable.status, ["pending", "processing"]),
-            ne(CollabMessageTable.kind, "session_remote_task_terminal"),
+            notInArray(CollabMessageTable.kind, [...DIRECT_MESSAGE_KINDS]),
           ),
         )
         .limit(1)
@@ -648,7 +654,7 @@ export namespace CollabMessage {
     )
   }
 
-  export function reconcileRemoteTerminals(agentId: string) {
+  export function reconcileCallbacks(agentId: string) {
     const rows = Database.transaction((tx) => {
       const agent = tx.select().from(CollabAgentTable).where(eq(CollabAgentTable.id, agentId)).get()
       if (!agent) return []
@@ -658,7 +664,7 @@ export namespace CollabMessage {
         .where(
           and(
             eq(CollabMessageTable.recipient_agent_id, agentId),
-            eq(CollabMessageTable.kind, "remote_task_terminal"),
+            inArray(CollabMessageTable.kind, ["remote_task_terminal", "scheduled_task_due"]),
             inArray(CollabMessageTable.status, ["pending", "processing"]),
           ),
         )
@@ -670,24 +676,21 @@ export namespace CollabMessage {
         )
       if (!found.length) return found
       const now = Date.now()
-      const repaired = tx
-        .update(CollabMessageTable)
-        .set({
-          kind: "session_remote_task_terminal",
-          run_id: null,
-          status: "pending",
-          claim_id: null,
-          time_consumed: null,
-          time_updated: now,
-        })
-        .where(
-          inArray(
-            CollabMessageTable.id,
-            found.map((row) => row.id),
-          ),
-        )
-        .returning()
-        .all()
+      const repaired = found.flatMap((row) =>
+        tx
+          .update(CollabMessageTable)
+          .set({
+            kind: row.kind === "remote_task_terminal" ? "session_remote_task_terminal" : "session_scheduled_task_due",
+            run_id: null,
+            status: "pending",
+            claim_id: null,
+            time_consumed: null,
+            time_updated: now,
+          })
+          .where(eq(CollabMessageTable.id, row.id))
+          .returning()
+          .all(),
+      )
       Database.effect(() => {
         for (const row of repaired) {
           Bus.publish(CollabEvent.MessagePosted, {
@@ -700,7 +703,7 @@ export namespace CollabMessage {
       })
       return repaired
     })
-    if (rows.length) log.info("reconciled remote terminal messages", { agentId, count: rows.length })
+    if (rows.length) log.info("reconciled callback messages", { agentId, count: rows.length })
     return rows.length
   }
 
@@ -758,6 +761,42 @@ export namespace CollabMessage {
     })
   }
 
+  export function hasOutstandingDirect(agentId: string): boolean {
+    return Database.use((db) => {
+      const row = db
+        .select({ id: CollabMessageTable.id })
+        .from(CollabMessageTable)
+        .where(
+          and(
+            eq(CollabMessageTable.recipient_agent_id, agentId),
+            inArray(CollabMessageTable.status, ["pending", "processing"]),
+            inArray(CollabMessageTable.kind, [...DIRECT_MESSAGE_KINDS]),
+          ),
+        )
+        .limit(1)
+        .get()
+      return !!row
+    })
+  }
+
+  export function hasPendingDirect(agentId: string): boolean {
+    return Database.use((db) => {
+      const row = db
+        .select({ id: CollabMessageTable.id })
+        .from(CollabMessageTable)
+        .where(
+          and(
+            eq(CollabMessageTable.recipient_agent_id, agentId),
+            eq(CollabMessageTable.status, "pending"),
+            inArray(CollabMessageTable.kind, [...DIRECT_MESSAGE_KINDS]),
+          ),
+        )
+        .limit(1)
+        .get()
+      return !!row
+    })
+  }
+
   export function direct(projectId: string) {
     return Database.use((db) =>
       db
@@ -768,7 +807,7 @@ export namespace CollabMessage {
           and(
             eq(CollabAgentTable.project_id, projectId),
             inArray(CollabMessageTable.status, ["pending", "processing"]),
-            eq(CollabMessageTable.kind, "session_remote_task_terminal"),
+            inArray(CollabMessageTable.kind, [...DIRECT_MESSAGE_KINDS]),
           ),
         )
         .all(),
@@ -801,7 +840,7 @@ export namespace CollabMessage {
           and(
             eq(CollabMessageTable.recipient_agent_id, agentId),
             inArray(CollabMessageTable.status, ["pending", "processing"]),
-            ne(CollabMessageTable.kind, "session_remote_task_terminal"),
+            notInArray(CollabMessageTable.kind, [...DIRECT_MESSAGE_KINDS]),
           ),
         )
         .run()
@@ -817,7 +856,7 @@ export namespace CollabMessage {
           and(
             eq(CollabMessageTable.recipient_agent_id, agentId),
             eq(CollabMessageTable.status, "pending"),
-            ne(CollabMessageTable.kind, "session_remote_task_terminal"),
+            notInArray(CollabMessageTable.kind, [...DIRECT_MESSAGE_KINDS]),
           ),
         )
         .run()

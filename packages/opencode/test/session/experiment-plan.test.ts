@@ -111,7 +111,7 @@ test("uses Experiment Plan reminders and clears them when manually returning to 
         })
         const callback = calls.at(-1)!
         expect(callback.agent.name).toBe("experiment")
-        expect(JSON.stringify(callback.messages)).toContain(
+        expect(JSON.stringify(callback.messages.at(-1))).toContain(
           "Your operational mode has changed from Experiment Plan to Experiment",
         )
 
@@ -125,10 +125,60 @@ test("uses Experiment Plan reminders and clears them when manually returning to 
         const experimentDisabled = PermissionNext.disabled(Object.keys(experiment.tools), experiment.agent.permission)
         expect(experiment.agent.name).toBe("experiment")
         expect(experimentDisabled.has("question")).toBe(true)
-        expect(JSON.stringify(experiment.messages)).toContain(
+        expect(JSON.stringify(experiment.messages.at(-1))).toContain(
           "Your operational mode has changed from Experiment Plan to Experiment",
         )
         expect(JSON.stringify(experiment.messages)).toContain("Do not assume that `exp_plan_path` was updated")
+
+        await SessionPrompt.prompt({
+          sessionID: session.id,
+          agent: "plan",
+          model: { providerID: "opencode", modelID: "kimi-k2.5-free" },
+          parts: [
+            { type: "text", text: "inspect before continuing" },
+            {
+              type: "collab_return",
+              kind: "remote_task_terminal",
+              headline: "Remote task finished",
+              body: "Task ID: task-2\nStatus: finished",
+            },
+          ],
+        })
+        await SessionPrompt.prompt({
+          sessionID: session.id,
+          agent: "experiment",
+          model: { providerID: "opencode", modelID: "kimi-k2.5-free" },
+          parts: [{ type: "text", text: "continue after the mixed callback" }],
+        })
+        expect(JSON.stringify(calls.at(-1)!.messages.at(-1))).toContain(
+          "Your operational mode has changed from Experiment Plan to Experiment",
+        )
+
+        const standard = await Session.create({ title: "standard" })
+        await SessionPrompt.prompt({
+          sessionID: standard.id,
+          agent: "plan",
+          model: { providerID: "opencode", modelID: "kimi-k2.5-free" },
+          parts: [{ type: "text", text: "plan the standard fix" }],
+        })
+        await SessionPrompt.prompt({
+          sessionID: standard.id,
+          agent: "build",
+          model: { providerID: "opencode", modelID: "kimi-k2.5-free" },
+          parts: [{ type: "text", text: "implement the fix" }],
+        })
+        expect(JSON.stringify(calls.at(-1)!.messages.at(-1))).toContain(
+          "Your operational mode has changed from plan to build",
+        )
+        await SessionPrompt.prompt({
+          sessionID: standard.id,
+          agent: "build",
+          model: { providerID: "opencode", modelID: "kimi-k2.5-free" },
+          parts: [{ type: "text", text: "continue implementing" }],
+        })
+        expect(JSON.stringify(calls.at(-1)!.messages.at(-1))).toContain(
+          "Your operational mode has changed from plan to build",
+        )
       } finally {
         stream.mockRestore()
       }

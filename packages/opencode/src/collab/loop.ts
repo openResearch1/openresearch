@@ -9,6 +9,7 @@ import { MessageV2 } from "@/session/message-v2"
 import { Provider } from "@/provider/provider"
 import { Workflow } from "@/workflow"
 import { ExperimentRemoteTaskListener } from "@/research/experiment-remote-task-listener"
+import { ScheduledTask } from "@/scheduler/scheduled-task"
 import { PermissionNext } from "@/permission/next"
 import { Question } from "@/question"
 import { CollabAgentNode } from "./agent-node"
@@ -23,6 +24,7 @@ import {
   buildChildProgressPart,
   buildChildWaitingPart,
   buildRemoteTaskTerminalPart,
+  buildScheduledTaskDuePart,
   finalizeParts,
   matchParts,
   type PromptPartDraft,
@@ -38,6 +40,7 @@ import type {
   ChildWaitingPayload,
   ProgressInjection,
   RemoteTaskTerminalPayload,
+  ScheduledTaskDuePayload,
   UserInputPayload,
 } from "./types"
 
@@ -477,6 +480,10 @@ export namespace CollabLoop {
             injections.push(buildRemoteTaskTerminalPart(payload as RemoteTaskTerminalPayload))
             break
           }
+          case "scheduled_task_due": {
+            injections.push(buildScheduledTaskDuePart(payload as ScheduledTaskDuePayload))
+            break
+          }
           case "user_input": {
             const p = payload as UserInputPayload
             sender = p.model ?? sender
@@ -652,6 +659,7 @@ export namespace CollabLoop {
       if (
         refreshed.active_children === 0 &&
         !ExperimentRemoteTaskListener.has(refreshed.id, "collab") &&
+        !ScheduledTask.has(refreshed.id, "collab") &&
         !CollabMessage.hasPendingWakeMsg(refreshed.id)
       ) {
         if (refreshed.error) {
@@ -836,6 +844,7 @@ export namespace CollabLoop {
       kind === "child_failed" ||
       kind === "child_waiting" ||
       kind === "remote_task_terminal" ||
+      kind === "scheduled_task_due" ||
       kind === "cancel" ||
       kind === "user_input"
     )
@@ -850,6 +859,7 @@ export namespace CollabLoop {
     if (fresh.error) return false
     if (fresh.active_children > 0) return false
     if (ExperimentRemoteTaskListener.has(fresh.id, "collab")) return false
+    if (ScheduledTask.has(fresh.id, "collab")) return false
     if (CollabMessage.hasPendingWakeMsg(fresh.id)) return false
     const result: AgentResult = { summary: summary ?? undefined }
     const payload: ChildDonePayload = {
@@ -951,6 +961,7 @@ export namespace CollabLoop {
     })
     if (!done) return
     ExperimentRemoteTaskListener.clear(CollabAgentNode.loadBranch(done.id).map((item) => item.id))
+    ScheduledTask.clear(CollabAgentNode.loadBranch(done.id).map((item) => item.id))
 
     if (fresh.initiator !== "human") {
       Bus.publish(CollabEvent.AgentFailed, {
@@ -1032,6 +1043,7 @@ export namespace CollabLoop {
     })
     if (!done) return false
     ExperimentRemoteTaskListener.clear(CollabAgentNode.loadBranch(done.id).map((item) => item.id))
+    ScheduledTask.clear(CollabAgentNode.loadBranch(done.id).map((item) => item.id))
 
     if (fresh.initiator !== "human") {
       Bus.publish(CollabEvent.AgentFailed, {

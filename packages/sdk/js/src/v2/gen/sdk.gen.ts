@@ -222,6 +222,8 @@ import type {
   ResearchServerImportSshConfigErrors,
   ResearchServerImportSshConfigResponses,
   ResearchServerListResponses,
+  ResearchServerMirrorErrors,
+  ResearchServerMirrorResponses,
   ResearchServerUpdateErrors,
   ResearchServerUpdateResponses,
   ResearchSessionAtomGetErrors,
@@ -4234,6 +4236,106 @@ export class Server extends HeyApiClient {
   }
 
   /**
+   * Mirror a remote server and its project runtime records
+   */
+  public mirror<ThrowOnError extends boolean = false>(
+    parameters: {
+      serverId: string
+      directory?: string
+      workspace?: string
+      config?:
+        | {
+            mode: "direct"
+            address: string
+            port: number
+            user: string
+            password?: string
+            resource_root?: string
+            wandb_api_key?: string
+            wandb_project_name?: string
+            network?:
+              | {
+                  mode: "direct"
+                }
+              | {
+                  mode: "tunnel"
+                  local_proxy: string
+                  remote_port: number
+                  no_proxy?: string
+                }
+          }
+        | {
+            mode: "ssh_config"
+            host_alias: string
+            ssh_config_path?: string
+            user?: string
+            password?: string
+            resource_root?: string
+            wandb_api_key?: string
+            wandb_project_name?: string
+            network?:
+              | {
+                  mode: "direct"
+                }
+              | {
+                  mode: "tunnel"
+                  local_proxy: string
+                  remote_port: number
+                  no_proxy?: string
+                }
+          }
+        | {
+            address: string
+            port: number
+            user: string
+            password?: string
+            resource_root?: string
+            wandb_api_key?: string
+            wandb_project_name?: string
+            network?:
+              | {
+                  mode: "direct"
+                }
+              | {
+                  mode: "tunnel"
+                  local_proxy: string
+                  remote_port: number
+                  no_proxy?: string
+                }
+          }
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "serverId" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "config" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      ResearchServerMirrorResponses,
+      ResearchServerMirrorErrors,
+      ThrowOnError
+    >({
+      url: "/research/server/{serverId}/mirror",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
    * Delete a remote server
    */
   public delete<ThrowOnError extends boolean = false>(
@@ -4880,6 +4982,8 @@ export class Agent extends HeyApiClient {
         | "child_progress"
         | "remote_task_terminal"
         | "session_remote_task_terminal"
+        | "scheduled_task_due"
+        | "session_scheduled_task_due"
         | "cancel"
         | "user_input"
         | "system"

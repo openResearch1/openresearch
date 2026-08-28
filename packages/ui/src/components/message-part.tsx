@@ -59,6 +59,7 @@ import { ShellRollingResults } from "./shell-rolling-results"
 import { isResearchTool, registerResearchTools, ResearchToolError } from "./research-tools"
 import { RemoteTaskTerminalItem } from "./remote-task-terminal-item"
 import { SubagentSessionItem } from "./subagent-session-item"
+import { atomFile, type AtomFileKind } from "./atom-file"
 
 interface Diagnostic {
   range: {
@@ -929,7 +930,7 @@ export function UserMessageDisplay(props: {
     if (!PART_MAPPING[p.type]) return false
     if (p.type === "text" || p.type === "file") return false
     if (p.type === "collab_return")
-      return ["child_done", "child_failed", "child_waiting", "remote_task_terminal"].includes(
+      return ["child_done", "child_failed", "child_waiting", "remote_task_terminal", "scheduled_task_due"].includes(
         (p as unknown as { kind: string }).kind,
       )
     return true
@@ -1175,6 +1176,25 @@ export interface ToolProps {
 
 export type ToolComponent = Component<ToolProps>
 
+const atomLabels = {
+  claim: "ui.tool.research.claim",
+  evidence: "ui.tool.research.evidence",
+  assessment: "ui.tool.research.assessment",
+} as const
+
+function atomLabel(i18n: UiI18n, kind: AtomFileKind) {
+  return i18n.t(atomLabels[kind])
+}
+
+function atomBadge(i18n: UiI18n, kind: AtomFileKind) {
+  return `${i18n.t("ui.tool.research.family.atom")} · ${atomLabel(i18n, kind)}`
+}
+
+function atomPathBadge(i18n: UiI18n, path: string) {
+  const atom = atomFile(path)
+  return atom ? atomBadge(i18n, atom.kind) : undefined
+}
+
 const state: Record<
   string,
   {
@@ -1199,7 +1219,7 @@ export const ToolRegistry = {
 
 registerResearchTools(ToolRegistry.register)
 
-function ToolFileAccordion(props: { path: string; actions?: JSX.Element; children: JSX.Element }) {
+function ToolFileAccordion(props: { path: string; badge?: string; actions?: JSX.Element; children: JSX.Element }) {
   const value = createMemo(() => props.path || "tool-file")
 
   return (
@@ -1220,6 +1240,7 @@ function ToolFileAccordion(props: { path: string; actions?: JSX.Element; childre
                     <span data-slot="apply-patch-directory">{`\u202A${getDirectory(props.path)}\u202C`}</span>
                   </Show>
                   <span data-slot="apply-patch-filename">{getFilename(props.path)}</span>
+                  <Show when={props.badge}>{(badge) => <span data-slot="atom-file-badge">{badge()}</span>}</Show>
                 </div>
               </div>
               <div data-slot="apply-patch-trigger-actions">
@@ -1423,11 +1444,32 @@ PART_MAPPING["collab_return"] = function CollabReturnPartDisplay(props) {
     part().kind === "child_done" ||
     part().kind === "child_failed" ||
     part().kind === "child_waiting" ||
-    part().kind === "remote_task_terminal"
+    part().kind === "remote_task_terminal" ||
+    part().kind === "scheduled_task_due"
   if (!visible()) return null as unknown as JSX.Element
 
   if (part().kind === "remote_task_terminal") {
     return <RemoteTaskTerminalItem headline={part().headline} body={part().body} payload={part().payload} />
+  }
+
+  if (part().kind === "scheduled_task_due") {
+    const due = part().payload?.dueAt
+    const at = typeof due === "number" ? new Date(due).toLocaleString() : ""
+    const value = part().payload?.prompt
+    const prompt = typeof value === "string" ? value : part().body
+    return (
+      <div data-component="scheduled-task-due">
+        <div data-slot="scheduled-task-due-header">
+          <span data-slot="scheduled-task-due-label">{i18n.t("ui.scheduledTask.label")}</span>
+          <Show when={at}>
+            <span data-slot="scheduled-task-due-time">{at}</span>
+          </Show>
+        </div>
+        <div data-slot="scheduled-task-due-prompt">
+          <Markdown text={prompt} />
+        </div>
+      </div>
+    )
   }
 
   const waiting = () => part().kind === "child_waiting"
@@ -2693,6 +2735,7 @@ ToolRegistry.register({
     const fileComponent = useFileComponent()
     const diagnostics = createMemo(() => getDiagnostics(props.metadata.diagnostics, props.input.filePath))
     const path = createMemo(() => props.metadata?.filediff?.file || props.input.filePath || "")
+    const badge = createMemo(() => atomPathBadge(i18n, path()))
     const filename = () => getFilename(props.input.filePath ?? "")
     const pending = () => busy(props.status)
     const reveal = useToolReveal(pending, () => props.reveal !== false)
@@ -2728,6 +2771,7 @@ ToolRegistry.register({
           <Show when={path()}>
             <ToolFileAccordion
               path={path()}
+              badge={badge()}
               actions={
                 <Show when={!pending() && props.metadata.filediff}>
                   {(diff) => <ToolChanges changes={diff()} animate={reveal()} />}
@@ -2764,6 +2808,7 @@ ToolRegistry.register({
     const fileComponent = useFileComponent()
     const diagnostics = createMemo(() => getDiagnostics(props.metadata.diagnostics, props.input.filePath))
     const path = createMemo(() => props.input.filePath || "")
+    const badge = createMemo(() => atomPathBadge(i18n, path()))
     const filename = () => getFilename(props.input.filePath ?? "")
     const pending = () => busy(props.status)
     const reveal = useToolReveal(pending, () => props.reveal !== false)
@@ -2796,7 +2841,7 @@ ToolRegistry.register({
           }
         >
           <Show when={props.input.content && path()}>
-            <ToolFileAccordion path={path()}>
+            <ToolFileAccordion path={path()} badge={badge()}>
               <div data-component="write-content">
                 <Dynamic
                   component={fileComponent}
@@ -2830,6 +2875,15 @@ interface ApplyPatchFile {
   movePath?: string
 }
 
+function patchAtom(file: ApplyPatchFile) {
+  return atomFile(file.movePath ?? file.filePath ?? file.relativePath)
+}
+
+function patchBadge(i18n: UiI18n, file: ApplyPatchFile) {
+  const atom = patchAtom(file)
+  return atom ? atomBadge(i18n, atom.kind) : undefined
+}
+
 ToolRegistry.register({
   name: "apply_patch",
   render(props) {
@@ -2857,7 +2911,6 @@ ToolRegistry.register({
       if (count === 0) return ""
       return `${count} ${i18n.t(count > 1 ? "ui.common.file.other" : "ui.common.file.one")}`
     })
-
     return (
       <div data-component="apply-patch-tool">
         <ToolCall
@@ -2927,6 +2980,9 @@ ToolRegistry.register({
                                       <span data-slot="apply-patch-directory">{`\u202A${getDirectory(file.relativePath)}\u202C`}</span>
                                     </Show>
                                     <span data-slot="apply-patch-filename">{getFilename(file.relativePath)}</span>
+                                    <Show when={patchBadge(i18n, file)}>
+                                      {(badge) => <span data-slot="atom-file-badge">{badge()}</span>}
+                                    </Show>
                                   </div>
                                 </div>
                                 <div data-slot="apply-patch-trigger-actions">
@@ -2978,6 +3034,7 @@ ToolRegistry.register({
             {(file) => (
               <ToolFileAccordion
                 path={file().relativePath}
+                badge={patchBadge(i18n, file())}
                 actions={
                   <Switch>
                     <Match when={file().type === "add"}>

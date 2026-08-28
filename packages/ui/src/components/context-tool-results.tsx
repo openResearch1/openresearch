@@ -1,4 +1,4 @@
-import { createMemo, createSignal, For, onMount } from "solid-js"
+import { createMemo, createSignal, For, onMount, Show } from "solid-js"
 import type { ToolPart } from "@opencode-ai/sdk/v2"
 import { getFilename } from "@opencode-ai/util/path"
 import { useReducedMotion } from "../hooks/use-reduced-motion"
@@ -10,14 +10,21 @@ import { RollingResults } from "./rolling-results"
 import { GROW_SPRING } from "./motion"
 import { useSpring } from "./motion-spring"
 import { busy, updateScrollMask, useCollapsible, useRowWipe } from "./tool-utils"
+import { atomFile, type AtomFileKind } from "./atom-file"
 
-function contextToolLabel(part: ToolPart): { action: string; detail: string } {
+const atomLabels = {
+  claim: "ui.tool.research.claim",
+  evidence: "ui.tool.research.evidence",
+  assessment: "ui.tool.research.assessment",
+} as const
+
+function contextToolLabel(part: ToolPart): { action: string; detail: string; atom?: AtomFileKind } {
   const state = part.state
   const title = "title" in state ? (state.title as string | undefined) : undefined
   const input = state.input
   if (part.tool === "read") {
     const path = input?.filePath as string | undefined
-    return { action: "Read", detail: title || (path ? getFilename(path) : "") }
+    return { action: "Read", detail: title || (path ? getFilename(path) : ""), atom: atomFile(path)?.kind }
   }
   if (part.tool === "grep") {
     const pattern = input?.pattern as string | undefined
@@ -111,6 +118,7 @@ export function ContextToolGroupHeader(props: {
 }
 
 export function ContextToolExpandedList(props: { parts: ToolPart[]; expanded: boolean }) {
+  const i18n = useI18n()
   let contentRef: HTMLDivElement | undefined
   let bodyRef: HTMLDivElement | undefined
   let scrollRef: HTMLDivElement | undefined
@@ -135,6 +143,13 @@ export function ContextToolExpandedList(props: { parts: ToolPart[]; expanded: bo
               return (
                 <div data-component="context-tool-expanded-row">
                   <span data-slot="context-tool-expanded-action">{label().action}</span>
+                  <Show when={label().atom}>
+                    {(kind) => (
+                      <span data-slot="atom-file-badge">
+                        {i18n.t("ui.tool.research.family.atom")} · {i18n.t(atomLabels[kind()])}
+                      </span>
+                    )}
+                  </Show>
                   <span data-slot="context-tool-expanded-detail">{label().detail}</span>
                 </div>
               )

@@ -19,8 +19,14 @@ export const WAKE_MESSAGE_KINDS: readonly CollabMsgKind[] = [
   "child_failed",
   "child_waiting",
   "remote_task_terminal",
+  "scheduled_task_due",
   "cancel",
   "user_input",
+]
+
+export const DIRECT_MESSAGE_KINDS: readonly CollabMsgKind[] = [
+  "session_remote_task_terminal",
+  "session_scheduled_task_due",
 ]
 
 export const ProgressInjectionSchema = z.enum(["none", "latest", "all"])
@@ -124,6 +130,7 @@ export type ChildProgressPayload = z.infer<typeof ChildProgressPayloadSchema>
 export const RemoteTaskTerminalPayloadSchema = z.object({
   taskId: z.string(),
   expId: z.string(),
+  remoteServerId: z.string().nullable().optional(),
   kind: z.enum(["resource_download", "experiment_run", "env_setup"]),
   title: z.string(),
   status: z.enum(["finished", "failed", "crashed", "canceled"]),
@@ -131,6 +138,13 @@ export const RemoteTaskTerminalPayloadSchema = z.object({
   errorMessage: z.string().nullable(),
 })
 export type RemoteTaskTerminalPayload = z.infer<typeof RemoteTaskTerminalPayloadSchema>
+
+export const ScheduledTaskDuePayloadSchema = z.object({
+  scheduledTaskId: z.string(),
+  dueAt: z.number(),
+  prompt: z.string(),
+})
+export type ScheduledTaskDuePayload = z.infer<typeof ScheduledTaskDuePayloadSchema>
 
 export const CancelPayloadSchema = z.object({
   reason: z.string(),
@@ -165,6 +179,8 @@ export type CollabPayload =
   | { kind: "child_progress"; data: ChildProgressPayload }
   | { kind: "remote_task_terminal"; data: RemoteTaskTerminalPayload }
   | { kind: "session_remote_task_terminal"; data: RemoteTaskTerminalPayload }
+  | { kind: "scheduled_task_due"; data: ScheduledTaskDuePayload }
+  | { kind: "session_scheduled_task_due"; data: ScheduledTaskDuePayload }
   | { kind: "cancel"; data: CancelPayload }
   | { kind: "user_input"; data: UserInputPayload }
   | { kind: "system"; data: SystemPayload }

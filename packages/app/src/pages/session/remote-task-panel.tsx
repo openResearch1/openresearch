@@ -34,6 +34,7 @@ export function legacyTask(watch: WatchRow): RemoteTaskRow | undefined {
     title: watch.remote_task_title ?? "Remote task",
     kind: watch.remote_task_kind,
     status: watch.remote_task_status,
+    remote_server_id: null,
     resource_key: null,
     target_path: watch.remote_task_target_path,
     command: null,

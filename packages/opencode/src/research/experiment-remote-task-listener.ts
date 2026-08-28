@@ -198,6 +198,7 @@ export namespace ExperimentRemoteTaskListener {
         const payload: RemoteTaskTerminalPayload = {
           taskId: current.task_id,
           expId: current.exp_id,
+          remoteServerId: current.remote_server_id,
           kind: current.kind,
           title: current.title,
           status: current.status as RemoteTaskTerminalPayload["status"],

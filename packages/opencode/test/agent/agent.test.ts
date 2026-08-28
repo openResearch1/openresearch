@@ -192,11 +192,13 @@ test("experiment agent owns the autonomous remote lifecycle", async () => {
     directory: tmp.path,
     fn: async () => {
       const experiment = await Agent.get("experiment")
+      const build = await Agent.get("build")
 
       expect(experiment?.prompt).toContain("Never use a workflow")
       expect(evalPerm(experiment, "workflow")).toBe("deny")
       expect(experiment?.prompt).toContain("experiment_execution_watch_update")
       expect(experiment?.prompt).toContain("listenForTerminal: true")
+      expect(experiment?.prompt).toContain("Use `scheduled_task_create` only for time-based wake-ups")
       expect(experiment?.prompt).toContain("Sync local code with `experiment_code_sync`")
       expect(experiment?.prompt).toContain('agent_type: "project_runtime_env_setup"')
       expect(experiment?.prompt).toContain("`experiment_commit`")
@@ -216,6 +218,10 @@ test("experiment agent owns the autonomous remote lifecycle", async () => {
       expect(experiment?.prompt).toContain("Code, algorithm, syntax, and parameter errors do not invalidate")
       expect(experiment?.prompt).not.toContain("deploying_code")
       expect(evalPerm(experiment, "remote_terminal_start")).toBe("deny")
+      expect(evalPerm(experiment, "scheduled_task_create")).toBe("allow")
+      expect(evalPerm(experiment, "scheduled_task_list")).toBe("allow")
+      expect(evalPerm(experiment, "scheduled_task_cancel")).toBe("allow")
+      expect(evalPerm(build, "scheduled_task_create")).toBe("deny")
       expect(PermissionNext.evaluate("task", "experiment_plan", experiment!.permission).action).toBe("allow")
       expect(PermissionNext.evaluate("task", "explore", experiment!.permission).action).toBe("allow")
       expect(PermissionNext.evaluate("task", "general", experiment!.permission).action).toBe("allow")

@@ -311,7 +311,9 @@ export namespace AtomAgent {
     })
     await Promise.allSettled([...runs, ...owners])
     const { ExperimentRemoteTaskListener } = await import("./experiment-remote-task-listener")
+    const { ScheduledTask } = await import("@/scheduler/scheduled-task")
     ExperimentRemoteTaskListener.clear(branch.map((item) => item.id))
+    ScheduledTask.clear(branch.map((item) => item.id))
 
     for (const child of children) {
       const current = CollabAgentNode.tryLoad(child.id)

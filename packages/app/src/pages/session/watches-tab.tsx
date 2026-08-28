@@ -1,4 +1,4 @@
-import { createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js"
+import { createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
@@ -12,6 +12,7 @@ export interface RemoteTaskRow {
   title: string
   kind: "resource_download" | "experiment_run" | "env_setup"
   status: "pending" | "running" | "finished" | "failed" | "crashed" | "canceled"
+  remote_server_id: string | null
   resource_key: string | null
   target_path: string | null
   command: string | null
@@ -95,7 +96,7 @@ function watchNotice(watch: WatchRow) {
   if (watch.status === "finished") return `${noun} finished`
 }
 
-export function WatchesTab(props: { onOpenFile?: (filePath: string) => void }) {
+export function WatchesTab(props: { expId?: string; onOpenFile?: (filePath: string) => void }) {
   const sdk = useSDK()
   const data = useData()
   const dialog = useDialog()
@@ -104,6 +105,7 @@ export function WatchesTab(props: { onOpenFile?: (filePath: string) => void }) {
   const [error, setError] = createSignal(false)
   const [syncing, setSyncing] = createSignal<Record<string, boolean>>({})
   const [open, setOpen] = createStore<Record<string, boolean>>({})
+  const rows = createMemo(() => watches().filter((watch) => !props.expId || watch.exp_id === props.expId))
 
   const fetchWatches = async () => {
     try {
@@ -222,7 +224,7 @@ export function WatchesTab(props: { onOpenFile?: (filePath: string) => void }) {
 
       <div class="flex-1 min-h-0 overflow-auto px-3 pb-3">
         <Switch>
-          <Match when={loading() && watches().length === 0}>
+          <Match when={loading() && rows().length === 0}>
             <div class="flex items-center justify-center py-10 text-12-regular text-text-weak">Loading...</div>
           </Match>
           <Match when={error()}>
@@ -230,14 +232,14 @@ export function WatchesTab(props: { onOpenFile?: (filePath: string) => void }) {
               Failed to load watches
             </div>
           </Match>
-          <Match when={watches().length === 0}>
+          <Match when={rows().length === 0}>
             <div class="flex items-center justify-center py-10 text-12-regular text-text-weak">
               No experiment watches
             </div>
           </Match>
           <Match when={true}>
             <div class="flex flex-col gap-2">
-              <For each={watches()}>
+              <For each={rows()}>
                 {(watch) => (
                   <div
                     class={`rounded-md border border-border-weak-base bg-background-base px-3 py-2 text-12-regular text-text-base flex flex-col gap-1 transition-colors ${

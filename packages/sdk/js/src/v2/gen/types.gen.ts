@@ -524,6 +524,7 @@ export type CollabReturnPart = {
     | "child_waiting"
     | "child_progress"
     | "remote_task_terminal"
+    | "scheduled_task_due"
     | "cancel"
     | "user_input"
     | "system"
@@ -714,6 +715,8 @@ export type EventCollabMessagePosted = {
       | "child_progress"
       | "remote_task_terminal"
       | "session_remote_task_terminal"
+      | "scheduled_task_due"
+      | "session_scheduled_task_due"
       | "cancel"
       | "user_input"
       | "system"
@@ -732,6 +735,8 @@ export type EventCollabMessageConsumed = {
       | "child_progress"
       | "remote_task_terminal"
       | "session_remote_task_terminal"
+      | "scheduled_task_due"
+      | "session_scheduled_task_due"
       | "cancel"
       | "user_input"
       | "system"
@@ -2089,6 +2094,7 @@ export type CollabReturnPartInput = {
     | "child_waiting"
     | "child_progress"
     | "remote_task_terminal"
+    | "scheduled_task_due"
     | "cancel"
     | "user_input"
     | "system"
@@ -2127,6 +2133,8 @@ export type CollabMessage = {
     | "child_progress"
     | "remote_task_terminal"
     | "session_remote_task_terminal"
+    | "scheduled_task_due"
+    | "session_scheduled_task_due"
     | "cancel"
     | "user_input"
     | "system"
@@ -6244,6 +6252,152 @@ export type ResearchServerImportSshConfigResponses = {
 export type ResearchServerImportSshConfigResponse =
   ResearchServerImportSshConfigResponses[keyof ResearchServerImportSshConfigResponses]
 
+export type ResearchServerMirrorData = {
+  body?: {
+    config:
+      | {
+          mode: "direct"
+          address: string
+          port: number
+          user: string
+          password?: string
+          resource_root?: string
+          wandb_api_key?: string
+          wandb_project_name?: string
+          network?:
+            | {
+                mode: "direct"
+              }
+            | {
+                mode: "tunnel"
+                local_proxy: string
+                remote_port: number
+                no_proxy?: string
+              }
+        }
+      | {
+          mode: "ssh_config"
+          host_alias: string
+          ssh_config_path?: string
+          user?: string
+          password?: string
+          resource_root?: string
+          wandb_api_key?: string
+          wandb_project_name?: string
+          network?:
+            | {
+                mode: "direct"
+              }
+            | {
+                mode: "tunnel"
+                local_proxy: string
+                remote_port: number
+                no_proxy?: string
+              }
+        }
+      | {
+          address: string
+          port: number
+          user: string
+          password?: string
+          resource_root?: string
+          wandb_api_key?: string
+          wandb_project_name?: string
+          network?:
+            | {
+                mode: "direct"
+              }
+            | {
+                mode: "tunnel"
+                local_proxy: string
+                remote_port: number
+                no_proxy?: string
+              }
+        }
+  }
+  path: {
+    serverId: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/research/server/{serverId}/mirror"
+}
+
+export type ResearchServerMirrorErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+  /**
+   * Runtime records are inconsistent
+   */
+  500: {
+    success: false
+    message: string
+  }
+}
+
+export type ResearchServerMirrorError = ResearchServerMirrorErrors[keyof ResearchServerMirrorErrors]
+
+export type ResearchServerMirrorResponses = {
+  /**
+   * Mirrored remote server
+   */
+  200: {
+    id: string
+    config:
+      | {
+          mode: "direct"
+          address: string
+          port: number
+          user: string
+          password?: string
+          resource_root?: string
+          wandb_api_key?: string
+          wandb_project_name?: string
+          network?:
+            | {
+                mode: "direct"
+              }
+            | {
+                mode: "tunnel"
+                local_proxy: string
+                remote_port: number
+                no_proxy?: string
+              }
+        }
+      | {
+          mode: "ssh_config"
+          host_alias: string
+          ssh_config_path?: string
+          user?: string
+          password?: string
+          resource_root?: string
+          wandb_api_key?: string
+          wandb_project_name?: string
+          network?:
+            | {
+                mode: "direct"
+              }
+            | {
+                mode: "tunnel"
+                local_proxy: string
+                remote_port: number
+                no_proxy?: string
+              }
+        }
+    copied: {
+      runtimes: number
+      environments: number
+      resources: number
+    }
+  }
+}
+
+export type ResearchServerMirrorResponse = ResearchServerMirrorResponses[keyof ResearchServerMirrorResponses]
+
 export type ResearchServerDeleteData = {
   body?: never
   path: {
@@ -6463,6 +6617,7 @@ export type ResearchExperimentWatchListResponses = {
       title: string
       kind: "resource_download" | "experiment_run" | "env_setup"
       status: "pending" | "running" | "finished" | "failed" | "crashed" | "canceled"
+      remote_server_id: string | null
       resource_key: string | null
       target_path: string | null
       command: string
@@ -7008,6 +7163,8 @@ export type CollabAgentMessagesData = {
       | "child_progress"
       | "remote_task_terminal"
       | "session_remote_task_terminal"
+      | "scheduled_task_due"
+      | "session_scheduled_task_due"
       | "cancel"
       | "user_input"
       | "system"

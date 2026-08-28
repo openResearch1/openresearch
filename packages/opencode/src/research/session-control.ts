@@ -7,6 +7,8 @@ import { SessionOwnership } from "@/session/ownership"
 import { SessionPrompt } from "@/session/prompt"
 import { SessionStatus } from "@/session/status"
 import { Database, eq } from "@/storage/db"
+import { ScheduledTask } from "@/scheduler/scheduled-task"
+
 import { ExperimentRemoteTaskListener } from "./experiment-remote-task-listener"
 import { AtomTable, ExperimentTable } from "./research.sql"
 
@@ -163,6 +165,7 @@ export namespace ResearchSessionControl {
       if (
         CollabRuntime.has(item.id) ||
         ExperimentRemoteTaskListener.has(item.id, direct ? undefined : "collab") ||
+        ScheduledTask.has(item.id, direct ? undefined : "collab") ||
         (direct ? CollabMessage.hasOutstanding(item.id) : CollabMessage.hasOutstandingCollab(item.id))
       )
         return false

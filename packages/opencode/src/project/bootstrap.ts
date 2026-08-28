@@ -15,6 +15,7 @@ import { Truncate } from "../tool/truncation"
 import { ExperimentWatcher } from "../research/experiment-watcher"
 import { ExperimentRemoteTaskWatcher } from "../research/experiment-remote-task-watcher"
 import { CollabRecovery } from "../collab"
+import { ScheduledTask } from "../scheduler/scheduled-task"
 
 export async function InstanceBootstrap() {
   Log.Default.info("bootstrapping", { directory: Instance.directory })
@@ -30,6 +31,7 @@ export async function InstanceBootstrap() {
   ExperimentWatcher.init()
   await CollabRecovery.reconcile()
   ExperimentRemoteTaskWatcher.init()
+  ScheduledTask.init()
 
   // Resume orphaned Collab agents left active by the previous process. scan()
   // mounts CollabProgressHook / CollabAutoWake synchronously up front, then

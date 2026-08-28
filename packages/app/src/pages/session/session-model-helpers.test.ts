@@ -14,26 +14,71 @@ const message = (input?: Partial<Pick<UserMessage, "id" | "agent" | "model" | "v
   }) as UserMessage
 
 describe("latest", () => {
-  test("ignores remote task callbacks and messages whose parts have not arrived", () => {
+  test("ignores pure callbacks and messages whose parts have not arrived", () => {
     const plan = message({ id: "plan", agent: "plan" })
-    const callback = message({ id: "callback", agent: "experiment" })
+    const remote = message({ id: "remote", agent: "experiment" })
+    const child = message({ id: "child", agent: "experiment" })
     const pending = message({ id: "pending", agent: "build" })
     const parts = {
       plan: [{ id: "part-plan", sessionID: "session", messageID: "plan", type: "text", text: "plan" }],
-      callback: [
+      remote: [
         {
-          id: "part-callback",
+          id: "part-remote",
           sessionID: "session",
-          messageID: "callback",
+          messageID: "remote",
           type: "collab_return",
           kind: "remote_task_terminal",
           headline: "Remote task finished",
           body: "Status: finished",
         },
+        {
+          id: "part-switch",
+          sessionID: "session",
+          messageID: "remote",
+          type: "text",
+          text: "Mode changed",
+          synthetic: true,
+        },
+      ],
+      child: [
+        {
+          id: "part-child",
+          sessionID: "session",
+          messageID: "child",
+          type: "collab_return",
+          kind: "child_done",
+          headline: "Child finished",
+          body: "Complete",
+        },
+      ],
+      pending: [],
+    } satisfies Record<string, Part[] | undefined>
+
+    expect(latest([plan, remote, child, pending], parts)).toBe(plan)
+  })
+
+  test("keeps user messages that also contain callbacks", () => {
+    const experiment = message({ id: "experiment", agent: "experiment" })
+    const plan = message({ id: "plan", agent: "plan" })
+    const parts = {
+      experiment: [
+        { id: "part-experiment", sessionID: "session", messageID: "experiment", type: "text", text: "run" },
+      ],
+      plan: [
+        { id: "part-plan", sessionID: "session", messageID: "plan", type: "text", text: "inspect" },
+        {
+          id: "part-progress",
+          sessionID: "session",
+          messageID: "plan",
+          type: "collab_return",
+          kind: "child_progress",
+          headline: "Child progress",
+          body: "",
+        },
       ],
     } satisfies Record<string, Part[] | undefined>
 
-    expect(latest([plan, callback, pending], parts)).toBe(plan)
+    expect(latest([experiment, plan], parts)).toBe(plan)
   })
 })
 

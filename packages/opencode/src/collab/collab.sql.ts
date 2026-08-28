@@ -26,6 +26,8 @@ export const collabMsgKinds = [
   "child_progress",
   "remote_task_terminal",
   "session_remote_task_terminal",
+  "scheduled_task_due",
+  "session_scheduled_task_due",
   "cancel",
   "user_input",
   "system",

@@ -5,6 +5,7 @@ import type {
   ChildProgressPayload,
   ChildWaitingPayload,
   RemoteTaskTerminalPayload,
+  ScheduledTaskDuePayload,
 } from "./types"
 
 /**
@@ -20,6 +21,7 @@ export type ChildReturnKind =
   | "child_waiting"
   | "child_progress"
   | "remote_task_terminal"
+  | "scheduled_task_due"
   | "cancel"
   | "user_input"
   | "system"
@@ -128,6 +130,7 @@ export function buildRemoteTaskTerminalPart(p: RemoteTaskTerminalPayload): Retur
     body: [
       `Task ID: ${p.taskId}`,
       `Experiment: ${p.expId}`,
+      `Remote Server ID: ${p.remoteServerId ?? "unknown"}`,
       `Kind: ${p.kind}`,
       `Status: ${p.status}`,
       `Log: ${p.logPath ?? "-"}${error}`,
@@ -137,10 +140,26 @@ export function buildRemoteTaskTerminalPart(p: RemoteTaskTerminalPayload): Retur
     payload: {
       taskId: p.taskId,
       expId: p.expId,
+      remoteServerId: p.remoteServerId,
       kind: p.kind,
       status: p.status,
       logPath: p.logPath,
       errorMessage: p.errorMessage,
+    },
+  }
+}
+
+export function buildScheduledTaskDuePart(p: ScheduledTaskDuePayload): ReturnPartDraft {
+  const due = new Date(p.dueAt).toISOString()
+  return {
+    type: "collab_return",
+    kind: "scheduled_task_due",
+    headline: "Scheduled task is due",
+    body: [`Scheduled task: ${p.scheduledTaskId}`, `Scheduled for: ${due}`, "", p.prompt].join("\n"),
+    payload: {
+      scheduledTaskId: p.scheduledTaskId,
+      dueAt: p.dueAt,
+      prompt: p.prompt,
     },
   }
 }

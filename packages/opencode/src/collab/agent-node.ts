@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto"
 
-import { and, asc, eq, gt, gte, inArray, isNull, ne, sql } from "drizzle-orm"
+import { and, asc, eq, gt, gte, inArray, isNull, ne, notInArray, sql } from "drizzle-orm"
 import { Database, NotFoundError } from "@/storage/db"
 import { Bus } from "@/bus"
 import { Identifier } from "@/id/id"
@@ -9,6 +9,7 @@ import { SessionDeletionTable } from "@/session/deletion.sql"
 import { SessionOwnershipTable } from "@/session/ownership.sql"
 import { Log } from "@/util/log"
 import { RemoteTaskListenerTable } from "@/research/remote-task-listener.sql"
+import { ScheduledTaskTable } from "@/scheduler/scheduled-task.sql"
 import { CollabAgentTable, CollabMessageTable } from "./collab.sql"
 import { ControllerPolicy } from "./controller-policy"
 import type {
@@ -20,6 +21,7 @@ import type {
   CollabAgentStatus,
   RunInitiator,
 } from "./types"
+import { DIRECT_MESSAGE_KINDS, WAKE_MESSAGE_KINDS } from "./types"
 import { CollabEvent } from "./events"
 
 export namespace CollabAgentNode {
@@ -771,7 +773,7 @@ export namespace CollabAgentNode {
           and(
             inArray(CollabMessageTable.recipient_agent_id, [...ids]),
             inArray(CollabMessageTable.status, ["pending", "processing"]),
-            ne(CollabMessageTable.kind, "session_remote_task_terminal"),
+            notInArray(CollabMessageTable.kind, [...DIRECT_MESSAGE_KINDS]),
           ),
         )
         .run()
@@ -785,7 +787,7 @@ export namespace CollabAgentNode {
             and(
               inArray(CollabMessageTable.recipient_agent_id, rest),
               inArray(CollabMessageTable.status, ["pending", "processing"]),
-              eq(CollabMessageTable.kind, "session_remote_task_terminal"),
+              inArray(CollabMessageTable.kind, [...DIRECT_MESSAGE_KINDS]),
             ),
           )
           .run()
@@ -943,13 +945,23 @@ export namespace CollabAgentNode {
           ),
         )
         .run()
+      tx.update(ScheduledTaskTable)
+        .set({ status: "canceled", canceled_at: now, time_updated: now })
+        .where(
+          and(
+            eq(ScheduledTaskTable.agent_id, id),
+            eq(ScheduledTaskTable.status, "pending"),
+            eq(ScheduledTaskTable.mode, "collab"),
+          ),
+        )
+        .run()
       tx.update(CollabMessageTable)
         .set({ status: "dropped", claim_id: null, time_updated: now })
         .where(
           and(
             eq(CollabMessageTable.recipient_agent_id, id),
             inArray(CollabMessageTable.status, ["pending", "processing"]),
-            ne(CollabMessageTable.kind, "session_remote_task_terminal"),
+            notInArray(CollabMessageTable.kind, [...DIRECT_MESSAGE_KINDS]),
           ),
         )
         .run()
@@ -1106,19 +1118,27 @@ export namespace CollabAgentNode {
           and(
             eq(CollabMessageTable.recipient_agent_id, current.id),
             eq(CollabMessageTable.status, "pending"),
-            inArray(CollabMessageTable.kind, [
-              "child_done",
-              "child_failed",
-              "child_waiting",
-              "remote_task_terminal",
-              "cancel",
-              "user_input",
-            ]),
+            inArray(CollabMessageTable.kind, [...WAKE_MESSAGE_KINDS]),
           ),
         )
         .limit(1)
         .get()
       if (pending) return
+
+      const task = tx
+        .select({ id: ScheduledTaskTable.id })
+        .from(ScheduledTaskTable)
+        .where(
+          and(
+            eq(ScheduledTaskTable.agent_id, current.id),
+            eq(ScheduledTaskTable.status, "pending"),
+            eq(ScheduledTaskTable.mode, "collab"),
+            input.runId ? eq(ScheduledTaskTable.run_id, input.runId) : isNull(ScheduledTaskTable.run_id),
+          ),
+        )
+        .limit(1)
+        .get()
+      if (task) return
 
       const human = current.initiator === "human"
       const row = tx
@@ -1154,7 +1174,7 @@ export namespace CollabAgentNode {
           and(
             eq(CollabMessageTable.recipient_agent_id, input.id),
             inArray(CollabMessageTable.status, ["pending", "processing"]),
-            ne(CollabMessageTable.kind, "session_remote_task_terminal"),
+            notInArray(CollabMessageTable.kind, [...DIRECT_MESSAGE_KINDS]),
           ),
         )
         .run()

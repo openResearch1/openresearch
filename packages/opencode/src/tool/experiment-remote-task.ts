@@ -26,6 +26,7 @@ function summary(task: ReturnType<typeof ExperimentRemoteTask.listByExp>[number]
     kind: task.kind,
     title: task.title,
     status: task.status,
+    remoteServerId: task.remote_server_id,
     resourceKey: task.resource_key,
     targetPath: task.target_path,
     screenName: task.screen_name,
@@ -53,7 +54,10 @@ function server(expId: string) {
     db.select().from(RemoteServerTable).where(eq(RemoteServerTable.id, exp.remote_server_id!)).get(),
   )
   if (!row) throw new Error(`remote server not found: ${exp.remote_server_id}`)
-  return normalizeRemoteServerConfig(JSON.parse(row.config))
+  return {
+    id: exp.remote_server_id,
+    cfg: normalizeRemoteServerConfig(JSON.parse(row.config)),
+  }
 }
 
 export const ExperimentRemoteTaskStartTool = Tool.define("experiment_remote_task_start", {
@@ -80,13 +84,14 @@ export const ExperimentRemoteTaskStartTool = Tool.define("experiment_remote_task
   }),
   async execute(params) {
     const command = assertRawRemoteCommand(params.command)
-    const cfg = server(params.expId)
+    const target = server(params.expId)
     const task = ExperimentRemoteTask.create({
       expId: params.expId,
       kind: params.kind,
       resourceKey: params.resourceKey,
       title: params.title,
-      server: JSON.stringify(cfg),
+      remoteServerId: target.id,
+      server: JSON.stringify(target.cfg),
       remoteRoot: params.remoteRoot,
       targetPath: params.targetPath ?? null,
       screenName: session(params.resourceKey ? `${params.expId}-${params.resourceKey}` : params.expId),
@@ -95,7 +100,7 @@ export const ExperimentRemoteTaskStartTool = Tool.define("experiment_remote_task
       method: params.method ?? null,
     })
     const result = await startRemoteTask({
-      server: cfg,
+      server: target.cfg,
       taskId: task.task_id,
       remoteRoot: params.remoteRoot,
       screenName: task.screen_name,
@@ -122,11 +127,12 @@ export const ExperimentRemoteTaskStartTool = Tool.define("experiment_remote_task
       title: `Remote task: ${updated?.title ?? task.title}`,
       output: [
         `Task ID: ${task.task_id}`,
-        `Server: ${remoteServerLabel(cfg)}`,
+        `Remote Server ID: ${target.id}`,
+        `Server: ${remoteServerLabel(target.cfg)}`,
         `Screen: ${task.screen_name}`,
         `Log: ${result.logPath}`,
       ].join("\n"),
-      metadata: { taskId: task.task_id, screenName: task.screen_name },
+      metadata: { taskId: task.task_id, remoteServerId: target.id, screenName: task.screen_name },
     }
   },
 })
@@ -269,6 +275,7 @@ export const ExperimentRemoteTaskGetTool = Tool.define("experiment_remote_task_g
         `Kind: ${task.kind}`,
         `Title: ${task.title}`,
         `Status: ${task.status}`,
+        `Remote Server ID: ${task.remote_server_id ?? "unknown"}`,
         waited ? `Waited: terminal` : null,
         `Screen: ${screen}`,
         `Server: ${remoteServerLabel(server)}`,
@@ -292,6 +299,7 @@ export const ExperimentRemoteTaskGetTool = Tool.define("experiment_remote_task_g
       metadata: {
         taskId: task.task_id,
         expId: params.expId,
+        remoteServerId: task.remote_server_id,
         kind: task.kind,
         title: task.title,
         status: task.status,
@@ -332,6 +340,7 @@ export const ExperimentRemoteTaskListTool = Tool.define("experiment_remote_task_
                 `Kind: ${item.kind}`,
                 `Title: ${item.title}`,
                 `Status: ${item.status}`,
+                `Remote Server ID: ${item.remoteServerId ?? "unknown"}`,
                 item.resourceKey ? `Resource: ${item.resourceKey}` : null,
                 item.targetPath ? `Target: ${item.targetPath}` : null,
                 item.logPath ? `Log: ${item.logPath}` : null,

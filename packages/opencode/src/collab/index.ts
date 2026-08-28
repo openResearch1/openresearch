@@ -18,6 +18,7 @@ import { CollabProgressHook } from "./progress-hook"
 import { CollabAutoWake } from "./auto-wake"
 import { CollabEvent } from "./events"
 import { ExperimentRemoteTaskListener } from "@/research/experiment-remote-task-listener"
+import { ScheduledTask } from "@/scheduler/scheduled-task"
 import type { AgentInfo, AgentSpec, CancelPayload, UserInputPayload } from "./types"
 
 export { CollabAgentNode } from "./agent-node"
@@ -210,9 +211,10 @@ export namespace Collab {
     }
     if (
       ExperimentRemoteTaskListener.has(node.id, "direct") ||
-      CollabMessage.hasOutstanding(node.id, "session_remote_task_terminal")
+      ScheduledTask.has(node.id, "direct") ||
+      CollabMessage.hasOutstandingDirect(node.id)
     ) {
-      throw new Error(`Cannot resume agent ${node.id}: its human session is waiting for a remote task update.`)
+      throw new Error(`Cannot resume agent ${node.id}: its human session is waiting for a background callback.`)
     }
 
     const lease = SessionOwnership.claim(node.session_id, "collab")
@@ -478,7 +480,8 @@ export namespace Collab {
       ),
       hasWaitingChildren: children.some((child) => child.status === "waiting_interaction"),
       hasPendingWakeMessages: CollabMessage.hasOutstandingWakeMsg(node.id),
-      hasRemoteTaskListeners: !!ExperimentRemoteTaskListener.has(node.id, "collab"),
+      hasRemoteTaskListeners:
+        !!ExperimentRemoteTaskListener.has(node.id, "collab") || !!ScheduledTask.has(node.id, "collab"),
     }
   }
 
@@ -565,6 +568,7 @@ export namespace Collab {
       if (!CollabAgentNode.isActive(node.status)) return true
       if (node.active_children > 0) return false
       if (ExperimentRemoteTaskListener.has(rootAgentId, "collab")) return false
+      if (ScheduledTask.has(rootAgentId, "collab")) return false
       if (CollabMessage.hasOutstandingWakeMsg(rootAgentId)) return false
       if (SessionStatus.get(sessionId).type !== "idle") return false
       // AutoWake's maybeWakeOrBlock claims the inflight lock before it

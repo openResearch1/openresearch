@@ -126,6 +126,7 @@ export namespace ExperimentRemoteTask {
     kind: Kind
     resourceKey?: string | null
     title: string
+    remoteServerId?: string | null
     server: string
     remoteRoot: string
     targetPath?: string | null
@@ -147,6 +148,7 @@ export namespace ExperimentRemoteTask {
           resource_key: input.resourceKey ?? null,
           title: input.title,
           status: "pending",
+          remote_server_id: input.remoteServerId ?? null,
           server: input.server,
           remote_root: input.remoteRoot,
           target_path: input.targetPath ?? null,

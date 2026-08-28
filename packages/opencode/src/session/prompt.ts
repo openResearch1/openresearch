@@ -1617,25 +1617,11 @@ Return a concise plan in the conversation by default. Do not call plan_exit; let
   async function insertReminders(input: { messages: MessageV2.WithParts[]; agent: Agent.Info; session: Session.Info }) {
     const userMessage = input.messages.findLast((msg) => msg.info.role === "user")
     if (!userMessage) return input.messages
-    const callbacks = new Set(
-      input.messages
-        .filter(
-          (msg) =>
-            msg.info.role === "user" &&
-            msg.parts.some((part) => part.type === "collab_return" && part.kind === "remote_task_terminal"),
-        )
-        .map((msg) => msg.info.id),
-    )
-    // Keep a callback's own steps together without letting completed callbacks consume a later user mode switch.
-    const assistantMessage = input.messages.findLast(
-      (msg) =>
-        msg.info.role === "assistant" &&
-        (!callbacks.has(msg.info.parentID) || msg.info.parentID === userMessage.info.id),
-    )
     const experiment = ExperimentWorkspace.resolve(input.session.id)
 
     // Original logic when experimental plan mode is disabled
     if (!Flag.OPENCODE_EXPERIMENTAL_PLAN_MODE) {
+      const wasPlan = input.messages.some((msg) => msg.info.role === "assistant" && msg.info.agent === "plan")
       if (input.agent.name === "plan") {
         userMessage.parts.push({
           id: Identifier.ascending("part"),
@@ -1646,7 +1632,7 @@ Return a concise plan in the conversation by default. Do not call plan_exit; let
           synthetic: true,
         })
       }
-      if (assistantMessage?.info.agent === "plan" && input.agent.name === "build") {
+      if (wasPlan && input.agent.name === "build") {
         userMessage.parts.push({
           id: Identifier.ascending("part"),
           messageID: userMessage.info.id,
@@ -1656,7 +1642,7 @@ Return a concise plan in the conversation by default. Do not call plan_exit; let
           synthetic: true,
         })
       }
-      if (experiment && assistantMessage?.info.agent === "plan" && input.agent.name === "experiment") {
+      if (experiment && wasPlan && input.agent.name === "experiment") {
         userMessage.parts.push({
           id: Identifier.ascending("part"),
           messageID: userMessage.info.id,
@@ -1670,6 +1656,7 @@ Return a concise plan in the conversation by default. Do not call plan_exit; let
     }
 
     // New plan mode logic when flag is enabled
+    const assistantMessage = input.messages.findLast((msg) => msg.info.role === "assistant")
     // Switching from plan mode to an execution mode
     if (input.agent.name !== "plan" && assistantMessage?.info.agent === "plan") {
       if (experiment && input.agent.name === "experiment") {

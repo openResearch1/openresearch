@@ -58,6 +58,9 @@ test("upgrades a database that already applied project Atom delegation", async (
     expect(sqlite.query("PRAGMA table_info('remote_task_listener')").all()).toContainEqual(
       expect.objectContaining({ name: "run_id" }),
     )
+    expect(sqlite.query("PRAGMA table_info('scheduled_task')").all()).toContainEqual(
+      expect.objectContaining({ name: "due_at", notnull: 1 }),
+    )
     expect(sqlite.query("PRAGMA table_info('experiment')").all()).toContainEqual(
       expect.objectContaining({ name: "baseline_commit_sha" }),
     )
@@ -147,6 +150,78 @@ test("backfills experiment status from the latest execution watch", async () => 
       finished_at: 30,
       time_updated: 30,
     })
+  } finally {
+    sqlite.close()
+  }
+})
+
+test("backfills remote task server IDs only for unique server identities", async () => {
+  const journal = await Promise.all(
+    entries().map(async (entry) => ({
+      ...entry,
+      sql: await entry.sql,
+    })),
+  )
+  const migration = journal.findIndex((entry) => entry.name === "20260827011202_remote_task_server_id")
+  expect(migration).toBeGreaterThan(-1)
+
+  const sqlite = new Database(":memory:")
+  try {
+    const db = drizzle({ client: sqlite })
+    migrate(db, journal.slice(0, migration))
+    sqlite.run("PRAGMA foreign_keys = OFF")
+    sqlite.run(
+      `INSERT INTO remote_server (id, config, time_created, time_updated) VALUES
+        ('server-a', '{"mode":"direct","address":"10.0.0.1","port":22,"user":"root","password":"rotated"}', 1, 1),
+        ('server-b', '{"mode":"direct","address":"10.0.0.2","port":22,"user":"root"}', 1, 1),
+        ('server-ssh', '{"mode":"ssh_config","host_alias":"gpu","ssh_config_path":"/tmp/ssh","user":"runner"}', 1, 1),
+        ('server-dup-1', '{"mode":"direct","address":"10.0.0.3","port":22,"user":"root"}', 1, 1),
+        ('server-dup-2', '{"mode":"direct","address":"10.0.0.3","port":22,"user":"root"}', 1, 1)`,
+    )
+    sqlite.run(
+      `INSERT INTO experiment (exp_id, research_project_id, exp_name, remote_server_id, code_path, status, time_created, time_updated) VALUES
+        ('exp-1', 'research-1', 'experiment', 'server-b', '/tmp/experiment', 'pending', 1, 1)`,
+    )
+    const insert = sqlite.prepare(
+      "INSERT INTO remote_task (task_id, exp_id, kind, title, status, server, remote_root, screen_name, command, time_created, time_updated) VALUES (?, 'exp-1', 'experiment_run', ?, 'finished', ?, '/tmp', ?, 'true', 1, 1)",
+    )
+    insert.run(
+      "task-direct",
+      "direct",
+      '{"mode":"direct","address":"10.0.0.1","port":22,"user":"root","password":"original"}',
+      "direct",
+    )
+    insert.run(
+      "task-legacy",
+      "legacy",
+      '{"address":"10.0.0.1","port":22,"user":"root","password":"original"}',
+      "legacy",
+    )
+    insert.run(
+      "task-ssh",
+      "ssh",
+      '{"mode":"ssh_config","host_alias":"gpu","ssh_config_path":"/tmp/ssh","user":"runner"}',
+      "ssh",
+    )
+    insert.run(
+      "task-ambiguous",
+      "ambiguous",
+      '{"mode":"direct","address":"10.0.0.3","port":22,"user":"root"}',
+      "ambiguous",
+    )
+    insert.run("task-missing", "missing", '{"mode":"direct","address":"10.0.0.9","port":22,"user":"root"}', "missing")
+    insert.run("task-invalid", "invalid", "{", "invalid")
+
+    migrate(db, journal)
+
+    expect(sqlite.query("SELECT task_id, remote_server_id FROM remote_task ORDER BY task_id").all()).toEqual([
+      { task_id: "task-ambiguous", remote_server_id: null },
+      { task_id: "task-direct", remote_server_id: "server-a" },
+      { task_id: "task-invalid", remote_server_id: null },
+      { task_id: "task-legacy", remote_server_id: "server-a" },
+      { task_id: "task-missing", remote_server_id: null },
+      { task_id: "task-ssh", remote_server_id: "server-ssh" },
+    ])
   } finally {
     sqlite.close()
   }

@@ -279,6 +279,7 @@ export const RemoteTaskTable = sqliteTable(
     resource_key: text(),
     title: text().notNull(),
     status: text().$type<(typeof watchStatuses)[number]>().notNull().default("pending"),
+    remote_server_id: text(),
     server: text().notNull(),
     remote_root: text().notNull(),
     target_path: text(),

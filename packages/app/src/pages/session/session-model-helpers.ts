@@ -28,8 +28,16 @@ type Local = {
 export const latest = (messages: UserMessage[], parts: Record<string, Part[] | undefined>) =>
   messages.findLast((msg) => {
     const list = parts[msg.id]
-    if (!list) return false
-    return !list.some((part) => part.type === "collab_return" && part.kind === "remote_task_terminal")
+    if (!list?.length) return false
+    const callback = list.some((part) => part.type === "collab_return")
+    if (!callback) return true
+    return list.some(
+      (part) =>
+        (part.type === "text" && part.synthetic !== true) ||
+        part.type === "file" ||
+        part.type === "agent" ||
+        part.type === "subtask",
+    )
   })
 
 export const resetSessionModel = (local: Local) => {
