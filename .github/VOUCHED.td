@@ -1,4 +1,4 @@
-# Vouched contributors for this project.
+# Vouched contributors for this project. 
 #
 # See https://github.com/mitchellh/vouch for details.
 #
